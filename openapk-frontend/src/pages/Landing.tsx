@@ -55,7 +55,7 @@ export function Landing() {
             Community
           </Link>
           <a
-            href="https://github.com/keycomagix/openapk"
+            href="https://github.com/openbin-ai/platform"
             target="_blank"
             rel="noopener noreferrer"
             className="hidden text-zinc-400 hover:text-zinc-200 sm:inline"
@@ -287,7 +287,7 @@ export function Landing() {
             <span aria-hidden>·</span>
             <Link to="/community" className="hover:text-zinc-300">Community</Link>
             <span aria-hidden>·</span>
-            <a href="https://github.com/keycomagix/openapk" target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">Source</a>
+            <a href="https://github.com/openbin-ai/platform" target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">Source</a>
             <span aria-hidden>·</span>
             <a href="mailto:husam@openbin.ai" className="hover:text-zinc-300">Contact</a>
             <span aria-hidden>·</span>

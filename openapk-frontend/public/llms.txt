@@ -40,7 +40,7 @@ The agent layer supports any of three providers - Anthropic, OpenAI, or AWS Bedr
 
 - [OpenAPK landing](https://openapk.ai/): product overview + feature tour.
 - [OpenBin landing](https://openbin.ai/): platform family overview, including planned products.
-- [GitHub](https://github.com/keycomagix/openapk): source code, issues, releases.
+- [GitHub](https://github.com/openbin-ai/platform): source code, issues, releases.
 - [Terms](https://openapk.ai/terms): community publishing terms.
 - [Privacy](https://openapk.ai/privacy): what we store and what we don't.
 

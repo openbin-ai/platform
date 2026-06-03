@@ -3,9 +3,9 @@
 # by every user; vulnerabilities in deployed instances should be reported to
 # the operator of that instance.
 
-Contact: https://github.com/openbin-ai/openbin/security/advisories/new
+Contact: https://github.com/openbin-ai/platform/security/advisories/new
 Contact: mailto:security@openbin.ai
 Expires: 2027-05-25T00:00:00.000Z
 Preferred-Languages: en
 Canonical: https://openbin.ai/.well-known/security.txt
-Policy: https://github.com/openbin-ai/openbin/blob/main/SECURITY.md
+Policy: https://github.com/openbin-ai/platform/blob/main/SECURITY.md
