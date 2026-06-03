@@ -1,0 +1,51 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "types": ["vite/client"],
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+
+    /* Soft monorepo: @shared/* resolves to repo-root shared/. The Vite config
+       has the matching `resolve.alias` entry; both must agree. Paths are
+       relative to this tsconfig's location (TS 6+ default — no baseUrl).
+       Shared files are intentionally NOT in `include` — each consuming app
+       compiles its own copy of the shared types via the alias.
+
+       The extra entries below redirect shared/'s third-party imports into
+       THIS app's node_modules so tsc can find their types. Without these,
+       tsc walks up from shared/ to the user's home dir, finds an untyped
+       stray react, and silently turns the shim re-exports into `any` —
+       which cascades implicit-any errors into every consuming file.
+
+       React + react-dom don't ship their own .d.ts; types live in the
+       sibling @types/react packages, so we map directly there. Newer libs
+       (react-oidc-context, oidc-client-ts) bundle their types in main. */
+    "paths": {
+      "@shared/*":             ["../shared/*"],
+      "react":                 ["./node_modules/@types/react"],
+      "react/jsx-runtime":     ["./node_modules/@types/react/jsx-runtime"],
+      "react/jsx-dev-runtime": ["./node_modules/@types/react/jsx-dev-runtime"],
+      "react-dom":             ["./node_modules/@types/react-dom"],
+      "react-dom/*":           ["./node_modules/@types/react-dom/*"],
+      "react-oidc-context":    ["./node_modules/react-oidc-context"],
+      "oidc-client-ts":        ["./node_modules/oidc-client-ts"]
+    }
+  },
+  "include": ["src"]
+}

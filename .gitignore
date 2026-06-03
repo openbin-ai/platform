@@ -1,0 +1,56 @@
+# OpenAPK root .gitignore. Per-subdir ignores live in core/.gitignore and openapk-frontend/.gitignore.
+
+# --- OS noise (anywhere in tree) ---
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- Editor / IDE (root-level; per-subdir ones handle their own) ---
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+
+# --- Secrets safety net ---
+# .env files MUST NEVER be committed. Includes any nested directory.
+.env
+.env.*
+!.env.example
+!.env.sample
+secrets/
+*.pem
+*.key
+!**/src/**/*.key
+
+# --- Build / dependency outputs (in case they show up at root) ---
+node_modules/
+target/
+build/
+dist/
+out/
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Local-only docker compose overrides ---
+compose.override.yaml
+compose.override.yml
+docker-compose.override.yaml
+docker-compose.override.yml
+
+# --- Local APK uploads / decompiled output (slice 2) ---
+workspace/
+uploads/
+decompiled/
+*.apk
+
+# --- Operations / deploy notes (account-specific; never open source) ---
+# Aurora endpoints, secret ARNs, AWS account IDs, ECS task-def overlays, etc.
+# Keep these out of the open-source repo. Track them in a separate private repo.
+infra/
+.dev-logs/
+.dev-pids/

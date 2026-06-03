@@ -1,0 +1,141 @@
+spring:
+  application:
+    name: openapk-core
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/openapk
+    username: openapk
+    password: openapk
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8080/realms/openapk
+
+  docker:
+    compose:
+      enabled: true
+      lifecycle-management: start_and_stop
+      readiness:
+        # Default (only_if_started) — Postgres has a healthcheck so Spring waits for
+        # it before Flyway runs. Keycloak has no healthcheck (see compose.yaml) and is
+        # treated as ready once the container is running; JWKS is fetched lazily.
+        wait: only_if_started
+
+  ai:
+    anthropic:
+      api-key: disabled-byok-only
+    openai:
+      api-key: disabled-byok-only
+
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 200MB
+      max-request-size: 200MB
+      file-size-threshold: 10MB
+
+server:
+  port: 8081
+  tomcat:
+    max-swallow-size: 200MB
+
+openapk:
+  crypto:
+    # Base64-encoded 32-byte AES-256 master key. Generate with:
+    #   openssl rand -base64 32
+    # MUST be set via env. App fails fast on startup if missing or wrong length.
+    master-key-b64: ${OPENAPK_KEK_B64:THdUzn8QDb//mvCPHogD76/rO9cdfsAAlBkCIPnptRo=}
+  cors:
+    allowed-origins:
+      - http://localhost:5173  # openapk-frontend dev
+      - http://localhost:5174  # openbin-frontend dev
+  workspace:
+    # Where uploaded APKs and JADX-decompiled output are stored on disk.
+    # Resolved relative to the working directory if not absolute.
+    # When storage.backend=s3, this dir doubles as the local cache for
+    # active projects (LRU-evicted under disk pressure).
+    dir: ${OPENAPK_WORKSPACE_DIR:./workspace}
+  storage:
+    # Where project bytes live durably.
+    #   fs — workspace dir is the source of truth (dev default; no AWS needed).
+    #   s3 — S3 is the source of truth; workspace dir is a per-task LRU cache.
+    # Switch to s3 in prod by setting OPENAPK_STORAGE_BACKEND=s3 plus the s3.*
+    # values below. The same ProjectStorage interface is used either way so
+    # downstream services don't change.
+    backend: ${OPENAPK_STORAGE_BACKEND:fs}
+    # When the workspace dir's free space drops below this percentage, the
+    # LRU evictor removes the projects that were touched longest ago. Only
+    # consulted when backend=s3 (with backend=fs we never delete cached data).
+    cache-min-free-percent: ${OPENAPK_STORAGE_CACHE_MIN_FREE_PCT:20}
+    # How long presigned media URLs are valid. Short enough that a leaked URL
+    # is low-impact; long enough that a slow page load doesn't 403 partway.
+    presigned-url-ttl: ${OPENAPK_PRESIGNED_TTL:PT15M}
+    s3:
+      bucket: ${OPENAPK_S3_BUCKET:}
+      region: ${OPENAPK_S3_REGION:us-east-1}
+      # Optional key prefix — useful to share a bucket across dev/staging/prod
+      # by namespacing each env. Empty means project keys live at the bucket root.
+      prefix: ${OPENAPK_S3_PREFIX:}
+      # Optional endpoint override — point at MinIO for local prod-parity testing
+      # (see core/compose.yaml). Empty means real AWS S3.
+      endpoint: ${OPENAPK_S3_ENDPOINT:}
+  projects:
+    # Max bytes returned by GET /api/projects/{id}/files/**. Files larger than this
+    # are reported as "too large" rather than streamed in full (a UX guardrail; the
+    # AI-driven analysis in slice 3 will read files server-side without this limit).
+    max-file-response-bytes: 1048576
+  ghidra:
+    # Ghidra worker microservice (Python FastAPI + analyzeHeadless). Runs in its
+    # own container; see ghidra-worker/ at the repo root. Override per-env with
+    # OPENAPK_GHIDRA_WORKER_URL.
+    worker-url: ${OPENAPK_GHIDRA_WORKER_URL:http://localhost:8000}
+    # Hard cap on a single /analyze HTTP call. Must exceed the worker's own
+    # subprocess timeout (default 25m, configurable via GHIDRA_ANALYZE_TIMEOUT
+    # in the worker env). With aggressive function-start search enabled,
+    # stripped libs can take 15-20 min; this gives 5m of headroom.
+    worker-timeout: PT30M
+  jadx:
+    # JADX worker microservice (Python FastAPI + jadx CLI). Runs in its own
+    # container; see jadx-worker/ at the repo root. Replaces the in-JVM jadx
+    # integration so a hostile APK can't OOM the backend.
+    worker-url: ${OPENAPK_JADX_WORKER_URL:http://localhost:8001}
+    # Hard cap on a single /decompile HTTP call. Must exceed the worker's own
+    # JADX_TIMEOUT_SEC (default 15m). Big games take 5+ minutes; we give 5m
+    # of headroom so legitimate decompiles don't get killed at the edge.
+    worker-timeout: PT20M
+  email:
+    # AWS SES outbound config. Leaving region/abuse-to blank disables email
+    # entirely (every send is a no-op log line) — fine for local dev.
+    # Set OPENAPK_SES_REGION + OPENAPK_ABUSE_FROM + OPENAPK_ABUSE_TO in prod
+    # (sender must be a verified identity in that SES region).
+    region: ${OPENAPK_SES_REGION:}
+    abuse-from: ${OPENAPK_ABUSE_FROM:}
+    abuse-to: ${OPENAPK_ABUSE_TO:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    org.springframework.security: INFO
+    ai.openapk: DEBUG

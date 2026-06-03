@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="index,follow" />
+  <title>Privacy Policy - OpenBin.ai</title>
+  <meta name="description" content="What OpenBin.ai stores, what it does not, how we send email, and how to delete your data." />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0a0a0a;
+      color: #d4d4d8;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.65;
+    }
+    header {
+      border-bottom: 1px solid #27272a;
+      background: #09090b;
+    }
+    header .row {
+      max-width: 72rem;
+      margin: 0 auto;
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: #f4f4f5;
+      text-decoration: none;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      font-size: 0.9rem;
+    }
+    .brand .accent { color: #fbbf24; }
+    nav a {
+      color: #d4d4d8;
+      text-decoration: none;
+      font-size: 0.9rem;
+      margin-left: 1rem;
+    }
+    nav a:hover { color: #f4f4f5; }
+    main {
+      max-width: 44rem;
+      margin: 0 auto;
+      padding: 2.5rem 1.5rem;
+    }
+    h1 {
+      color: #f4f4f5;
+      font-size: 1.65rem;
+      font-weight: 600;
+      margin: 0 0 0.5rem;
+    }
+    .effective {
+      color: #71717a;
+      font-size: 0.875rem;
+      margin: 0 0 1.5rem;
+    }
+    h2 {
+      color: #e4e4e7;
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin: 2rem 0 0.5rem;
+    }
+    p, li { font-size: 0.95rem; }
+    ul { padding-left: 1.25rem; }
+    a { color: #fbbf24; }
+    a:hover { text-decoration: underline; }
+    .foot {
+      margin-top: 2rem;
+      padding-top: 1rem;
+      border-top: 1px solid #18181b;
+      font-size: 0.875rem;
+    }
+    strong { color: #e4e4e7; }
+    address { font-style: normal; color: #d4d4d8; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="row">
+      <a class="brand" href="/">OPENBIN<span class="accent">.AI</span></a>
+      <nav>
+        <a href="/">Home</a>
+        <a href="/terms.html">Terms</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <h1>Privacy Policy</h1>
+    <p class="effective">Effective date: June 1, 2026 · Last updated: June 1, 2026</p>
+
+    <p>
+      OpenBin.ai (&ldquo;OpenBin,&rdquo; &ldquo;we,&rdquo; &ldquo;our&rdquo;) operates the
+      services at <a href="https://openbin.ai">openbin.ai</a>,
+      <a href="https://app.openbin.ai">app.openbin.ai</a>, and
+      <a href="https://openapk.ai">openapk.ai</a> (collectively, the &ldquo;Services&rdquo;).
+      This policy explains what we collect, how we use it, who we share it with, and how
+      you can control it. OpenBin is bring-your-own-key by design: your binary, your
+      decompiled tree, your reports, your LLM provider key - we hold the workspace,
+      you hold the intelligence.
+    </p>
+
+    <h2>1. Information we collect</h2>
+    <ul>
+      <li><strong>Account information.</strong> When you create an account through our
+        identity provider (Keycloak), we store your email address and chosen display
+        name. We do not collect a date of birth, address, phone number, or government
+        identifier.</li>
+      <li><strong>LLM provider credentials.</strong> If you choose to use AI features,
+        you paste your own Anthropic, OpenAI, or AWS Bedrock API key. We encrypt these
+        at rest with a key-encryption-key (KEK) the operator of the instance controls.
+        Decrypted plaintext keys never leave method scope and are not cached or logged.</li>
+      <li><strong>Project content.</strong> Binaries you upload, decompiled output,
+        screenshots, annotations, reports, and audit entries. Stored in Postgres + S3
+        operated by us.</li>
+      <li><strong>Usage and audit logs.</strong> Per-call token counts, cost estimates,
+        and high-level action logs (e.g., &ldquo;project X created&rdquo;) used to power
+        your Usage page and respond to abuse reports.</li>
+      <li><strong>Cookies and session data.</strong> A session cookie issued by Keycloak
+        for sign-in. We do not use third-party advertising or analytics cookies.</li>
+    </ul>
+
+    <h2>2. What we do not collect</h2>
+    <ul>
+      <li>No third-party analytics or tracker scripts.</li>
+      <li>No telemetry pings or behavior heatmaps.</li>
+      <li>We do not proxy your LLM calls. Prompts and responses go directly between your
+        browser/server and the provider you configured; we never see them in transit.</li>
+      <li>We do not sell, share, or train models on your project content.</li>
+    </ul>
+
+    <h2>3. How we use your information</h2>
+    <p>We use the information above only to:</p>
+    <ul>
+      <li>Operate the Services (authentication, project workspaces, AI features you
+        invoke).</li>
+      <li>Send transactional email related to your account (see &sect;4).</li>
+      <li>Respond to abuse reports and enforce our <a href="/terms.html">Terms of
+        Service</a>.</li>
+      <li>Comply with legal obligations and lawful process.</li>
+    </ul>
+
+    <h2>4. Email</h2>
+    <p>
+      We send transactional email only. There is no marketing email, no newsletter, no
+      promotional broadcast list. Outbound mail is sent through Amazon SES from a
+      verified domain identity (<code>openapk.ai</code> / <code>openbin.ai</code>) with
+      DKIM, SPF, and DMARC configured.
+    </p>
+    <p><strong>Categories of email you may receive:</strong></p>
+    <ul>
+      <li><strong>Account verification</strong> - one message when you sign up,
+        containing a one-time verification link.</li>
+      <li><strong>Password reset</strong> - only when you initiate it yourself by
+        clicking &ldquo;forgot password.&rdquo;</li>
+      <li><strong>Security notifications</strong> - new sign-in from an unfamiliar
+        device, password changed, MFA enrolled.</li>
+      <li><strong>Abuse-report responses</strong> - if you flag content or are the
+        subject of a flag, we may email you about the resolution.</li>
+    </ul>
+    <p>
+      Every account email contains an <code>Auto-Submitted: auto-generated</code> header
+      and a <code>List-Unsubscribe</code> header per RFC 8058. To stop receiving
+      all email from us, delete your account from the Settings page or email
+      <a href="mailto:husam@openbin.ai">husam@openbin.ai</a> with the subject
+      &ldquo;Delete my account.&rdquo; Hard bounces and spam complaints are honored
+      automatically: we suppress the affected address and stop further sends without
+      requiring action from you.
+    </p>
+
+    <h2>5. Sharing with third parties</h2>
+    <ul>
+      <li><strong>LLM providers.</strong> When you run an analysis with AI assistance,
+        the relevant prompts and source/strings are sent to the LLM provider you
+        configured (Anthropic, OpenAI, AWS Bedrock). Their privacy policies apply to
+        that traffic.</li>
+      <li><strong>Amazon Web Services.</strong> We use AWS for compute (ECS), storage
+        (S3), database (RDS Aurora), identity (Keycloak self-hosted), email (SES), and
+        DNS (Route 53). AWS acts as our processor under standard data-processing terms.</li>
+      <li><strong>Law enforcement.</strong> We may disclose information if compelled by
+        lawful process. We will tell you unless legally prohibited.</li>
+    </ul>
+    <p>We do not sell or rent personal information.</p>
+
+    <h2>6. Community publishing</h2>
+    <p>
+      Reports you publish to the community are public to anyone on the internet.
+      Drafts and unpublished projects are private to you. Your published reports are
+      attributed by your chosen display name; we never display your raw email
+      publicly - only a Gravatar identifier (an MD5 hash of your email) is shown
+      to anonymous readers. See our <a href="/terms.html">Terms of Service</a> for
+      what content is permitted.
+    </p>
+
+    <h2>7. Data retention and deletion</h2>
+    <p>
+      You can delete a project at any time from the Projects page; that removes its
+      binary, decompiled output, screenshots, and report. To delete your entire
+      account, use Settings &rarr; Delete account, or email
+      <a href="mailto:husam@openbin.ai">husam@openbin.ai</a>. Deletion removes your
+      account, credentials, projects, drafts, and audit log within 30 days. Community
+      reports already published may be retained as already-public content; we will
+      unpublish on request and replace your display name with &ldquo;deleted user.&rdquo;
+    </p>
+
+    <h2>8. Security</h2>
+    <p>
+      We encrypt provider credentials with AES-256-GCM using a master key we control.
+      All traffic is over TLS 1.2+. Workloads run in a private VPC. Database backups
+      are encrypted with AWS KMS. We do not store passwords (Keycloak hashes them with
+      Argon2id).
+    </p>
+
+    <h2>9. Your rights</h2>
+    <p>
+      Depending on where you live, you may have rights to access, correct, export, or
+      delete the personal information we hold about you, and to object to or restrict
+      certain processing. To exercise any of these rights, email
+      <a href="mailto:husam@openbin.ai">husam@openbin.ai</a>. We will respond within
+      30 days.
+    </p>
+
+    <h2>10. Children</h2>
+    <p>
+      The Services are not directed to children under 16 and we do not knowingly
+      collect personal information from anyone under 16. If you believe a child has
+      provided us information, please contact us and we will delete it.
+    </p>
+
+    <h2>11. International transfers</h2>
+    <p>
+      OpenBin is operated from the United States. If you use the Services from
+      outside the United States, you understand and consent to the transfer of your
+      information to the United States.
+    </p>
+
+    <h2>12. Changes</h2>
+    <p>
+      We may update this notice as the product evolves. Material changes will be
+      announced on this page and, where required, by email. The &ldquo;Last updated&rdquo;
+      date above always reflects the current version.
+    </p>
+
+    <h2>13. Contact</h2>
+    <address>
+      OpenBin.ai<br />
+      Email: <a href="mailto:husam@openbin.ai">husam@openbin.ai</a>
+    </address>
+
+    <div class="foot">
+      <a href="/terms.html">Terms of Service &rarr;</a>
+    </div>
+  </main>
+</body>
+</html>

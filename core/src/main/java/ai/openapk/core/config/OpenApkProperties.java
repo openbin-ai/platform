@@ -1,0 +1,72 @@
+package ai.openapk.core.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
+import java.util.List;
+
+@ConfigurationProperties("openapk")
+public record OpenApkProperties(
+        Crypto crypto,
+        Cors cors,
+        Workspace workspace,
+        Projects projects,
+        Storage storage,
+        Ghidra ghidra,
+        Jadx jadx,
+        Email email
+) {
+
+    public record Crypto(String masterKeyB64) {}
+
+    public record Cors(List<String> allowedOrigins) {}
+
+    public record Workspace(String dir) {}
+
+    public record Projects(long maxFileResponseBytes) {}
+
+    /**
+     * Where project bytes live durably. {@code backend=fs} keeps everything
+     * on the workspace filesystem (dev default — no AWS credentials needed).
+     * {@code backend=s3} switches to S3 for persistence while still using the
+     * workspace dir as a local cache for active projects — the {@code Path}
+     * API on {@code ProjectStorage} stays intact so the 20+ services that
+     * walk source trees don't need to change.
+     *
+     * <p>The {@code s3.*} block is only read when {@code backend=s3}; values
+     * are nullable to keep the dev profile from failing fast when S3 isn't
+     * configured.
+     *
+     * <p>Cache eviction: when free space on the workspace dir drops below
+     * {@code cacheMinFreePercent}, the LRU evictor removes the projects that
+     * were touched longest ago. They're re-fetched from S3 on next access.
+     */
+    public record Storage(
+            String backend,
+            S3 s3,
+            Integer cacheMinFreePercent,
+            Duration presignedUrlTtl
+    ) {
+        public record S3(String bucket, String region, String prefix, String endpoint) {}
+    }
+
+    /**
+     * Connection details for the Ghidra worker microservice
+     * (Python FastAPI + analyzeHeadless, deployed separately).
+     */
+    public record Ghidra(String workerUrl, Duration workerTimeout) {}
+
+    /**
+     * Connection details for the JADX worker microservice
+     * (Python FastAPI + jadx CLI, deployed separately). Replaces the
+     * previous in-JVM JADX integration — see jadx-worker/ at the repo root.
+     */
+    public record Jadx(String workerUrl, Duration workerTimeout) {}
+
+    /**
+     * SES outbound email config. All three fields nullable so local dev
+     * runs without AWS credentials — {@code EmailService} logs and
+     * returns when {@code region} or {@code abuseTo} is blank.
+     */
+    public record Email(String region, String abuseFrom, String abuseTo) {}
+}

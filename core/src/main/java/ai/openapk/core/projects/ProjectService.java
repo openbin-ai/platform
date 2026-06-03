@@ -1,0 +1,612 @@
+package ai.openapk.core.projects;
+
+import ai.openapk.core.auth.User;
+import ai.openapk.core.config.OpenApkProperties;
+import ai.openapk.core.projects.dto.FileContentResponse;
+import ai.openapk.core.projects.dto.FileNode;
+import ai.openapk.core.projects.dto.ProjectResponse;
+import ai.openapk.core.projects.dto.UpdateProjectRequest;
+import ai.openapk.core.renames.RenameService;
+import ai.openapk.core.projects.storage.ProjectStorage;
+import ai.openapk.core.symbols.usages.UsageIndexerService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.DigestOutputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Stream;
+
+@Service
+public class ProjectService {
+
+    private static final Logger log = LoggerFactory.getLogger(ProjectService.class);
+
+    private final ProjectRepository repo;
+    private final ProjectStorage storage;
+    private final JadxDecompileService jadx;
+    private final BinaryDecompileService binaryDecompile;
+    private final OpenApkProperties props;
+    private final RenameService renameService;
+    private final ObjectMapper mapper;
+    private final UsageIndexerService usageIndexer;
+
+    /**
+     * Self-injected Spring proxy. Required for {@code @Async scheduleDecompile}
+     * to actually fire — Spring's default CGLIB proxy only intercepts external
+     * calls, so {@code this.scheduleDecompile(...)} runs synchronously on the
+     * request thread and blocks the upload POST for the full decompile
+     * duration. Going through {@code self.scheduleDecompile(...)} hits the
+     * proxy and dispatches on the executor as intended. {@code @Lazy} breaks
+     * the otherwise-circular constructor dependency.
+     */
+    private final ProjectService self;
+
+    public ProjectService(
+            @Lazy ProjectService self,
+            ProjectRepository repo,
+            ProjectStorage storage,
+            JadxDecompileService jadx,
+            BinaryDecompileService binaryDecompile,
+            OpenApkProperties props,
+            RenameService renameService,
+            ObjectMapper mapper,
+            UsageIndexerService usageIndexer
+    ) {
+        this.self = self;
+        this.repo = repo;
+        this.storage = storage;
+        this.jadx = jadx;
+        this.binaryDecompile = binaryDecompile;
+        this.props = props;
+        this.renameService = renameService;
+        this.mapper = mapper;
+        this.usageIndexer = usageIndexer;
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProjectResponse> list(User user) {
+        return repo.findAllByUserIdOrderByCreatedAtDesc(user.getId())
+                .stream().map(ProjectResponse::from).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public ProjectResponse get(User user, UUID id) {
+        return ProjectResponse.from(loadOwned(user, id));
+    }
+
+    @Transactional
+    public ProjectResponse upload(User user, MultipartFile file, ProjectKind requestedKind, String archHint) {
+        if (file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "uploaded file is empty");
+        }
+
+        // Trust an explicit kind from the frontend (openapk.ai vs openbin.ai
+        // both go through the same backend, and each declares what it sends).
+        // Only sniff when the caller leaves it unspecified — keeps backward
+        // compat with existing API clients while letting BIN uploads succeed.
+        ProjectKind kind = requestedKind != null ? requestedKind : sniffKind(file);
+        String filename = sanitizeFilename(file.getOriginalFilename(), kind);
+
+        // Persist the row first to get a generated ID (and so the user sees it immediately).
+        var project = new Project();
+        project.setUser(user);
+        project.setKind(kind);
+        project.setOriginalFilename(filename);
+        project.setName(filename);
+        project.setSizeBytes(file.getSize());
+        project.setStatus(ProjectStatus.UPLOADED);
+        project.setWorkflowStatus(WorkflowStatus.NEW);
+        project.setAnalysisMode(ai.openapk.core.analysis.AnalysisMode.MALWARE);
+        project.setSha256("pending");
+        if (kind == ProjectKind.BIN) {
+            // Store the arch hint up front so the worker can use it. Defaults
+            // to "auto" — Ghidra will detect for well-formed ELF/PE/Mach-O.
+            project.setArch(archHint != null && !archHint.isBlank() ? archHint : "auto");
+        }
+        project = repo.saveAndFlush(project);
+
+        // Stream the upload to disk, computing sha256 as we go.
+        Path target = (kind == ProjectKind.BIN)
+                ? storage.binaryPath(user.getId(), project.getId())
+                : storage.apkPath(user.getId(), project.getId());
+        String sha;
+        try {
+            Files.createDirectories(target.getParent());
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            try (InputStream in = file.getInputStream();
+                 OutputStream out = Files.newOutputStream(target);
+                 DigestOutputStream dout = new DigestOutputStream(out, md)) {
+                in.transferTo(dout);
+            }
+            sha = HexFormat.of().formatHex(md.digest());
+        } catch (IOException | NoSuchAlgorithmException e) {
+            storage.deleteProject(user.getId(), project.getId());
+            repo.delete(project);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "failed to store upload: " + e.getMessage());
+        }
+
+        // Push the freshly-uploaded APK/binary to durable storage. On the fs
+        // backend this is a no-op; on S3 it pushes to the bucket. Must happen
+        // BEFORE we hand off to the decompile worker — the worker reads the
+        // file via storage.apkPath() which on a cold S3 task would otherwise
+        // miss-and-fetch a file that hasn't been persisted yet.
+        try {
+            storage.afterUpload(user.getId(), project.getId());
+        } catch (IOException e) {
+            storage.deleteProject(user.getId(), project.getId());
+            repo.delete(project);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "failed to persist upload: " + e.getMessage());
+        }
+
+        project.setSha256(sha);
+        project.setStatus(ProjectStatus.DECOMPILING);
+        repo.save(project);
+
+        // Kick off async decompile AFTER this transaction commits. Two problems
+        // we solve by registering an afterCommit synchronization instead of
+        // calling scheduleDecompile() directly here:
+        //
+        //   1. Race: the @Async dispatch returns immediately, so the decompile
+        //      worker can pick up the task and run runDecompile()'s findById
+        //      BEFORE this transaction commits — Postgres READ_COMMITTED won't
+        //      let the worker see the not-yet-committed row, so runDecompile
+        //      throws "project disappeared" against a project that does
+        //      eventually exist on disk. Fast workers (the new jadx-worker
+        //      especially) lose this race almost every time.
+        //
+        //   2. Correctness on rollback: if this method throws after the @Async
+        //      dispatch, the upload tx rolls back and there is no project row,
+        //      but the queued decompile task still runs and logs an error.
+        //      afterCommit only fires on successful commit, so the decompile
+        //      is naturally tied to the row's existence.
+        //
+        // Must still invoke through the self-injected Spring proxy so the
+        // @Async semantics kick in (a plain this.scheduleDecompile bypasses
+        // the proxy and runs synchronously on this thread).
+        final java.util.UUID userId = user.getId();
+        final java.util.UUID projectId = project.getId();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                self.scheduleDecompile(userId, projectId);
+            }
+        });
+
+        return ProjectResponse.from(project);
+    }
+
+    @Async("decompileExecutor")
+    public void scheduleDecompile(UUID userId, UUID projectId) {
+        try {
+            runDecompile(userId, projectId);
+        } catch (Exception e) {
+            log.error("decompile failed for project {}: {}", projectId, e.toString(), e);
+            markFailed(projectId, abbreviate(e.toString()));
+        }
+    }
+
+    @Transactional
+    protected void runDecompile(UUID userId, UUID projectId) throws IOException, InterruptedException {
+        // Stamp the start time so the UI can render elapsed seconds against
+        // whatever phase is current.
+        markStartedAt(projectId);
+
+        ProjectKind kind = repo.findById(projectId)
+                .map(Project::getKind)
+                .orElseThrow(() -> new IllegalStateException("project disappeared: " + projectId));
+
+        if (kind == ProjectKind.BIN) {
+            runBinaryDecompile(userId, projectId);
+        } else {
+            runApkDecompile(userId, projectId);
+        }
+    }
+
+    /** APK pipeline: JADX → file tree → usage index. The original flow. */
+    private void runApkDecompile(UUID userId, UUID projectId) throws IOException {
+        Path apk = storage.apkPath(userId, projectId);
+        Path out = storage.srcDir(userId, projectId);
+
+        // JADX reports OPENING_APK and DECOMPILING through this callback.
+        // Passing userId + projectId lets the storage layer push the
+        // decompiled tree to S3 (or no-op on the fs backend).
+        var result = jadx.decompile(apk, out, phase -> markPhase(projectId, phase), userId, projectId);
+
+        markPhase(projectId, "BUILDING_TREE");
+        var project = repo.findById(projectId)
+                .orElseThrow(() -> new IllegalStateException("project disappeared: " + projectId));
+        project.setPackageName(result.packageName());
+        project.setStatus(ProjectStatus.READY);
+        project.setDecompiledAt(Instant.now());
+
+        // Pre-build + cache the file tree so the first project open is instant.
+        // For a WhatsApp-sized APK this avoids ~100k stat syscalls per page load.
+        try {
+            Path root = out.normalize();
+            FileNode tree = Files.exists(root) ? buildTree(root, root) : FileNode.dir("/", "", List.of());
+            project.setFileTreeJson(mapper.writeValueAsString(tree));
+        } catch (Exception e) {
+            log.warn("file tree cache write failed for {}: {}", projectId, e.toString());
+            project.setFileTreeJson(null);
+        }
+        repo.save(project);
+
+        // Build the persistent usage index so the first call-chain / right-click
+        // is fast. Done after the project is saved as READY so a failure here
+        // doesn't block decompile completion — findUsages can still live-grep
+        // as a fallback. Best-effort, sync-on-this-thread (which is already a
+        // background @Async executor via scheduleDecompile).
+        markPhase(projectId, "INDEXING_USAGES");
+        try {
+            usageIndexer.rebuild(userId, projectId);
+        } catch (Exception e) {
+            log.warn("usage index build failed for {}: {}", projectId, e.toString());
+        }
+    }
+
+    /**
+     * BIN pipeline: hand the uploaded binary to the Ghidra worker, parse the
+     * metadata block, persist the raw result JSON. Per-function shredding
+     * and symbol indexing come in slice 2 (disassembly view).
+     */
+    private void runBinaryDecompile(UUID userId, UUID projectId) throws IOException, InterruptedException {
+        Path binary = storage.binaryPath(userId, projectId);
+        var project = repo.findById(projectId)
+                .orElseThrow(() -> new IllegalStateException("project disappeared: " + projectId));
+
+        // BinaryDecompileService drives ANALYZING / EXTRACTING phases.
+        var result = binaryDecompile.decompile(binary, project.getArch(),
+                phase -> markPhase(projectId, phase));
+
+        // The worker's metadata.arch is usually richer than the caller's hint
+        // (e.g. "auto" → "x86:LE:64:default"). Prefer it when present.
+        if (result.arch() != null) project.setArch(result.arch());
+        project.setExecutableFormat(result.executableFormat());
+        project.setCompiler(result.compiler());
+        project.setLanguageId(result.languageId());
+        project.setImageBase(result.imageBase());
+        project.setBinaryAnalysisJson(result.rawJson());
+        project.setStatus(ProjectStatus.READY);
+        project.setDecompiledAt(Instant.now());
+        repo.save(project);
+
+        log.info("Ghidra decompile READY for project {} — functions={} strings={} imports={}",
+                projectId, result.functionCount(), result.stringCount(), result.importCount());
+    }
+
+    /**
+     * Write the current phase string to the project row. Each call is its
+     * own commit — runDecompile isn't truly inside a single transaction
+     * (it's invoked from {@code @Async scheduleDecompile} which bypasses the
+     * @Transactional proxy via self-invocation), so each repo.save here lands
+     * on disk immediately and the polling UI sees the new phase right away.
+     *
+     * <p>Best-effort: a phase write failure logs a warning but never
+     * interrupts the decompile.
+     */
+    private void markPhase(UUID projectId, String phase) {
+        try {
+            repo.findById(projectId).ifPresent(p -> {
+                p.setDecompilePhase(phase);
+                repo.save(p);
+            });
+        } catch (Exception e) {
+            log.debug("phase write failed for {} -> {}: {}", projectId, phase, e.toString());
+        }
+    }
+
+    /** Initial timestamp + sentinel phase. Set once at the start so the UI's
+     *  elapsed-time counter has an anchor before JADX has even said anything. */
+    private void markStartedAt(UUID projectId) {
+        try {
+            repo.findById(projectId).ifPresent(p -> {
+                p.setDecompileStartedAt(Instant.now());
+                p.setDecompilePhase("STARTING");
+                repo.save(p);
+            });
+        } catch (Exception e) {
+            log.debug("decompileStartedAt write failed for {}: {}", projectId, e.toString());
+        }
+    }
+
+    @Transactional
+    protected void markFailed(UUID projectId, String message) {
+        repo.findById(projectId).ifPresent(p -> {
+            p.setStatus(ProjectStatus.FAILED);
+            p.setErrorMessage(message);
+            repo.save(p);
+        });
+    }
+
+    @Transactional
+    public ProjectResponse update(User user, UUID id, UpdateProjectRequest req) {
+        var project = loadOwned(user, id);
+        if (req.name() != null) {
+            String trimmed = req.name().trim();
+            if (trimmed.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name cannot be blank");
+            }
+            project.setName(trimmed);
+        }
+        if (req.workflowStatus() != null) {
+            // PUBLISHED is only reachable via the publish endpoint (it also sets publishedAt).
+            if (req.workflowStatus() == WorkflowStatus.PUBLISHED) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Use POST /report/publish to publish — status cannot be set to PUBLISHED directly.");
+            }
+            // Don't let the user drop out of PUBLISHED via PATCH — they must unpublish first.
+            if (project.getWorkflowStatus() == WorkflowStatus.PUBLISHED) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Unpublish the report before changing workflow status.");
+            }
+            project.setWorkflowStatus(req.workflowStatus());
+        }
+        if (req.analysisMode() != null) {
+            // Changing the mode is allowed at any time. It does NOT auto-rewrite the
+            // user's existing report sections — the report's section template is
+            // only seeded from this on first creation. A future "Reset to default
+            // sections" button can re-seed if the user wants to start fresh.
+            project.setAnalysisMode(req.analysisMode());
+        }
+        return ProjectResponse.from(repo.save(project));
+    }
+
+    /** Bump workflow forward to {@code target} if (a) current is earlier and (b) not already published. */
+    @Transactional
+    public void advanceWorkflowIfBefore(UUID projectId, WorkflowStatus target) {
+        repo.findById(projectId).ifPresent(p -> {
+            if (WorkflowStatus.shouldAdvance(p.getWorkflowStatus(), target)) {
+                p.setWorkflowStatus(target);
+                repo.save(p);
+            }
+        });
+    }
+
+    @Transactional
+    public void delete(User user, UUID id) {
+        var project = loadOwned(user, id);
+        storage.deleteProject(user.getId(), project.getId());
+        repo.delete(project);
+    }
+
+    @Transactional(readOnly = true)
+    public FileNode fileTree(User user, UUID id) {
+        var project = loadOwned(user, id);
+        requireReady(project);
+        // Fast path: cached at decompile-time. For a WhatsApp-sized tree this
+        // turns 5-15s of fs walk + serialize into a sub-100ms DB read.
+        if (project.getFileTreeJson() != null && !project.getFileTreeJson().isBlank()) {
+            try {
+                return mapper.readValue(project.getFileTreeJson(), FileNode.class);
+            } catch (Exception e) {
+                log.warn("cached file tree unparseable for {}, rebuilding: {}", id, e.toString());
+                // fall through to live build
+            }
+        }
+        Path root = storage.srcDir(user.getId(), id).normalize();
+        if (!Files.exists(root)) {
+            return FileNode.dir("/", "", List.of());
+        }
+        FileNode tree = buildTree(root, root);
+        // Lazy populate for projects from before V12, so the second open is fast.
+        // Separate tx so a write failure doesn't fail the read.
+        try {
+            persistFileTreeCache(id, mapper.writeValueAsString(tree));
+        } catch (Exception e) {
+            log.debug("lazy file tree cache write failed for {}: {}", id, e.toString());
+        }
+        return tree;
+    }
+
+    @Transactional
+    protected void persistFileTreeCache(UUID projectId, String json) {
+        repo.findById(projectId).ifPresent(p -> {
+            p.setFileTreeJson(json);
+            repo.save(p);
+        });
+    }
+
+    /**
+     * Return the raw Ghidra-worker result JSON stored on a BIN project.
+     * Surfaced as a String so the controller can write it through with
+     * application/json content-type without re-serializing.
+     *
+     * <p>Caller errors are explicit so the frontend can render a useful
+     * message: 400 for non-BIN projects, 409 if analysis hasn't finished,
+     * 404 if the row is BIN+READY but somehow has no blob (shouldn't happen
+     * after slice 1, but defensive).
+     */
+    @Transactional(readOnly = true)
+    public String getBinaryAnalysisJson(User user, UUID id) {
+        var project = loadOwned(user, id);
+        if (project.getKind() != ProjectKind.BIN) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "not a binary project (kind=" + project.getKind() + ")");
+        }
+        if (project.getStatus() != ProjectStatus.READY) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "analysis not ready (status=" + project.getStatus() + ")");
+        }
+        String json = project.getBinaryAnalysisJson();
+        if (json == null || json.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "no analysis stored for this project");
+        }
+        // Apply user-applied renames so the frontend sees a fully renamed
+        // view. The BIN-aware applier handles two distinct rename scopes:
+        //   - function (and any other non-variable scope) get the simple
+        //     project-wide word-boundary substitution
+        //   - variable renames are scoped to a single function's body via
+        //     their sourcePath="function:<originalName>" tag, so Ghidra's
+        //     reused placeholder names (uVar1, param_1, ...) don't mass-
+        //     rewrite across the whole binary
+        // The frontend stays rename-agnostic; /ask-function still works
+        // because it inverse-resolves through RenameService.resolveOriginal.
+        return renameService.applyMapToBinaryAnalysisJson(id, json);
+    }
+
+    @Transactional(readOnly = true)
+    public FileContentResponse readFile(User user, UUID id, String relPath) {
+        var project = loadOwned(user, id);
+        requireReady(project);
+
+        Path root = storage.srcDir(user.getId(), id).normalize();
+        Path resolved = root.resolve(relPath).normalize();
+        if (!resolved.startsWith(root)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path escapes project root");
+        }
+        if (!Files.isRegularFile(resolved)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "not a regular file");
+        }
+
+        long size;
+        byte[] bytes;
+        try {
+            size = Files.size(resolved);
+            long max = props.projects().maxFileResponseBytes();
+            boolean truncated = size > max;
+            try (InputStream in = Files.newInputStream(resolved)) {
+                bytes = in.readNBytes((int) Math.min(size, max));
+            }
+            String encoding;
+            String content;
+            if (looksTextual(bytes)) {
+                content = new String(bytes, StandardCharsets.UTF_8);
+                // Apply project's accepted renames so the API + AI agents see the
+                // user's deobfuscated names everywhere.
+                content = renameService.applyMapToContent(id, content);
+                encoding = "utf-8";
+            } else {
+                content = "";
+                encoding = "binary";
+            }
+            return new FileContentResponse(relPath, size, truncated, encoding, content);
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "read failed: " + e.getMessage());
+        }
+    }
+
+    private FileNode buildTree(Path root, Path current) {
+        String name = current.equals(root) ? "/" : current.getFileName().toString();
+        String relPath = root.relativize(current).toString();
+        try (Stream<Path> stream = Files.list(current)) {
+            var entries = stream
+                    .sorted(Comparator.comparing(
+                            (Path p) -> !Files.isDirectory(p))
+                            .thenComparing(p -> p.getFileName().toString().toLowerCase()))
+                    .toList();
+            List<FileNode> children = new ArrayList<>(entries.size());
+            for (Path p : entries) {
+                if (Files.isDirectory(p)) {
+                    children.add(buildTree(root, p));
+                } else {
+                    try {
+                        children.add(FileNode.file(
+                                p.getFileName().toString(),
+                                root.relativize(p).toString(),
+                                Files.size(p)
+                        ));
+                    } catch (IOException e) {
+                        log.debug("skip {}: {}", p, e.toString());
+                    }
+                }
+            }
+            return FileNode.dir(name, relPath, children);
+        } catch (IOException e) {
+            log.warn("Failed to list {}: {}", current, e.toString());
+            return FileNode.dir(name, relPath, List.of());
+        }
+    }
+
+    private boolean looksTextual(byte[] bytes) {
+        int len = Math.min(bytes.length, 8192);
+        int suspicious = 0;
+        for (int i = 0; i < len; i++) {
+            int b = bytes[i] & 0xFF;
+            if (b == 0) return false;
+            if (b < 0x09 || (b > 0x0D && b < 0x20 && b != 0x1B)) suspicious++;
+        }
+        return suspicious * 100 / Math.max(1, len) < 5;
+    }
+
+    private Project loadOwned(User user, UUID id) {
+        return repo.findByIdAndUserId(id, user.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+    }
+
+    private void requireReady(Project p) {
+        if (p.getStatus() != ProjectStatus.READY) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "project is not READY (current status: " + p.getStatus() + ")");
+        }
+    }
+
+    private static String sanitizeFilename(String name, ProjectKind kind) {
+        String fallback = kind == ProjectKind.BIN ? "upload.bin" : "upload.apk";
+        if (name == null || name.isBlank()) return fallback;
+        // Strip path components and control chars.
+        String base = name.replaceAll(".*[/\\\\]", "").replaceAll("[\\x00-\\x1F]", "_");
+        return base.isBlank() ? fallback : base;
+    }
+
+    /**
+     * Sniff the first 4 bytes to pick a kind when the caller didn't specify.
+     * Used only as a fallback — openapk.ai and openbin.ai both pass an
+     * explicit kind via the upload form. Defaults to APK for unknowns so the
+     * pre-OpenBin upload path keeps working unchanged.
+     */
+    private static ProjectKind sniffKind(MultipartFile file) {
+        byte[] buf;
+        try (InputStream in = file.getInputStream()) {
+            buf = in.readNBytes(4);
+        } catch (IOException e) {
+            return ProjectKind.APK;
+        }
+        if (buf.length < 4) return ProjectKind.APK;
+        // PK\x03\x04 — ZIP / APK / JAR
+        if (buf[0] == 0x50 && buf[1] == 0x4B && buf[2] == 0x03 && buf[3] == 0x04) return ProjectKind.APK;
+        // \x7FELF
+        if ((buf[0] & 0xFF) == 0x7F && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'F') return ProjectKind.BIN;
+        // MZ — DOS/PE
+        if (buf[0] == 'M' && buf[1] == 'Z') return ProjectKind.BIN;
+        // Mach-O magics: 32/64-bit BE/LE + fat-binary
+        int magic = ((buf[0] & 0xFF) << 24) | ((buf[1] & 0xFF) << 16) | ((buf[2] & 0xFF) << 8) | (buf[3] & 0xFF);
+        if (magic == 0xFEEDFACE || magic == 0xFEEDFACF
+                || magic == 0xCEFAEDFE || magic == 0xCFFAEDFE
+                || magic == 0xCAFEBABE) {
+            return ProjectKind.BIN;
+        }
+        return ProjectKind.APK;
+    }
+
+    private static String abbreviate(String s) {
+        if (s == null) return "unknown error";
+        return s.length() > 500 ? s.substring(0, 500) + "…" : s;
+    }
+}

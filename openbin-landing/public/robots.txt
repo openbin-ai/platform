@@ -1,0 +1,81 @@
+# OpenBin.ai - public, open-source marketing site. Everything is fair game.
+# https://openbin.ai/
+
+User-agent: *
+Allow: /
+Disallow:
+
+# -----------------------------------------------------------------------------
+# AI / LLM crawlers - explicitly welcome.
+# We *want* ChatGPT, Claude, Perplexity, Google's AI overviews etc. to know
+# what OpenBin is. Spelled out per-bot so any opaque allowlist downstream
+# doesn't have to guess intent.
+# -----------------------------------------------------------------------------
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: GoogleOther
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: Amazonbot
+Allow: /
+
+User-agent: DuckAssistBot
+Allow: /
+
+User-agent: meta-externalagent
+Allow: /
+
+User-agent: Cohere-ai
+Allow: /
+
+User-agent: cohere-training-data-crawler
+Allow: /
+
+User-agent: Mistralai-User
+Allow: /
+
+User-agent: YouBot
+Allow: /
+
+User-agent: PetalBot
+Allow: /
+
+# Standard discovery
+Sitemap: https://openbin.ai/sitemap.xml
+
+# llms.txt - curated overview for LLM-powered search. See https://llmstxt.org/
+# (no robots.txt directive for this; it's resolved by convention at /llms.txt)

@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #0b0d12;
+  color: #e6e8eb;
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Shiki sets its own background; let the surrounding pane bleed through. */
+.shiki-host .shiki {
+  background: transparent !important;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.shiki-host .shiki code {
+  display: block;
+  white-space: pre;
+}
+
+/* Fallback rendering used when highlighting fails. */
+.shiki-plain code {
+  white-space: pre;
+  color: #d4d4d8;
+}
+
+/* react-markdown response inside the Ask tab. Tight typography so it fits
+   the narrow side panel without burning vertical real estate. */
+.markdown-answer p { margin: 0.4rem 0; }
+.markdown-answer h1, .markdown-answer h2, .markdown-answer h3 {
+  margin: 0.6rem 0 0.3rem;
+  font-weight: 600;
+  color: #f4f4f5;
+}
+.markdown-answer h1 { font-size: 0.95rem; }
+.markdown-answer h2 { font-size: 0.9rem; }
+.markdown-answer h3 { font-size: 0.85rem; }
+.markdown-answer ul, .markdown-answer ol { margin: 0.4rem 0; padding-left: 1.2rem; }
+.markdown-answer li { margin: 0.15rem 0; }
+.markdown-answer code {
+  background: rgba(255,255,255,0.06);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+.markdown-answer pre {
+  background: #0b0d12;
+  padding: 0.6rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+.markdown-answer pre code {
+  background: transparent;
+  padding: 0;
+}
+.markdown-answer a { color: #c084fc; text-decoration: underline; }
+
+/* Clickable function references in the pseudocode + disassembly viewers.
+   Injected by ProjectView's PseudocodeView (DOM walk over Shiki output)
+   and DisassemblyView (JSX tokenization). A click bubbles up to CodePane
+   which reads data-fn and navigates. Dotted-by-default so the page isn't
+   visually noisy; solid + purple on hover to confirm the link target. */
+.fn-link {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-decoration-color: rgba(168, 85, 247, 0.4);
+  text-underline-offset: 2px;
+  transition: color 0.1s, text-decoration-color 0.1s, text-decoration-style 0.1s;
+}
+.fn-link:hover {
+  color: #c084fc;
+  text-decoration-style: solid;
+  text-decoration-color: #c084fc;
+}
+
+/* Flash a code line when the user jumps to it from a panel (Network call
+   site, future Crypto hit, future search result). The Shiki host has its
+   own `.line` per row; the disassembly view tags rows with `data-addr` and
+   .search-flash is applied to either. Class is removed after ~1.6s so the
+   highlight fades out via the transition. */
+.shiki-host .line.search-flash,
+[data-addr].search-flash {
+  background: rgba(124, 58, 237, 0.22);
+  box-shadow: inset 2px 0 0 #a855f7;
+  transition: background 1.6s ease-out, box-shadow 1.6s ease-out;
+}

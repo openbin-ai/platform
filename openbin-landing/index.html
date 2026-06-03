@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0a0a0a" />
+
+    <!-- =================================================================
+         Primary SEO
+         ================================================================= -->
+    <title>OpenBin.ai - Open-source, agent-native reverse engineering</title>
+    <meta name="description" content="OpenBin.ai is the open-source, BYOK, self-hosted platform for AI-assisted reverse engineering. Decompile, analyze, and report on binaries with your own LLM. Starting with OpenAPK for Android, OpenPE / OpenELF / OpenIPA / OpenWASM coming soon." />
+    <meta name="keywords" content="reverse engineering, open source, AGPL, AI reverse engineering, agentic reverse engineering, BYOK, self-hosted, malware analysis, vulnerability research, APK analysis, Android malware, JADX, Ghidra, binary analysis, decompiler, security research, MAR, VRR, CWE" />
+    <meta name="author" content="OpenBin" />
+    <meta name="application-name" content="OpenBin" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <meta name="generator" content="Vite + React" />
+    <meta name="rating" content="general" />
+    <link rel="canonical" href="https://openbin.ai/" />
+
+    <!-- =================================================================
+         Icons / PWA
+         ================================================================= -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- =================================================================
+         Open Graph (Facebook, LinkedIn, Discord, Slack)
+         ================================================================= -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="OpenBin.ai" />
+    <meta property="og:url" content="https://openbin.ai/" />
+    <meta property="og:title" content="OpenBin.ai - Open-source, agent-native reverse engineering" />
+    <meta property="og:description" content="The open-source, BYOK, self-hosted platform for AI-assisted reverse engineering. Decompile, analyze, and report on binaries with your own LLM." />
+    <meta property="og:image" content="https://openbin.ai/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="OpenBin.ai - Open-source, agent-native reverse engineering platform" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- =================================================================
+         Twitter / X Card
+         ================================================================= -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://openbin.ai/" />
+    <meta name="twitter:title" content="OpenBin.ai - Open-source, agent-native reverse engineering" />
+    <meta name="twitter:description" content="The open-source, BYOK, self-hosted platform for AI-assisted reverse engineering. Starting with OpenAPK for Android." />
+    <meta name="twitter:image" content="https://openbin.ai/og-image.png" />
+    <meta name="twitter:image:alt" content="OpenBin.ai - Open-source, agent-native reverse engineering platform" />
+
+    <!-- =================================================================
+         JSON-LD structured data - Organization + WebSite + SoftwareApplication
+         These are what Google Knowledge Graph, ChatGPT search, Perplexity,
+         Brave Search, and the new LLM-powered crawlers actually read.
+         ================================================================= -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://openbin.ai/#organization",
+          "name": "OpenBin",
+          "alternateName": "OpenBin.ai",
+          "url": "https://openbin.ai/",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://openbin.ai/favicon.png",
+            "width": 512,
+            "height": 512
+          },
+          "sameAs": [
+            "https://github.com/openbin-ai",
+            "https://openapk.ai/"
+          ],
+          "description": "Open-source, BYOK, self-hosted platform for AI-assisted reverse engineering."
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://openbin.ai/#website",
+          "url": "https://openbin.ai/",
+          "name": "OpenBin.ai",
+          "description": "The open-source, agent-native platform for reverse engineering.",
+          "publisher": { "@id": "https://openbin.ai/#organization" },
+          "inLanguage": "en-US"
+        },
+        {
+          "@type": "SoftwareApplication",
+          "@id": "https://openbin.ai/#software",
+          "name": "OpenBin",
+          "operatingSystem": "Cross-platform (Linux, macOS, Windows via Docker)",
+          "applicationCategory": "SecurityApplication",
+          "applicationSubCategory": "Reverse Engineering",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          },
+          "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+          "softwareVersion": "Beta",
+          "downloadUrl": "https://github.com/openbin-ai",
+          "url": "https://openbin.ai/",
+          "description": "Self-hosted reverse engineering platform. Bring your own LLM key. Includes OpenAPK for Android APK analysis, with OpenPE / OpenELF / OpenIPA / OpenWASM workspaces planned.",
+          "featureList": [
+            "Agent-driven static analysis",
+            "JADX-powered APK decompilation",
+            "Ghidra-powered native library analysis",
+            "Call chain tracing with AI-narrated summaries",
+            "Crypto and obfuscation decoder detection",
+            "Screenshot capture and annotation",
+            "Customizable MAR and VRR report templates",
+            "BYOK: Anthropic, OpenAI, AWS Bedrock",
+            "Per-user token budgets and full audit log",
+            "Encrypted credentials at rest with user-supplied KEK"
+          ]
+        }
+      ]
+    }
+    </script>
+
+    <!-- =================================================================
+         Performance hints
+         ================================================================= -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

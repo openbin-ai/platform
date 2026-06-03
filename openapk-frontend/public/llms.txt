@@ -1,0 +1,57 @@
+# OpenAPK.ai
+
+> OpenAPK is an open-source, BYOK, self-hosted workspace for Android reverse engineering. It pairs JADX-based decompilation with an LLM agent that reads decompiled Java, Kotlin, smali, and resources the way a researcher would - file-aware, symbol-aware, package-aware. The agent does the grunt work (identifier recovery, string decoding, crypto reconstruction, call-chain narration, report drafting) while the APK and the analyst's notes never leave the operator's infrastructure.
+
+OpenAPK is licensed AGPL-3.0. There is no SaaS edition; every deployment is a tenant of one. It is the first product in the OpenBin family (https://openbin.ai/), with OpenPE / OpenELF / OpenIPA / OpenWASM planned for other binary formats.
+
+The agent layer supports any of three providers - Anthropic, OpenAI, or AWS Bedrock - with per-user token budgets and a full audit log of every LLM call. Keys are encrypted at rest with a key-encryption key the operator supplies; nothing phones home.
+
+## What OpenAPK does today
+
+- **JADX-powered decompile** - Java + Kotlin extraction with smali, resources, and the manifest one click away. Re-decompile with different options without re-uploading. Full-text search across the tree.
+- **Native library analysis** - Ghidra-powered worker decompiles `.so` libraries to pseudo-C with functions, strings, and imports cross-referenced into the project.
+- **IDE-style navigation** - go-to-def, find-usages, package-aware breadcrumbs across decompiled source.
+- **Identifier recovery** - reads ProGuard-mangled `a/b/c/defpackage` classes in context and proposes meaningful names with reasoning. Renames are word-boundary safe and reversible from the UI.
+- **Crypto reconstruction** - static signatures flag `javax.crypto` pipelines, hand-rolled XOR/Base64 obfuscators, and custom decoder shapes. Emits a runnable Python decryptor; when the algorithm maps cleanly, a CyberChef recipe URL.
+- **String decoding** - harvests every ciphertext literal that flows into a reconstructed decoder across the project, dedupes, and inlines the decoded output.
+- **Grounded source Q&A** - point the agent at any file or symbol. Answers cite file:line. Threaded conversations are persisted per project.
+- **Call-chain tracing** - walk methods upward to entry points or downward to leaves, with AI-narrated summaries. Truncation is reported honestly ("8 of 30,000 shown · 29,992 SDK callers hidden").
+- **Network call sites** - every HTTP endpoint, header, and request body (Retrofit, OkHttp, HttpURLConnection) cross-referenced to the call site that built them.
+- **AndroidManifest entry points** - exported activities, broadcasts, providers; one-click navigation to the handler.
+- **Database schemas** - SQLite + Room schema extraction with foreign-key visualization.
+- **Evidence capture + reports** - region-grab the screen, annotate (rect/arrow/text/freehand/blur), insert into a report section. MAR (Malware Analysis Report) and VRR (Vulnerability Research Report) templates. Markdown + print-ready PDF export.
+- **Community publishing** - published reports are public-readable without authentication; abuse-reportable; author shown as Gravatar identifier, never raw email.
+
+## What OpenAPK is not
+
+- Not a SaaS. The marketing site is at https://openapk.ai/; users run their own instance.
+- Not an LLM provider. The operator supplies an API key for Anthropic, OpenAI, or AWS Bedrock.
+- Not a sandbox. Static analysis only - no execution, no instrumentation, no emulation.
+- Not a JADX or Ghidra replacement. It wraps them and orchestrates an agent on top.
+
+## Key concepts
+
+- **Agent-native**: the UI is built around an LLM agent that reads code and writes reports. Not a chatbot bolted onto a 2008 decompiler.
+- **BYOK (Bring Your Own Key)**: every user supplies their own API credentials. The platform never centralizes LLM spend.
+- **Self-hosted**: runs in Docker. Air-gap-friendly. No telemetry.
+- **Reversible**: renames, decompiles, and report edits are all reversible from the UI. Audit trail per project.
+
+## Project resources
+
+- [OpenAPK landing](https://openapk.ai/): product overview + feature tour.
+- [OpenBin landing](https://openbin.ai/): platform family overview, including planned products.
+- [GitHub](https://github.com/keycomagix/openapk): source code, issues, releases.
+- [Terms](https://openapk.ai/terms): community publishing terms.
+- [Privacy](https://openapk.ai/privacy): what we store and what we don't.
+
+## Glossary
+
+- **MAR**: Malware Analysis Report - section-templated report optimized for malware triage.
+- **VRR**: Vulnerability Research Report - section-templated report optimized for vuln research.
+- **KEK**: Key Encryption Key - operator-supplied AES-256 master key used to wrap per-user LLM credentials at rest.
+- **JADX**: Java decompiler used to extract Android source from APK / DEX. Embedded in OpenAPK; not a separate microservice.
+- **Ghidra**: NSA-released reverse-engineering framework, used in a containerized worker microservice to decompile native (.so) libraries.
+
+## License
+
+GNU Affero General Public License v3.0. Modifications that touch the platform must be released under the same license when offered as a network service. See https://www.gnu.org/licenses/agpl-3.0.html.

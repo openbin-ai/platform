@@ -1,0 +1,44 @@
+# OpenBin.ai
+
+> OpenBin is an open-source, BYOK, self-hosted platform for AI-assisted reverse engineering. It pairs traditional binary-analysis tooling (JADX, Ghidra) with an agent layer driven by the user's own LLM credentials - so the agent does the grunt work of reading decompiled code, tracing call chains, and drafting reports, while the binary and the analyst's notes never leave the user's infrastructure.
+
+OpenBin is licensed AGPL-3.0. There is no SaaS edition; everyone runs their own instance. The platform is multi-product: each binary format gets its own workspace (today: OpenAPK for Android), but they all share a common core (auth, symbol indexing, agent layer, report engine, BYOK credential storage with KEK-encrypted secrets).
+
+The agent layer supports any of three providers - Anthropic, OpenAI, or AWS Bedrock - with per-user token budgets and a full audit log of every LLM call. Keys are encrypted at rest with a key-encryption key the operator supplies; nothing phones home.
+
+## Available now
+
+- [OpenAPK.ai](https://openapk.ai/): Android APK reverse engineering. JADX-powered decompile, Ghidra-powered native-lib analysis, AI-driven static analysis, call chain tracing with AI-narrated summaries, crypto and obfuscation decoder detection, screenshot capture + annotation, customizable MAR (Malware Analysis Report) and VRR (Vulnerability Research Report) templates.
+
+## Coming soon
+
+- OpenPE: Windows PE / DLL analysis - same agent layer, Ghidra under the hood.
+- OpenELF: Linux ELF binaries + firmware images.
+- OpenIPA: iOS app bundles - IPAs, Mach-O, Swift symbol recovery.
+- OpenWASM: WebAssembly modules - supply-chain auditing for the browser.
+
+## Key concepts
+
+- **Agent-native**: the UI is built around an LLM agent that reads code and writes reports. Not a chatbot bolted onto a traditional decompiler.
+- **BYOK (Bring Your Own Key)**: every user supplies their own API credentials for Anthropic / OpenAI / AWS Bedrock. The platform never centralizes LLM spend.
+- **Self-hosted**: runs in Docker on the operator's infrastructure. Air-gap-friendly. No telemetry.
+- **Reversible**: renames, decompiles, and report edits are all reversible from the UI. Nothing the agent does touches the operator's filesystem unless explicitly permitted.
+- **Open core**: source code is AGPL-3.0 on GitHub.
+
+## Project resources
+
+- [Landing page](https://openbin.ai/): platform overview.
+- [OpenAPK landing](https://openapk.ai/): product-specific feature tour with screenshots.
+- [GitHub](https://github.com/openbin-ai): source code, issues, releases.
+
+## Glossary
+
+- **MAR**: Malware Analysis Report - section-templated report optimised for malware triage (sample overview, static findings, IOCs, recommendations, analyst notes).
+- **VRR**: Vulnerability Research Report - section-templated report optimised for vuln research (target, attack surface, auth/storage, network, vulnerabilities with CWE + severity, repro, remediation).
+- **KEK**: Key Encryption Key - the operator-supplied AES-256 master key used to wrap per-user LLM credentials at rest.
+- **JADX**: Java decompiler used to extract Android source from APK / DEX. Embedded in OpenAPK; not a separate microservice.
+- **Ghidra**: NSA-released reverse engineering framework, used by OpenAPK in a containerised worker microservice to decompile native (.so) libraries to pseudo-C.
+
+## License
+
+GNU Affero General Public License v3.0. Modifications that touch the platform must be released under the same license when offered as a network service. See https://www.gnu.org/licenses/agpl-3.0.html.

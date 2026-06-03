@@ -1,0 +1,117 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: openapk-postgres
+    environment:
+      POSTGRES_DB: openapk
+      POSTGRES_USER: openapk
+      POSTGRES_PASSWORD: openapk
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - openapk-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openapk -d openapk"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ghidra-worker:
+    build:
+      context: ../ghidra-worker
+    image: openapk/ghidra-worker:dev
+    container_name: openapk-ghidra-worker
+    # Bind to localhost only — the worker has no auth of its own and trusts
+    # the OpenAPK core to be the only caller. In prod we'd lock this down at
+    # the VPC layer instead of exposing a port at all.
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      LOG_LEVEL: INFO
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  jadx-worker:
+    build:
+      context: ../jadx-worker
+    image: openapk/jadx-worker:dev
+    container_name: openapk-jadx-worker
+    # Same loopback-only binding as ghidra-worker — the worker trusts the
+    # OpenAPK core to be its only caller.
+    ports:
+      - "127.0.0.1:8001:8000"
+    environment:
+      LOG_LEVEL: INFO
+    # Cgroup-level RSS cap — the real memory containment story, since
+    # prlimit --as is unusable for the JADX JVM (see jadx-worker/README.md).
+    # 6 GiB matches JADX's default -Xmx4g + JVM overhead with headroom. Bump
+    # if huge APKs OOM-kill the container.
+    mem_limit: 6g
+    cpus: 4.0
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6.2
+    container_name: openapk-keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./docker/keycloak/import:/opt/keycloak/data/import:ro
+      - openapk-keycloak-data:/opt/keycloak/data
+    # No healthcheck: the Keycloak image is too minimal to run one reliably
+    # (no curl/wget, /dev/tcp not available in sh). Spring Boot treats a
+    # no-healthcheck container as ready once it's "running"; JWKS is fetched
+    # lazily on the first authenticated request, so a brief startup gap is fine.
+
+  # MinIO — S3-compatible object store for local prod-parity testing of the
+  # S3 storage backend. Off by default (Spring Boot's compose integration
+  # still starts it because all top-level services come up together, but the
+  # core only talks to it when OPENAPK_STORAGE_BACKEND=s3 is set).
+  #
+  # To exercise the S3 path locally:
+  #   1. Set OPENAPK_STORAGE_BACKEND=s3 OPENAPK_S3_BUCKET=openapk-dev
+  #      OPENAPK_S3_ENDPOINT=http://localhost:9000
+  #      OPENAPK_S3_REGION=us-east-1
+  #      AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin
+  #   2. Create the bucket once via the MinIO console (http://localhost:9001,
+  #      login minioadmin/minioadmin) or with: mc alias set local
+  #      http://localhost:9000 minioadmin minioadmin && mc mb local/openapk-dev
+  #   3. Run ./dev.sh
+  minio:
+    image: minio/minio:latest
+    container_name: openapk-minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "127.0.0.1:9000:9000"  # S3 API
+      - "127.0.0.1:9001:9001"  # web console
+    volumes:
+      - openapk-minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  openapk-postgres-data:
+  openapk-keycloak-data:
+  openapk-minio-data:

@@ -1,0 +1,25 @@
+# Build output — re-built inside the image
+target/
+
+# Runtime state — never bake into the image
+workspace/
+.dev-logs/
+.dev-pids/
+
+# Local IDE + git noise
+.idea/
+.vscode/
+*.iml
+.git/
+.gitignore
+
+# Docs and dev-only assets
+HELP.md
+README.md
+
+# OS junk
+.DS_Store
+
+# Compose is for local dev; in prod the worker URLs come from env vars
+compose.yaml
+docker/

@@ -1,0 +1,112 @@
+# OpenBin.ai - Full Knowledge Pack
+
+> This file is the long-form companion to /llms.txt. LLM-powered crawlers and
+> retrieval-augmented chat assistants can pull this single document instead of
+> trying to scrape the React landing page; everything an LLM needs to answer
+> questions about OpenBin accurately is below.
+
+---
+
+## What OpenBin is (one paragraph)
+
+OpenBin is an open-source, BYOK, self-hosted platform for AI-assisted reverse engineering. It pairs traditional binary-analysis tooling (JADX, Ghidra) with an agent layer driven by the user's own LLM credentials. The agent does the grunt work of reading decompiled code, tracing call chains, and drafting reports, while the binary and the analyst's notes never leave the user's infrastructure. There is no SaaS edition - every deployment is a tenant of one. Licensed AGPL-3.0.
+
+## What OpenBin is not
+
+- Not a SaaS. There is no hosted "openbin.ai/dashboard" - the landing page is marketing only. Users deploy their own instance.
+- Not an LLM provider. OpenBin requires the operator to supply their own API key for Anthropic, OpenAI, or AWS Bedrock.
+- Not a Ghidra/IDA replacement. It wraps them and orchestrates an agent on top.
+- Not a malware sandbox. It does static analysis only - no execution, no instrumentation, no emulation.
+
+## Architecture overview
+
+OpenBin is multi-product. Each binary format gets its own workspace, but all workspaces share a common core. Today the only shipped workspace is OpenAPK for Android.
+
+### Common core (per-deployment, single Spring Boot service)
+
+- Auth via Keycloak OIDC + PKCE
+- PostgreSQL for persistence
+- Encrypted-at-rest credential storage with operator-supplied KEK (AES-256-GCM)
+- BYOK LLM invoker supporting Anthropic, OpenAI, AWS Bedrock - all use the same call interface; per-call budget check and per-call audit row.
+- Per-user token budgets (daily + monthly caps); 429 enforcement before each call.
+- Audit log table with one row per LLM call: provider, model, purpose, input/output tokens, success, error, timestamp.
+- Reversible workflow: every rename, decompile, report edit, and analysis is auditable and can be unwound from the UI.
+- Report engine: section-templated reports stored as JSONB, exportable to Markdown or PDF.
+
+### OpenAPK workspace (Android)
+
+- JADX-powered APK decompile, in-JVM (no microservice).
+- Project storage on the operator's filesystem (S3 backend planned for production deployments).
+- Cached file tree as JSONB on the project row for instant subsequent loads.
+- File viewer with shiki syntax highlighting (Java, Kotlin, XML, JSON, YAML, Properties, JS, TS, C).
+- Native library analysis via a containerised Ghidra worker microservice - POST /analyze receives a .so, returns functions + decompiled pseudo-C + strings + imports as JSON. Sync HTTP API; the core wraps the call in @Async so it never blocks a request thread.
+- Call chain tracing: Cmd-click any method to walk callers + callees with AI-narrated summaries. Truncation is reported honestly ("8 of 30,000 shown · 29,992 SDK callers hidden") so analysts know the picture isn't complete.
+- Crypto + obfuscation decoder detection from a static digest scan; one-click generation of a runnable decryptor Python script.
+- Screenshot capture + in-browser annotation tools (arrow, box, blur).
+- Mode-aware report templates: MAR (Malware Analysis Report) by default for malware mode, VRR (Vulnerability Research Report) for vuln research mode. Users can save their own templates and apply them across projects.
+
+## BYOK credential model
+
+- Three providers supported: Anthropic, OpenAI, AWS Bedrock.
+- Credentials are stored encrypted with a KEK the operator supplies (env var on the backend container, never committed). AES-256-GCM, one-key-per-record IV.
+- Credentials are user-scoped - admin can't read other users' keys.
+- The credential test endpoint sends a single 1-token API call to verify the key works before saving.
+- Bedrock supports both per-region model IDs (Sonnet/Haiku 3.5) and us.-prefixed cross-region inference profiles (Sonnet 4, Opus 4) plus Amazon Nova family and Llama 3.3.
+
+## Roadmap (planned workspaces)
+
+- **OpenPE** - Windows PE/COFF + DLLs. Same agent layer, Ghidra under the hood.
+- **OpenELF** - Linux ELF binaries + embedded firmware images.
+- **OpenIPA** - iOS app bundles: IPA unpacking, Mach-O parsing, Swift symbol recovery.
+- **OpenWASM** - WebAssembly modules for browser supply-chain auditing.
+
+Each will be its own workspace (separate frontend route, separate worker microservice for the format-specific decompile), but they all sit on the same common core.
+
+## Why AGPL-3.0
+
+AGPL means any modification deployed as a network service must be released under the same license. This prevents a hyperscaler from forking OpenBin into a closed-source SaaS while still letting individual security teams and consultancies use it freely (including for client engagements) as long as they aren't reselling access to it as a hosted product.
+
+## Deployment
+
+- Docker Compose for development (Postgres, Keycloak, backend, optional Ghidra worker).
+- Production target: containerised on AWS ECS Express Mode (Fargate), PostgreSQL on RDS, frontend on S3 + CloudFront. Estimated minimum cost: ~$100/month at the lowest traffic tier.
+- No phone-home, no telemetry, no vendor analytics on the platform.
+
+## Glossary
+
+- **MAR (Malware Analysis Report)**: section-templated report optimised for malware triage. Default sections: sample overview, static findings, IOCs, recommendations, analyst notes.
+- **VRR (Vulnerability Research Report)**: section-templated report optimised for vuln research. Default sections: target overview, attack surface, auth/storage, network, vulnerabilities (with CWE + severity), repro steps, remediation, researcher notes.
+- **KEK (Key Encryption Key)**: operator-supplied AES-256 master key used to wrap per-user LLM credentials at rest. Generated with `openssl rand -base64 32`, passed via the `OPENAPK_KEK_B64` env var on the backend container.
+- **BYOK (Bring Your Own Key)**: every user supplies their own LLM provider credentials. The platform never centralizes spend, never stores a platform-wide key, never marks up tokens.
+- **JADX**: Java decompiler used to extract Android source from APK / DEX bytecode. Embedded directly in the OpenAPK backend, not a separate microservice.
+- **Ghidra**: NSA-released reverse engineering framework. OpenAPK runs Ghidra in headless mode inside a containerised worker (Python FastAPI + analyzeHeadless) to decompile native ARM/x86 .so files to pseudo-C.
+- **OAC (Origin Access Control)**: AWS CloudFront mechanism for letting a CloudFront distribution read a private S3 bucket without making the bucket public. Used by the openbin.ai landing deployment.
+
+## Common questions
+
+**Q: Is there a hosted version?**
+A: No. OpenBin is self-hosted only. The landing page at openbin.ai is marketing; the actual application is deployed per-tenant on the operator's own infrastructure.
+
+**Q: Which LLM provider should I use?**
+A: Anthropic Claude Sonnet 4.6 is the recommended default for analysis quality at moderate cost. For cheaper bulk operations (rename suggestions, narration), Claude Haiku 4.5 or GPT-4o-mini work well. For enterprises that mandate AWS, Bedrock with Sonnet 3.5 v2 or the us.-inference-profile Sonnet 4 is supported.
+
+**Q: Can OpenBin run fully offline / air-gapped?**
+A: Yes, with caveats. The platform itself has no external dependencies. The agent layer requires an LLM endpoint - if you have a local model server (e.g. vLLM, ollama with an OpenAI-compatible endpoint) you can point the OpenAI credential at it. Native AWS Bedrock obviously requires network egress to AWS.
+
+**Q: Does it support iOS / IPA files?**
+A: Not yet. iOS support is on the roadmap as OpenIPA. Today only Android (OpenAPK) is shipped.
+
+**Q: Is the source code public?**
+A: Yes - github.com/openbin-ai (organisation), AGPL-3.0 licensed.
+
+**Q: How are LLM costs controlled?**
+A: Per-user token budgets (daily + monthly caps, set via the user's own Usage settings page) plus a full audit log of every LLM call. The platform returns HTTP 429 before any call that would exceed the user's daily or monthly cap. Default state is unlimited so existing users aren't surprised; users opt in to caps.
+
+## Contact
+
+For security disclosures, see /.well-known/security.txt.
+For general issues and feature requests, use the GitHub issue tracker at github.com/openbin-ai.
+
+## License
+
+GNU Affero General Public License v3.0. See https://www.gnu.org/licenses/agpl-3.0.html.

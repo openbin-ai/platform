@@ -1,0 +1,42 @@
+{
+  "name": "openbin-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5174",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/dagre": "^0.7.54",
+    "@xyflow/react": "^12.10.2",
+    "autoprefixer": "^10.5.0",
+    "dagre": "^0.8.5",
+    "lucide-react": "^1.16.0",
+    "oidc-client-ts": "^3.5.0",
+    "postcss": "^8.5.15",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-markdown": "^10.1.0",
+    "react-oidc-context": "^3.3.1",
+    "react-router-dom": "^7.15.1",
+    "shiki": "^4.1.0",
+    "tailwindcss": "^4.3.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@rolldown/plugin-babel": "^0.2.3",
+    "@types/babel__core": "^7.20.5",
+    "@types/node": "^24.12.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.12"
+  },
+  "license": "AGPL-3.0-or-later"
+}

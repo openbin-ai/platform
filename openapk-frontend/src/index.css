@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #0b0d12;
+  color: #e6e8eb;
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Shiki sets its own background; let it bleed through cleanly inside our viewer. */
+.shiki-host .shiki {
+  background: transparent !important;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.shiki-host .shiki code {
+  display: block;
+  white-space: pre;
+}
+
+/* Search jump-to-line: brief highlight on the scrolled-into-view line so the
+   user can find it after the smooth scroll lands. */
+.shiki-host .line.search-flash {
+  background: rgba(124, 58, 237, 0.22);
+  box-shadow: inset 2px 0 0 #a855f7;
+  transition: background 1.6s ease-out, box-shadow 1.6s ease-out;
+}
+
+.shiki-plain code {
+  white-space: pre;
+  color: #d4d4d8;
+}
+
+/* react-markdown answer panel: lightly typeset, no big margins so it fits the box. */
+.markdown-answer p { margin: 0.4rem 0; }
+.markdown-answer h1, .markdown-answer h2, .markdown-answer h3 {
+  margin: 0.6rem 0 0.3rem;
+  font-weight: 600;
+  color: #f4f4f5;
+}
+.markdown-answer h1 { font-size: 1rem; }
+.markdown-answer h2 { font-size: 0.95rem; }
+.markdown-answer h3 { font-size: 0.9rem; }
+.markdown-answer ul, .markdown-answer ol { margin: 0.4rem 0; padding-left: 1.2rem; }
+.markdown-answer li { margin: 0.15rem 0; }
+.markdown-answer code {
+  background: rgba(255,255,255,0.06);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+.markdown-answer pre {
+  background: #0b0d12;
+  padding: 0.6rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+.markdown-answer pre code {
+  background: transparent;
+  padding: 0;
+}
+.markdown-answer a { color: #c084fc; text-decoration: underline; }
+
+/* ---------------------------------------------------------------
+ * Print view (Report → Save as PDF)
+ * The .report-print container is the standalone print-friendly page.
+ * On-screen: docs-style readable typography on a white background.
+ * In print: hides the no-print toolbar, tight page margins, page-break
+ * avoid on sections so screenshots don't get sliced.
+ * --------------------------------------------------------------- */
+
+.report-print {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  line-height: 1.55;
+}
+.report-print-md p { margin: 0.6rem 0; }
+.report-print-md h1, .report-print-md h2, .report-print-md h3 {
+  margin: 1rem 0 0.5rem;
+  font-weight: 600;
+  color: #18181b;
+}
+.report-print-md h1 { font-size: 1.4rem; }
+.report-print-md h2 { font-size: 1.15rem; }
+.report-print-md h3 { font-size: 1rem; }
+.report-print-md ul, .report-print-md ol { margin: 0.5rem 0; padding-left: 1.4rem; }
+.report-print-md li { margin: 0.2rem 0; }
+.report-print-md code {
+  background: #f4f4f5;
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+  font-size: 0.88em;
+  color: #18181b;
+}
+.report-print-md pre {
+  background: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  padding: 0.7rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 0.6rem 0;
+  font-size: 0.85em;
+}
+.report-print-md pre code { background: transparent; padding: 0; }
+.report-print-md a { color: #6d28d9; text-decoration: underline; }
+.report-print-md strong { color: #18181b; }
+.report-print-md blockquote {
+  border-left: 3px solid #d4d4d8;
+  margin: 0.5rem 0;
+  padding: 0.2rem 0 0.2rem 0.8rem;
+  color: #52525b;
+}
+.report-print-md img { display: block; margin: 0.5rem 0; }
+
+@media print {
+  @page { margin: 0.75in; size: letter; }
+  body { background: white; }
+  .no-print { display: none !important; }
+  .report-print { background: white !important; color: #18181b !important; }
+  .report-print section { break-inside: avoid; }
+  .report-print img { break-inside: avoid; max-height: 8in; }
+}

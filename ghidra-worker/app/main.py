@@ -1,0 +1,199 @@
+"""FastAPI wrapper around Ghidra's analyzeHeadless.
+
+Single endpoint: POST /analyze takes a binary upload and an arch label, runs
+Ghidra in headless mode with the bundled extract.py post-script, and returns
+the resulting JSON.
+
+Synchronous on purpose — the OpenAPK core wraps this call in its own @Async
+executor so it never blocks a Spring request thread. Keeping the worker
+synchronous means we don't have to ship a separate job store here.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import shutil
+import subprocess
+import tempfile
+import uuid
+from pathlib import Path
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
+
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+log = logging.getLogger("ghidra-worker")
+
+GHIDRA_HOME = os.environ.get("GHIDRA_HOME", "/opt/ghidra")
+ANALYZE_HEADLESS = Path(GHIDRA_HOME) / "support" / "analyzeHeadless"
+SCRIPT_DIR = Path(__file__).resolve().parent.parent / "scripts"
+# Hard cap on the whole subprocess (analyzeHeadless + post-script). Bumped
+# above analyzeHeadless's own per-file analysis timeout (see ANALYSIS_TIMEOUT_SEC)
+# so a long-but-not-stuck analysis completes instead of getting killed.
+ANALYZE_TIMEOUT_SEC = int(os.environ.get("GHIDRA_ANALYZE_TIMEOUT", "1500"))
+# Per-file ceiling Ghidra applies inside analyzeHeadless itself. With aggressive
+# function-start search enabled (see scripts/preflight.py), large stripped libs
+# can take 15+ minutes. Should always be lower than ANALYZE_TIMEOUT_SEC.
+ANALYSIS_TIMEOUT_SEC = int(os.environ.get("GHIDRA_PER_FILE_TIMEOUT", "1200"))
+
+app = FastAPI(title="ghidra-worker", version="0.1.0")
+
+
+@app.get("/health")
+def health() -> dict:
+    """Liveness + sanity-check that analyzeHeadless is wired up."""
+    ok = ANALYZE_HEADLESS.is_file() and os.access(ANALYZE_HEADLESS, os.X_OK)
+    return {
+        "status": "ok" if ok else "degraded",
+        "ghidra_home": str(GHIDRA_HOME),
+        "analyze_headless_present": ok,
+    }
+
+
+@app.post("/analyze")
+async def analyze(
+    binary: UploadFile = File(..., description="A single native library (.so / .dll / .dylib)"),
+    arch: str = Form("unknown", description="Caller-supplied arch label; round-tripped in metadata"),
+) -> JSONResponse:
+    if not ANALYZE_HEADLESS.is_file():
+        raise HTTPException(status_code=503, detail=f"analyzeHeadless not found at {ANALYZE_HEADLESS}")
+
+    job_id = uuid.uuid4().hex[:8]
+    tmp_root = Path(tempfile.mkdtemp(prefix=f"ghidra-{job_id}-"))
+    try:
+        # Stash the binary on disk so Ghidra can mmap it.
+        in_name = _safe_filename(binary.filename, fallback=f"binary-{job_id}")
+        bin_path = tmp_root / in_name
+        size = 0
+        with bin_path.open("wb") as out:
+            while True:
+                chunk = await binary.read(1 << 20)
+                if not chunk:
+                    break
+                out.write(chunk)
+                size += len(chunk)
+        log.info("job=%s saved binary name=%s size=%d arch=%s", job_id, in_name, size, arch)
+
+        out_path = tmp_root / "result.json"
+        ghidra_proj = tmp_root / "ghidra-proj"
+        ghidra_proj.mkdir(exist_ok=True)
+        proj_name = f"p_{job_id}"
+        ghidra_log = tmp_root / "ghidra.log"
+
+        cmd = [
+            str(ANALYZE_HEADLESS),
+            str(ghidra_proj), proj_name,
+            "-import", str(bin_path),
+            "-scriptPath", str(SCRIPT_DIR),
+            # Pre-script tunes analyzer options BEFORE auto-analysis runs.
+            # Post-script extracts the result AFTER auto-analysis finishes.
+            "-preScript", "preflight.py",
+            "-postScript", "extract.py", str(out_path),
+            "-analysisTimeoutPerFile", str(ANALYSIS_TIMEOUT_SEC),
+            "-deleteProject",
+            "-overwrite",
+            "-log", str(ghidra_log),
+        ]
+        log.info("job=%s running: %s", job_id, " ".join(cmd))
+
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=ANALYZE_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail=f"ghidra analysis timed out after {ANALYZE_TIMEOUT_SEC}s")
+
+        # analyzeHeadless's exit code reflects analysis success — NOT post-script
+        # success. A non-zero exit means the binary was rejected (unsupported
+        # format, malformed, etc.); the script may not have run at all.
+        if proc.returncode != 0:
+            detail = _build_error_detail(
+                "ghidra analyzeHeadless exited %d" % proc.returncode,
+                proc, ghidra_log,
+            )
+            log.error("job=%s %s", job_id, detail)
+            raise HTTPException(status_code=500, detail=detail)
+
+        # No result.json after exit 0 ⇒ the post-script (extract.py) crashed
+        # silently. Surface stdout/stderr/ghidra.log so we can actually debug.
+        if not out_path.exists():
+            detail = _build_error_detail(
+                "ghidra exited 0 but extract.py produced no result.json "
+                "(post-script likely crashed)",
+                proc, ghidra_log,
+            )
+            log.error("job=%s %s", job_id, detail)
+            raise HTTPException(status_code=500, detail=detail)
+
+        with out_path.open("r", encoding="utf-8") as f:
+            result = json.load(f)
+
+        # extract.py writes {"error": "..."} when it caught an exception itself.
+        # Treat that as a 500 too — it's still useful info for the caller.
+        if isinstance(result, dict) and result.get("error"):
+            script_error = result.get("error")
+            detail = _build_error_detail(
+                "extract.py reported an error: %s" % script_error,
+                proc, ghidra_log,
+            )
+            log.error("job=%s %s", job_id, detail)
+            raise HTTPException(status_code=500, detail=detail)
+
+        # Stamp arch + size in metadata so the caller doesn't need to track it separately.
+        meta = result.setdefault("metadata", {})
+        meta["arch"] = arch
+        meta["bytes"] = size
+        meta["filename"] = in_name
+
+        log.info(
+            "job=%s done functions=%d strings=%d imports=%d",
+            job_id,
+            len(result.get("functions", [])),
+            len(result.get("strings", [])),
+            len(result.get("imports", [])),
+        )
+        return JSONResponse(result)
+
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
+
+def _safe_filename(name: str | None, fallback: str) -> str:
+    if not name:
+        return fallback
+    # Strip path components and anything weird Ghidra might choke on.
+    base = os.path.basename(name).replace("\x00", "")
+    base = "".join(c for c in base if c.isprintable())
+    return base or fallback
+
+
+def _build_error_detail(headline: str, proc: subprocess.CompletedProcess, ghidra_log: Path) -> str:
+    """Assemble a debuggable error blob from the analyzeHeadless run.
+
+    Includes the headline + last 2KB of stderr/stdout + last 2KB of ghidra.log.
+    Long enough to capture a Jython traceback, short enough to fit in an
+    HTTP response without choking the caller.
+    """
+    parts = [headline]
+    stderr_tail = (proc.stderr or "").strip()
+    if stderr_tail:
+        parts.append("--- stderr (last 2KB) ---\n" + stderr_tail[-2048:])
+    stdout_tail = (proc.stdout or "").strip()
+    if stdout_tail:
+        parts.append("--- stdout (last 2KB) ---\n" + stdout_tail[-2048:])
+    if ghidra_log.exists():
+        try:
+            log_text = ghidra_log.read_text(errors="replace").strip()
+            if log_text:
+                parts.append("--- ghidra.log (last 2KB) ---\n" + log_text[-2048:])
+        except OSError:
+            pass
+    return "\n\n".join(parts)

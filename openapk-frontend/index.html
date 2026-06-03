@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0a0a0a" />
+
+    <!-- =================================================================
+         Primary SEO
+         ================================================================= -->
+    <title>OpenAPK.ai - Agent-native Android reverse engineering</title>
+    <meta name="description" content="OpenAPK is the open-source, BYOK, self-hosted Android reverse engineering workspace. Decompile APKs with JADX, walk the source like an IDE, recreate obfuscated crypto, and ship MAR/VRR reports - with your own LLM." />
+    <meta name="keywords" content="APK analysis, Android reverse engineering, malware analysis, JADX, Android malware, AI reverse engineering, agentic reverse engineering, BYOK, self-hosted, open source, AGPL, vulnerability research, MAR, VRR, deobfuscation, smali, decompiler" />
+    <meta name="author" content="OpenBin" />
+    <meta name="application-name" content="OpenAPK" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <meta name="generator" content="Vite + React" />
+    <meta name="rating" content="general" />
+    <link rel="canonical" href="https://openapk.ai/" />
+
+    <!-- =================================================================
+         Icons / PWA
+         ================================================================= -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- =================================================================
+         Open Graph (Facebook, LinkedIn, Discord, Slack)
+         og-image.png is a 1200x630 social card - drop one in /public/ before
+         shipping or these previews will 404. The meta tags are wired so the
+         moment the asset lands, every link unfurl just works.
+         ================================================================= -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="OpenAPK.ai" />
+    <meta property="og:url" content="https://openapk.ai/" />
+    <meta property="og:title" content="OpenAPK.ai - Agent-native Android reverse engineering" />
+    <meta property="og:description" content="Open-source, BYOK, self-hosted Android reverse engineering workspace. JADX decompile, IDE-style source navigation, crypto auto-recreate, MAR/VRR reports - with your own LLM." />
+    <meta property="og:image" content="https://openapk.ai/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="OpenAPK.ai - Agent-native Android reverse engineering" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- =================================================================
+         Twitter / X Card
+         ================================================================= -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://openapk.ai/" />
+    <meta name="twitter:title" content="OpenAPK.ai - Agent-native Android reverse engineering" />
+    <meta name="twitter:description" content="Open-source, BYOK, self-hosted Android reverse engineering workspace. JADX + an agent that reads decompiled code the way you would." />
+    <meta name="twitter:image" content="https://openapk.ai/og-image.png" />
+    <meta name="twitter:image:alt" content="OpenAPK.ai - Agent-native Android reverse engineering" />
+
+    <!-- =================================================================
+         JSON-LD structured data - Organization + WebSite + SoftwareApplication.
+         What Google Knowledge Graph, ChatGPT search, Perplexity, Brave Search,
+         and LLM-powered crawlers read.
+         ================================================================= -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://openapk.ai/#organization",
+          "name": "OpenBin",
+          "alternateName": "OpenAPK.ai",
+          "url": "https://openapk.ai/",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://openapk.ai/icon.png",
+            "width": 512,
+            "height": 512
+          },
+          "sameAs": [
+            "https://github.com/keycomagix/openapk",
+            "https://openbin.ai/"
+          ],
+          "description": "Open-source, BYOK, self-hosted Android reverse engineering workspace."
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://openapk.ai/#website",
+          "url": "https://openapk.ai/",
+          "name": "OpenAPK.ai",
+          "description": "Agent-native Android reverse engineering.",
+          "publisher": { "@id": "https://openapk.ai/#organization" },
+          "inLanguage": "en-US"
+        },
+        {
+          "@type": "SoftwareApplication",
+          "@id": "https://openapk.ai/#software",
+          "name": "OpenAPK",
+          "operatingSystem": "Cross-platform (Linux, macOS, Windows via Docker)",
+          "applicationCategory": "SecurityApplication",
+          "applicationSubCategory": "Reverse Engineering",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          },
+          "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+          "softwareVersion": "Beta",
+          "downloadUrl": "https://github.com/keycomagix/openapk",
+          "url": "https://openapk.ai/",
+          "description": "Self-hosted Android reverse engineering workspace. Bring your own LLM key. JADX decompile, Ghidra-powered native library analysis, IDE-style source navigation, crypto auto-recreate, MAR/VRR report templates.",
+          "featureList": [
+            "JADX-powered APK decompilation",
+            "Ghidra-powered native library analysis",
+            "Agent-driven Q&A grounded in decompiled source",
+            "Call chain tracing with AI-narrated summaries",
+            "Crypto and obfuscation decoder auto-recreate",
+            "Screenshot capture and annotation",
+            "Customizable MAR and VRR report templates",
+            "BYOK: Anthropic, OpenAI, AWS Bedrock",
+            "Per-user token budgets and full audit log",
+            "Encrypted credentials at rest with user-supplied KEK"
+          ]
+        }
+      ]
+    }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

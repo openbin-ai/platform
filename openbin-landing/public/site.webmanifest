@@ -1,0 +1,26 @@
+{
+  "name": "OpenBin.ai",
+  "short_name": "OpenBin",
+  "description": "Open-source, agent-native, BYOK, self-hosted platform for AI-assisted reverse engineering.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "type": "image/png",
+      "sizes": "32x32",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "type": "image/png",
+      "sizes": "180x180",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["developer", "security", "utilities"]
+}
