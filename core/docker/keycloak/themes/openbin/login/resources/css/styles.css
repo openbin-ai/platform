@@ -1,0 +1,219 @@
+/*
+ * OpenBin login theme — dark + amber accents.
+ *
+ * Loaded AFTER the parent keycloak.v2 stylesheet, so any properties we
+ * redeclare here win. We touch only the high-impact elements: page
+ * background, login card, primary button, links, the logo at the top of
+ * the card. Form internals (inputs, labels, helper text) inherit from
+ * Patternfly with a small palette nudge.
+ */
+
+:root {
+  /* Brand palette — keep in sync with the openbin-landing tailwind config. */
+  --openbin-amber: #fbbf24;
+  --openbin-amber-dark: #f59e0b;
+  --openbin-amber-darker: #d97706;
+  --openbin-zinc-50: #fafafa;
+  --openbin-zinc-100: #f4f4f5;
+  --openbin-zinc-200: #e4e4e7;
+  --openbin-zinc-400: #a1a1aa;
+  --openbin-zinc-500: #71717a;
+  --openbin-zinc-700: #3f3f46;
+  --openbin-zinc-800: #27272a;
+  --openbin-zinc-900: #18181b;
+  --openbin-zinc-950: #0a0a0a;
+}
+
+/* ─── full-page background ─────────────────────────────────────────────── */
+body, .pf-v5-c-login, .pf-v5-c-login__container {
+  background: var(--openbin-zinc-950) !important;
+  color: var(--openbin-zinc-100);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Subtle radial glow behind the card so the page doesn't feel flat. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 0%, rgba(251, 191, 36, 0.08), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 50% 100%, rgba(124, 58, 237, 0.06), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ─── login card ───────────────────────────────────────────────────────── */
+.pf-v5-c-login__main {
+  background: rgba(24, 24, 27, 0.85) !important;
+  border: 1px solid var(--openbin-zinc-800);
+  border-radius: 12px;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  position: relative;
+  z-index: 1;
+}
+
+.pf-v5-c-login__main-header,
+.pf-v5-c-login__main-body,
+.pf-v5-c-login__main-footer {
+  background: transparent !important;
+}
+
+/* ─── logo at the top of the card ──────────────────────────────────────── */
+.pf-v5-c-login__main::before {
+  content: "";
+  display: block;
+  width: 160px;
+  height: 56px;
+  margin: 8px auto 16px;
+  background-image: url("../img/logo.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+
+/* Hide the default text header — the logo replaces it. */
+.pf-v5-c-login__header,
+#kc-header,
+#kc-header-wrapper {
+  display: none !important;
+}
+
+/* ─── headings & body text ─────────────────────────────────────────────── */
+.pf-v5-c-login__main-header h1,
+.pf-v5-c-title,
+#kc-page-title {
+  color: var(--openbin-zinc-50) !important;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.pf-v5-c-login__main-body p,
+.pf-v5-c-form__helper-text,
+.kc-feedback-text {
+  color: var(--openbin-zinc-400) !important;
+}
+
+/* ─── form inputs ──────────────────────────────────────────────────────── */
+.pf-v5-c-form-control,
+.pf-v5-c-form-control input,
+input.pf-v5-c-form-control {
+  background-color: var(--openbin-zinc-950) !important;
+  border: 1px solid var(--openbin-zinc-700) !important;
+  color: var(--openbin-zinc-100) !important;
+  border-radius: 6px;
+}
+
+.pf-v5-c-form-control:focus-within,
+.pf-v5-c-form-control input:focus,
+input.pf-v5-c-form-control:focus {
+  border-color: var(--openbin-amber) !important;
+  box-shadow: 0 0 0 1px var(--openbin-amber) !important;
+  outline: none;
+}
+
+.pf-v5-c-form__label,
+label {
+  color: var(--openbin-zinc-200) !important;
+  font-weight: 500;
+}
+
+/* ─── primary buttons ──────────────────────────────────────────────────── */
+.pf-v5-c-button.pf-m-primary,
+input[type="submit"].pf-v5-c-button.pf-m-primary,
+button.pf-v5-c-button.pf-m-primary {
+  background-color: var(--openbin-amber) !important;
+  color: var(--openbin-zinc-950) !important;
+  border-color: var(--openbin-amber) !important;
+  font-weight: 600;
+  border-radius: 6px;
+  transition: background-color 0.15s ease, transform 0.05s ease;
+}
+
+.pf-v5-c-button.pf-m-primary:hover {
+  background-color: var(--openbin-amber-dark) !important;
+  border-color: var(--openbin-amber-dark) !important;
+}
+
+.pf-v5-c-button.pf-m-primary:active {
+  transform: translateY(1px);
+}
+
+/* ─── secondary buttons (e.g. "Try another way") ───────────────────────── */
+.pf-v5-c-button.pf-m-secondary {
+  background-color: transparent !important;
+  border: 1px solid var(--openbin-zinc-700) !important;
+  color: var(--openbin-zinc-100) !important;
+}
+
+.pf-v5-c-button.pf-m-secondary:hover {
+  background-color: var(--openbin-zinc-800) !important;
+}
+
+/* ─── links ────────────────────────────────────────────────────────────── */
+a,
+.pf-v5-c-login__main-footer a,
+#kc-registration a,
+#kc-info a {
+  color: var(--openbin-amber) !important;
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--openbin-amber-dark) !important;
+  text-decoration: underline;
+}
+
+/* ─── social login buttons (Google / GitHub) ──────────────────────────── */
+.pf-v5-c-login__main-footer-band,
+#kc-social-providers {
+  background: transparent !important;
+  border-top: 1px solid var(--openbin-zinc-800) !important;
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.zocial,
+#kc-social-providers a {
+  background-color: var(--openbin-zinc-900) !important;
+  border: 1px solid var(--openbin-zinc-700) !important;
+  color: var(--openbin-zinc-100) !important;
+  border-radius: 6px;
+  padding: 10px 14px;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.zocial:hover,
+#kc-social-providers a:hover {
+  background-color: var(--openbin-zinc-800) !important;
+  border-color: var(--openbin-amber) !important;
+}
+
+/* ─── alerts / messages ────────────────────────────────────────────────── */
+.pf-v5-c-alert.pf-m-success,
+.kc-feedback-text.success {
+  background-color: rgba(34, 197, 94, 0.1) !important;
+  border-color: rgba(34, 197, 94, 0.4) !important;
+  color: #86efac !important;
+}
+
+.pf-v5-c-alert.pf-m-danger,
+.alert-error,
+.kc-feedback-text.error {
+  background-color: rgba(220, 38, 38, 0.1) !important;
+  border-color: rgba(220, 38, 38, 0.4) !important;
+  color: #fca5a5 !important;
+}
+
+/* ─── footer / required-field hint ─────────────────────────────────────── */
+.subtitle,
+.instruction {
+  color: var(--openbin-zinc-400) !important;
+}
+
+/* Default Keycloak adds a "required field" hint that's tiny grey — make it
+   readable on dark. */
+.required {
+  color: #fca5a5 !important;
+}

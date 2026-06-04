@@ -39,6 +39,32 @@
         "roles",
         "email"
       ]
+    },
+    {
+      "clientId": "openapk-cli",
+      "name": "OpenAPK CLI",
+      "description": "Public client for the OpenAPK desktop CLI. Uses OAuth 2.0 device authorization grant (RFC 8628) — no client secret, no redirect URI; user confirms in browser, CLI polls token endpoint.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "true",
+        "use.refresh.tokens": "true"
+      },
+      "defaultClientScopes": [
+        "acr",
+        "profile",
+        "roles",
+        "email"
+      ],
+      "optionalClientScopes": [
+        "offline_access"
+      ]
     }
-  ]
+  ],
+  "loginTheme": "openbin"
 }

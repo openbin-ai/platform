@@ -4,6 +4,7 @@ import ai.openapk.core.auth.User;
 import ai.openapk.core.nativeanalysis.dto.NativeLibraryView;
 import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.storage.ProjectStorage;
+import ai.openapk.core.usage.WorkerQuotaService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -55,17 +56,20 @@ public class NativeAnalysisService {
     private final NativeAnalysisRepository nativeRepo;
     private final ProjectStorage storage;
     private final NativeAnalysisRunner runner;
+    private final WorkerQuotaService workerQuota;
 
     public NativeAnalysisService(
             ProjectRepository projectRepo,
             NativeAnalysisRepository nativeRepo,
             ProjectStorage storage,
-            NativeAnalysisRunner runner
+            NativeAnalysisRunner runner,
+            WorkerQuotaService workerQuota
     ) {
         this.projectRepo = projectRepo;
         this.nativeRepo = nativeRepo;
         this.storage = storage;
         this.runner = runner;
+        this.workerQuota = workerQuota;
     }
 
     /**
@@ -173,9 +177,15 @@ public class NativeAnalysisService {
             return toView(libPath, inferArch(libPath), size, row);
         }
 
+        // Reserve the worker quota slot AFTER the PENDING row is flushed but
+        // BEFORE we dispatch to the runner. If the user is over their daily
+        // cap this throws 429; the surrounding @Transactional rolls back the
+        // PENDING row so the UI doesn't show a stuck job.
+        UUID runId = workerQuota.reserveRun(user.getId(), projectId, "ghidra");
+
         // Hand off to the @Async runner. This call goes through the proxy
         // because runner is a separate bean — kickoff returns immediately.
-        runner.run(user.getId(), projectId, libPath, row.getArch());
+        runner.run(user.getId(), projectId, libPath, row.getArch(), runId);
         return toView(libPath, row.getArch(), row.getSizeBytes(), row);
     }
 

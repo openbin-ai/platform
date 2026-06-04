@@ -9,6 +9,7 @@ import ai.openapk.core.projects.dto.UpdateProjectRequest;
 import ai.openapk.core.renames.RenameService;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.symbols.usages.UsageIndexerService;
+import ai.openapk.core.usage.WorkerQuotaService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -53,6 +54,7 @@ public class ProjectService {
     private final RenameService renameService;
     private final ObjectMapper mapper;
     private final UsageIndexerService usageIndexer;
+    private final WorkerQuotaService workerQuota;
 
     /**
      * Self-injected Spring proxy. Required for {@code @Async scheduleDecompile}
@@ -74,7 +76,8 @@ public class ProjectService {
             OpenApkProperties props,
             RenameService renameService,
             ObjectMapper mapper,
-            UsageIndexerService usageIndexer
+            UsageIndexerService usageIndexer,
+            WorkerQuotaService workerQuota
     ) {
         this.self = self;
         this.repo = repo;
@@ -85,6 +88,7 @@ public class ProjectService {
         this.renameService = renameService;
         this.mapper = mapper;
         this.usageIndexer = usageIndexer;
+        this.workerQuota = workerQuota;
     }
 
     @Transactional(readOnly = true)
@@ -203,11 +207,35 @@ public class ProjectService {
 
     @Async("decompileExecutor")
     public void scheduleDecompile(UUID userId, UUID projectId) {
+        // Resolve project kind up front so the quota audit row tags the right
+        // worker type. Cheap repo hit; happens off the request thread anyway.
+        ProjectKind kind = repo.findById(projectId).map(Project::getKind).orElse(null);
+        if (kind == null) {
+            log.error("decompile scheduled for missing project {}", projectId);
+            return;
+        }
+        String workerType = kind == ProjectKind.BIN ? "ghidra" : "jadx";
+
+        UUID runId;
+        try {
+            runId = workerQuota.reserveRun(userId, projectId, workerType);
+        } catch (ResponseStatusException quotaErr) {
+            // Quota gate fired before the worker was ever invoked. Bill is
+            // safe; surface the cause on the project row so the UI can show
+            // the upgrade/CLI path.
+            log.warn("worker quota blocked decompile for user {} project {}: {}",
+                    userId, projectId, quotaErr.getReason());
+            markFailed(projectId, quotaErr.getReason());
+            return;
+        }
+
         try {
             runDecompile(userId, projectId);
+            workerQuota.markComplete(runId, true, null);
         } catch (Exception e) {
             log.error("decompile failed for project {}: {}", projectId, e.toString(), e);
             markFailed(projectId, abbreviate(e.toString()));
+            workerQuota.markComplete(runId, false, e.toString());
         }
     }
 

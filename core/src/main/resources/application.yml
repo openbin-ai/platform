@@ -116,6 +116,14 @@ openapk:
     # JADX_TIMEOUT_SEC (default 15m). Big games take 5+ minutes; we give 5m
     # of headroom so legitimate decompiles don't get killed at the edge.
     worker-timeout: PT20M
+  workers:
+    # Phase 0 emergency quota: per-user daily cap on cloud worker dispatches
+    # (Ghidra + JADX combined). Stops the AWS bill from running away while
+    # the desktop CLI and proper credits system ship. Counts every dispatch,
+    # in-flight or completed, against the UTC-day window. Override via
+    # OPENAPK_WORKERS_DAILY_CAP — set to 0 (or any non-positive) to disable
+    # the gate entirely (back to unlimited).
+    daily-cap-per-user: ${OPENAPK_WORKERS_DAILY_CAP:5}
   email:
     # AWS SES outbound config. Leaving region/abuse-to blank disables email
     # entirely (every send is a no-op log line) — fine for local dev.

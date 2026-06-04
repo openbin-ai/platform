@@ -14,6 +14,7 @@ public record OpenApkProperties(
         Storage storage,
         Ghidra ghidra,
         Jadx jadx,
+        Workers workers,
         Email email
 ) {
 
@@ -62,6 +63,15 @@ public record OpenApkProperties(
      * previous in-JVM JADX integration — see jadx-worker/ at the repo root.
      */
     public record Jadx(String workerUrl, Duration workerTimeout) {}
+
+    /**
+     * Quota controls for cloud worker dispatches (Ghidra + JADX). Phase 0
+     * emergency throttle to bound the AWS bill while the desktop CLI and
+     * proper credits system are still in flight. {@code dailyCapPerUser}
+     * caps how many worker runs one user can start per UTC day; null or
+     * non-positive disables the gate entirely.
+     */
+    public record Workers(Integer dailyCapPerUser) {}
 
     /**
      * SES outbound email config. All three fields nullable so local dev

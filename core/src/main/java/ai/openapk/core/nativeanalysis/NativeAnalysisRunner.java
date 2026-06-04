@@ -1,6 +1,7 @@
 package ai.openapk.core.nativeanalysis;
 
 import ai.openapk.core.projects.storage.ProjectStorage;
+import ai.openapk.core.usage.WorkerQuotaService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
@@ -26,15 +27,18 @@ public class NativeAnalysisRunner {
     private final NativeAnalysisTxOps tx;
     private final ProjectStorage storage;
     private final GhidraWorkerClient worker;
+    private final WorkerQuotaService workerQuota;
 
     public NativeAnalysisRunner(
             NativeAnalysisTxOps tx,
             ProjectStorage storage,
-            GhidraWorkerClient worker
+            GhidraWorkerClient worker,
+            WorkerQuotaService workerQuota
     ) {
         this.tx = tx;
         this.storage = storage;
         this.worker = worker;
+        this.workerQuota = workerQuota;
     }
 
     /**
@@ -44,13 +48,14 @@ public class NativeAnalysisRunner {
      * frontend can render the cause.
      */
     @Async("nativeAnalysisExecutor")
-    public void run(UUID userId, UUID projectId, String libPath, String arch) {
+    public void run(UUID userId, UUID projectId, String libPath, String arch, UUID runId) {
         try {
             tx.beginRunning(projectId, libPath);
         } catch (Exception e) {
             log.error("native analysis pre-run setup failed for project {} lib {}: {}",
                     projectId, libPath, e.toString(), e);
             safeFail(projectId, libPath, "failed to start: " + abbreviate(e.toString()));
+            workerQuota.markComplete(runId, false, "failed to start: " + e);
             return;
         }
 
@@ -65,6 +70,7 @@ public class NativeAnalysisRunner {
             log.error("native analysis path resolution failed for project {} lib {}: {}",
                     projectId, libPath, e.toString(), e);
             safeFail(projectId, libPath, "path resolution failed: " + abbreviate(e.toString()));
+            workerQuota.markComplete(runId, false, "path resolution failed: " + e);
             return;
         }
 
@@ -73,15 +79,18 @@ public class NativeAnalysisRunner {
             if (resp.isOk()) {
                 tx.markReady(projectId, libPath, resp.body());
                 log.info("native analysis READY for project {} lib {}", projectId, libPath);
+                workerQuota.markComplete(runId, true, null);
             } else {
                 String msg = "worker returned status " + resp.status() + ": " + abbreviate(resp.body());
                 log.warn("native analysis FAILED for project {} lib {}: {}", projectId, libPath, msg);
                 safeFail(projectId, libPath, msg);
+                workerQuota.markComplete(runId, false, msg);
             }
         } catch (Exception e) {
             log.error("native analysis failed for project {} lib {}: {}",
                     projectId, libPath, e.toString(), e);
             safeFail(projectId, libPath, abbreviate(e.toString()));
+            workerQuota.markComplete(runId, false, e.toString());
         }
     }
 
