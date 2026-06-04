@@ -61,13 +61,16 @@ public class CommunityService {
     private final ObjectMapper mapper;
     private final EmailService email;
     private final MediaService mediaService;
+    private final ai.openapk.core.notifications.NotificationService notifications;
 
     public CommunityService(ProjectReportRepository reportRepo, ObjectMapper mapper,
-                            EmailService email, MediaService mediaService) {
+                            EmailService email, MediaService mediaService,
+                            ai.openapk.core.notifications.NotificationService notifications) {
         this.reportRepo = reportRepo;
         this.mapper = mapper;
         this.email = email;
         this.mediaService = mediaService;
+        this.notifications = notifications;
     }
 
     /**
@@ -280,6 +283,10 @@ public class CommunityService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "report not found");
         }
         email.sendAbuseReport(reportId, report.getTitle(), req.reason(), req.reporterEmail());
+        // Reporter confirmation (only fires if they supplied an email). The
+        // admin notification above always goes out regardless — different
+        // destinations, different content.
+        notifications.notifyAbuseReceived(req.reporterEmail(), reportId, report.getTitle());
     }
 
     /**

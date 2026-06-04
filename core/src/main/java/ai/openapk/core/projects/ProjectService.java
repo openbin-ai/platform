@@ -9,6 +9,7 @@ import ai.openapk.core.projects.dto.UpdateProjectRequest;
 import ai.openapk.core.renames.RenameService;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.symbols.usages.UsageIndexerService;
+import ai.openapk.core.notifications.NotificationService;
 import ai.openapk.core.usage.WorkerQuotaService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,6 +56,7 @@ public class ProjectService {
     private final ObjectMapper mapper;
     private final UsageIndexerService usageIndexer;
     private final WorkerQuotaService workerQuota;
+    private final NotificationService notifications;
 
     /**
      * Self-injected Spring proxy. Required for {@code @Async scheduleDecompile}
@@ -77,7 +79,8 @@ public class ProjectService {
             RenameService renameService,
             ObjectMapper mapper,
             UsageIndexerService usageIndexer,
-            WorkerQuotaService workerQuota
+            WorkerQuotaService workerQuota,
+            NotificationService notifications
     ) {
         this.self = self;
         this.repo = repo;
@@ -89,6 +92,7 @@ public class ProjectService {
         this.mapper = mapper;
         this.usageIndexer = usageIndexer;
         this.workerQuota = workerQuota;
+        this.notifications = notifications;
     }
 
     @Transactional(readOnly = true)
@@ -308,6 +312,11 @@ public class ProjectService {
         } catch (Exception e) {
             log.warn("usage index build failed for {}: {}", projectId, e.toString());
         }
+
+        // Decompile-complete notification — best-effort, runs in REQUIRES_NEW
+        // so an SES failure can't roll back the just-saved READY status. The
+        // gate (user opt-out + missing email) is enforced inside the service.
+        notifications.notifyDecompileComplete(project.getUser(), project);
     }
 
     /**

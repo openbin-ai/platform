@@ -81,17 +81,20 @@ public class ProjectReportService {
     private final ProjectReportRepository reportRepo;
     private final ObjectMapper mapper;
     private final ProjectStorage storage;
+    private final ai.openapk.core.notifications.NotificationService notifications;
 
     public ProjectReportService(
             ProjectRepository projectRepo,
             ProjectReportRepository reportRepo,
             ObjectMapper mapper,
-            ProjectStorage storage
+            ProjectStorage storage,
+            ai.openapk.core.notifications.NotificationService notifications
     ) {
         this.projectRepo = projectRepo;
         this.reportRepo = reportRepo;
         this.mapper = mapper;
         this.storage = storage;
+        this.notifications = notifications;
     }
 
     @Transactional
@@ -192,7 +195,11 @@ public class ProjectReportService {
 
         report.setMalwareType(malwareType);
         report.setTags(tags);
-        if (report.getCommunityPublishedAt() == null) {
+        // Track whether this call is the one that flipped the report into
+        // the community feed — we only want to fire the "your report is
+        // live" email on the first publish, not on every re-publish edit.
+        boolean firstPublishToCommunity = report.getCommunityPublishedAt() == null;
+        if (firstPublishToCommunity) {
             report.setCommunityPublishedAt(Instant.now());
         }
         if (report.getPublishedAt() == null) {
@@ -202,7 +209,11 @@ public class ProjectReportService {
             project.setWorkflowStatus(WorkflowStatus.PUBLISHED);
             projectRepo.save(project);
         }
-        return toResponse(reportRepo.save(report));
+        ProjectReport saved = reportRepo.save(report);
+        if (firstPublishToCommunity) {
+            notifications.notifyReportPublished(user, saved);
+        }
+        return toResponse(saved);
     }
 
     /**

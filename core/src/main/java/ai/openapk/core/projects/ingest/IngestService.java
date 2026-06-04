@@ -2,6 +2,7 @@ package ai.openapk.core.projects.ingest;
 
 import ai.openapk.core.analysis.AnalysisMode;
 import ai.openapk.core.auth.User;
+import ai.openapk.core.notifications.NotificationService;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.projects.ProjectRepository;
@@ -46,10 +47,12 @@ public class IngestService {
 
     private final ProjectRepository repo;
     private final ObjectMapper mapper;
+    private final NotificationService notifications;
 
-    public IngestService(ProjectRepository repo, ObjectMapper mapper) {
+    public IngestService(ProjectRepository repo, ObjectMapper mapper, NotificationService notifications) {
         this.repo = repo;
         this.mapper = mapper;
+        this.notifications = notifications;
     }
 
     @Transactional
@@ -112,6 +115,11 @@ public class IngestService {
         log.info("CLI ingest accepted: user={} project={} name={} size={}b functions={} source={}",
                 user.getId(), p.getId(), p.getName(), p.getSizeBytes(),
                 root.path("functions").size(), req.source());
+
+        // Decompile-complete email — same notification path as the APK flow,
+        // gated by the user's opt-out preferences and skipped silently if SES
+        // isn't configured.
+        notifications.notifyDecompileComplete(user, p);
 
         return ProjectResponse.from(p);
     }
