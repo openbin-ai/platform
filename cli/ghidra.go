@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -52,23 +53,70 @@ func runLocalGhidra(binaryPath, arch, image string) ([]byte, error) {
 	return body, nil
 }
 
+// ensureDockerImage makes sure the local Docker daemon has the bundled
+// Ghidra image loaded. Resolution order:
+//   1. Image already loaded (cheap inspect; common after first run).
+//   2. ghidra-worker.tar.gz sitting next to the CLI binary — `docker load`
+//      it. This is how release tarballs ship the image.
+//   3. ghidra-worker.tar.gz in the current working directory — same idea,
+//      for users who extracted to a different layout.
+//   4. Fail with a helpful message pointing at the release page.
+//
+// No `docker pull`, no registry, no auth. Fully offline-capable once the
+// release tarball is extracted.
 func ensureDockerImage(image string) error {
-	// `docker image inspect` returns exit 0 when the image is present
-	// locally, non-zero when it's missing. Cheaper than `docker pull` when
-	// the image is already cached (skips the network round-trip).
-	inspect := exec.Command("docker", "image", "inspect", image)
-	if err := inspect.Run(); err == nil {
+	if dockerImageExists(image) {
 		return nil
 	}
-	fmt.Fprintln(os.Stderr, "Pulling Ghidra worker image (first run only; ~2GB)...")
-	pull := exec.Command("docker", "pull", image)
-	pull.Stdout = os.Stderr
-	pull.Stderr = os.Stderr
-	if err := pull.Run(); err != nil {
-		return fmt.Errorf("docker pull %s: %w (have you `aws ecr get-login-password ... | docker login` ed?)",
-			image, err)
+	if tarball, ok := findBundledImageTarball(); ok {
+		fmt.Fprintln(os.Stderr, "Loading bundled Ghidra image (first run only; ~1GB)...")
+		if err := dockerLoad(tarball); err != nil {
+			return fmt.Errorf("docker load %s: %w", tarball, err)
+		}
+		if dockerImageExists(image) {
+			return nil
+		}
+		return fmt.Errorf("loaded %s but image %q still not found; report this to the maintainers",
+			tarball, image)
 	}
-	return nil
+	return fmt.Errorf(
+		"Ghidra image %q not loaded and no %s found next to the CLI or in the current directory.\n"+
+			"Download a release tarball that includes the image:\n"+
+			"  https://github.com/<owner>/openapk/releases/latest",
+		image, ghidraImageTarball)
+}
+
+func dockerImageExists(image string) bool {
+	return exec.Command("docker", "image", "inspect", image).Run() == nil
+}
+
+func dockerLoad(tarball string) error {
+	cmd := exec.Command("docker", "load", "-i", tarball)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// findBundledImageTarball looks for ghidra-worker.tar.gz next to the binary
+// first (the layout shipped in release tarballs), then in the user's cwd as
+// a fallback. Returns the absolute path if found.
+func findBundledImageTarball() (string, bool) {
+	var candidates []string
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), ghidraImageTarball))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(cwd, ghidraImageTarball))
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c, true
+		}
+		// Any stat error (missing, permissions, etc.) — just try the next
+		// candidate; a real "image not loadable" message lands at the
+		// caller if none of them work.
+	}
+	return "", false
 }
 
 func findFreePort() (int, error) {

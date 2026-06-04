@@ -1,0 +1,119 @@
+name: release-cli
+
+# Push a tag matching `cli-v*` (e.g. `cli-v0.1.0-alpha`) to cut a release.
+# Produces five per-platform release tarballs, each containing:
+#   - openapk(.exe)         the CLI binary, statically linked
+#   - ghidra-worker.tar.gz  the bundled Docker image (loaded on first run)
+#   - README.md             install + usage docs
+#
+# No registry login required from end users — the image ships in the tarball
+# and the CLI `docker load`s it on first run.
+
+on:
+  push:
+    tags:
+      - 'cli-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name to release as (e.g. cli-v0.1.0-alpha)'
+        required: true
+
+permissions:
+  contents: write   # needed to create the GitHub release
+
+jobs:
+  build-image:
+    name: Build + save ghidra-worker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # buildx caches layers between runs so the Ghidra download (~600 MB)
+      # is only paid on the first release; subsequent releases reuse the
+      # cached layer unless ghidra-worker/Dockerfile actually changes.
+      - name: Build ghidra-worker image
+        run: |
+          docker buildx build \
+            --load \
+            --tag openapk/ghidra-worker:bundled \
+            --cache-from=type=gha \
+            --cache-to=type=gha,mode=max \
+            ./ghidra-worker
+
+      - name: Save image to tarball
+        run: |
+          docker save openapk/ghidra-worker:bundled | gzip > ghidra-worker.tar.gz
+          ls -lh ghidra-worker.tar.gz
+
+      - name: Upload as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghidra-worker-image
+          path: ghidra-worker.tar.gz
+          retention-days: 1
+
+  release:
+    name: Build CLI ${{ matrix.os }}/${{ matrix.arch }}
+    needs: build-image
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux,   arch: amd64 }
+          - { os: linux,   arch: arm64 }
+          - { os: darwin,  arch: amd64 }
+          - { os: darwin,  arch: arm64 }
+          - { os: windows, arch: amd64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: cli/go.sum
+
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ghidra-worker-image
+
+      - name: Cross-compile CLI
+        working-directory: cli
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          # -trimpath strips build paths from the binary; -s -w strips the
+          # debug + symbol tables. Roughly halves the binary size with no
+          # functional impact (we don't ship a debugger-friendly build).
+          out=openapk
+          [ "$GOOS" = "windows" ] && out=openapk.exe
+          go build -trimpath -ldflags="-s -w" -o "$out" .
+          ls -lh "$out"
+
+      - name: Assemble release tarball
+        run: |
+          ver="${{ github.event.inputs.tag || github.ref_name }}"
+          pkg="openapk-cli-${ver}-${{ matrix.os }}-${{ matrix.arch }}"
+          mkdir "$pkg"
+          bin=openapk
+          [ "${{ matrix.os }}" = "windows" ] && bin=openapk.exe
+          mv "cli/$bin" "$pkg/"
+          mv ghidra-worker.tar.gz "$pkg/"
+          cp cli/README.md "$pkg/"
+          tar czf "$pkg.tar.gz" "$pkg/"
+          ls -lh "$pkg.tar.gz"
+
+      - name: Attach to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: openapk-cli-*.tar.gz
+          generate_release_notes: true
+          fail_on_unmatched_files: true

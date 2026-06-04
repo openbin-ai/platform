@@ -7,13 +7,14 @@ import (
 	"strings"
 )
 
-// Defaults assume local dev (compose stack on the developer's box). For shipped
-// binaries we'll bake prod URLs into a release build via -ldflags. Users can
-// override either default at runtime by setting OPENAPK_API_URL or
-// OPENAPK_AUTH_URL — handy for QA/staging or self-hosters.
+// Defaults point at production. Local dev overrides with env vars:
+//
+//   OPENAPK_API_URL=http://localhost:8081 OPENAPK_AUTH_URL=http://localhost:8080 ./openapk login
+//
+// Shipped release binaries hit api.openapk.ai/auth.openapk.ai out of the box.
 const (
-	defaultAPIBaseURL  = "http://localhost:8081"
-	defaultAuthBaseURL = "http://localhost:8080"
+	defaultAPIBaseURL  = "https://api.openapk.ai"
+	defaultAuthBaseURL = "https://auth.openapk.ai"
 	keycloakRealm      = "openapk"
 	cliClientID        = "openapk-cli"
 
@@ -22,10 +23,12 @@ const (
 	// lockstep when worker JSON output gains/loses required fields.
 	ingestSchemaVersion = "1.0"
 
-	// Docker image the CLI pulls + runs locally to do the decompile. Pinned
-	// to :latest for the alpha; production releases should pin to a digest
-	// so a republished worker can't silently change behavior under users.
-	ghidraWorkerImage = "804517034561.dkr.ecr.us-east-1.amazonaws.com/openapk/ghidra-worker:latest"
+	// Local Docker tag the CLI loads from the bundled tarball and then runs.
+	// Release tarballs ship the image as `ghidra-worker.tar.gz` next to the
+	// binary; we `docker load` it on first run so end users never need
+	// network access for the image. See `ensureDockerImage` in ghidra.go.
+	ghidraWorkerImage   = "openapk/ghidra-worker:bundled"
+	ghidraImageTarball  = "ghidra-worker.tar.gz"
 )
 
 // config groups the runtime endpoints + Keycloak details. Resolved once at
