@@ -773,15 +773,19 @@ function GhidraSunsetCard() {
               Download the OpenBin CLI →
             </a>
             <span className="text-xs text-zinc-500">
-              Linux · macOS · Windows · free · open-source
+              Linux · macOS · free · open-source
             </span>
           </div>
           <pre className="mt-4 overflow-x-auto rounded border border-zinc-800 bg-black/40 p-3 font-mono text-[11px] leading-relaxed text-zinc-300">
-{`# Linux/macOS — one-time setup
+{`# Linux/macOS — install once, run from anywhere
 tar xzf openbin-*-linux-amd64.tar.gz
-cd openbin-*-linux-amd64
-./openbin login
-./openbin decompile firmware.elf
+mkdir -p ~/.local/share/openbin ~/.local/bin
+mv openbin-*/ghidra-worker.tar.gz ~/.local/share/openbin/
+mv openbin-*/openbin              ~/.local/bin/
+# Make sure ~/.local/bin is on PATH (already is on most modern shells)
+
+openbin login
+openbin decompile firmware.elf
 # Project appears in the list below when upload finishes.`}
           </pre>
           <p className="mt-4 border-t border-amber-900/40 pt-3 text-xs text-zinc-400">

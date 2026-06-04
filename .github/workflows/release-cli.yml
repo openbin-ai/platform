@@ -63,12 +63,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Linux + macOS only. Windows is intentionally out — see
+        # [[desktop-client-and-windows-upsell]]; openbin is a Unix-first
+        # tool for security researchers and we're not maintaining a
+        # Windows port until there's demand worth the support burden.
         include:
-          - { os: linux,   arch: amd64 }
-          - { os: linux,   arch: arm64 }
-          - { os: darwin,  arch: amd64 }
-          - { os: darwin,  arch: arm64 }
-          - { os: windows, arch: amd64 }
+          - { os: linux,  arch: amd64 }
+          - { os: linux,  arch: arm64 }
+          - { os: darwin, arch: amd64 }
+          - { os: darwin, arch: arm64 }
     steps:
       - uses: actions/checkout@v4
 
@@ -92,21 +95,20 @@ jobs:
           # -trimpath strips build paths from the binary; -s -w strips the
           # debug + symbol tables. Roughly halves the binary size with no
           # functional impact (we don't ship a debugger-friendly build).
-          out=openbin
-          [ "$GOOS" = "windows" ] && out=openbin.exe
-          go build -trimpath -ldflags="-s -w" -o "$out" .
-          ls -lh "$out"
+          go build -trimpath -ldflags="-s -w" -o openbin .
+          ls -lh openbin
 
       - name: Assemble release tarball
         run: |
           ver="${{ github.event.inputs.tag || github.ref_name }}"
-          pkg="openbin-${ver}-${{ matrix.os }}-${{ matrix.arch }}"
+          # Strip the `openbin-` prefix from the tag so the package name
+          # is `openbin-v0.1.0-alpha-...` not `openbin-openbin-v0.1.0-alpha-...`.
+          short_ver="${ver#openbin-}"
+          pkg="openbin-${short_ver}-${{ matrix.os }}-${{ matrix.arch }}"
           mkdir "$pkg"
-          bin=openbin
-          [ "${{ matrix.os }}" = "windows" ] && bin=openbin.exe
-          mv "cli/$bin" "$pkg/"
-          mv ghidra-worker.tar.gz "$pkg/"
-          cp cli/README.md "$pkg/"
+          mv cli/openbin           "$pkg/"
+          mv ghidra-worker.tar.gz  "$pkg/"
+          cp cli/README.md         "$pkg/"
           tar czf "$pkg.tar.gz" "$pkg/"
           ls -lh "$pkg.tar.gz"
 

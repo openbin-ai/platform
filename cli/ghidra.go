@@ -80,10 +80,15 @@ func ensureDockerImage(image string) error {
 			tarball, image)
 	}
 	return fmt.Errorf(
-		"Ghidra image %q not loaded and no %s found next to the CLI or in the current directory.\n"+
+		"Ghidra image %q not loaded and no %s found in any of:\n"+
+			"  - next to the openbin binary\n"+
+			"  - %s\n"+
+			"  - /usr/local/share/openbin/\n"+
+			"  - the current working directory\n"+
 			"Download a release tarball that includes the image:\n"+
-			"  https://github.com/<owner>/openapk/releases/latest",
-		image, ghidraImageTarball)
+			"  https://github.com/openbin-ai/platform/releases/latest",
+		image, ghidraImageTarball,
+		filepath.Join(xdgDataHome(), "openbin"))
 }
 
 func dockerImageExists(image string) bool {
@@ -97,17 +102,39 @@ func dockerLoad(tarball string) error {
 	return cmd.Run()
 }
 
-// findBundledImageTarball looks for ghidra-worker.tar.gz next to the binary
-// first (the layout shipped in release tarballs), then in the user's cwd as
-// a fallback. Returns the absolute path if found.
+// findBundledImageTarball searches the standard install locations for
+// ghidra-worker.tar.gz. Resolution order, first match wins:
+//   1. Next to the executable (the extracted-release layout, and the case
+//      where a symlinked binary's target dir contains the tarball).
+//   2. $XDG_DATA_HOME/openbin/ (~/.local/share/openbin/ when XDG_DATA_HOME
+//      is unset) — where a PATH install puts shared assets per XDG.
+//   3. /usr/local/share/openbin/ — the system-wide install location.
+//   4. The current working directory — last-resort, lets users drop
+//      both the binary and the tarball into any folder and `cd` in.
+//
+// The executable's path is fully resolved (symlinks followed) so an
+// `ln -s ~/.local/share/openbin/openbin ~/.local/bin/openbin` style install
+// finds the tarball next to the real file, not next to the symlink.
 func findBundledImageTarball() (string, bool) {
 	var candidates []string
+
 	if exe, err := os.Executable(); err == nil {
-		candidates = append(candidates, filepath.Join(filepath.Dir(exe), ghidraImageTarball))
+		// EvalSymlinks may fail on Windows for paths containing reparse
+		// points; fall back to the raw path in that case.
+		resolved := exe
+		if real, err := filepath.EvalSymlinks(exe); err == nil {
+			resolved = real
+		}
+		candidates = append(candidates, filepath.Join(filepath.Dir(resolved), ghidraImageTarball))
 	}
+
+	candidates = append(candidates, filepath.Join(xdgDataHome(), "openbin", ghidraImageTarball))
+	candidates = append(candidates, filepath.Join("/usr/local/share/openbin", ghidraImageTarball))
+
 	if cwd, err := os.Getwd(); err == nil {
 		candidates = append(candidates, filepath.Join(cwd, ghidraImageTarball))
 	}
+
 	for _, c := range candidates {
 		if _, err := os.Stat(c); err == nil {
 			return c, true
@@ -117,6 +144,19 @@ func findBundledImageTarball() (string, bool) {
 		// caller if none of them work.
 	}
 	return "", false
+}
+
+// xdgDataHome returns $XDG_DATA_HOME with the XDG-spec fallback to
+// ~/.local/share. Mirrors how config.go resolves XDG_CONFIG_HOME, kept
+// inline here so ghidra.go can stand on its own without a shared util file.
+func xdgDataHome() string {
+	if v := os.Getenv("XDG_DATA_HOME"); v != "" {
+		return v
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".local", "share")
+	}
+	return ""
 }
 
 func findFreePort() (int, error) {

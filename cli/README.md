@@ -6,39 +6,89 @@ JSON (function listings, strings, imports, metadata) is uploaded.
 
 ## Install
 
-1. Download the latest release tarball for your platform from
-   <https://github.com/openbin-ai/platform/releases/latest>:
-   - `openbin-<version>-linux-amd64.tar.gz`
-   - `openbin-<version>-linux-arm64.tar.gz`
-   - `openbin-<version>-darwin-amd64.tar.gz` (Intel Mac)
-   - `openbin-<version>-darwin-arm64.tar.gz` (Apple Silicon)
-   - `openbin-<version>-windows-amd64.tar.gz`
+Download the tarball for your platform from
+<https://github.com/openbin-ai/platform/releases/latest>:
 
-2. Extract:
+| Platform | File |
+|---|---|
+| Linux x86_64 | `openbin-<ver>-linux-amd64.tar.gz` |
+| Linux ARM64 | `openbin-<ver>-linux-arm64.tar.gz` |
+| macOS Intel | `openbin-<ver>-darwin-amd64.tar.gz` |
+| macOS Apple Silicon | `openbin-<ver>-darwin-arm64.tar.gz` |
 
-   ```bash
-   tar xzf openbin-*-linux-amd64.tar.gz
-   cd openbin-*-linux-amd64
-   ```
+Windows is intentionally not supported — openbin is a Unix-first tool for
+security researchers. Use WSL2 if you're on Windows.
 
-3. (Linux/macOS) Mark the binary executable if your archive tool stripped
-   the bit:
-
-   ```bash
-   chmod +x openbin
-   ```
-
-The extracted directory looks like this:
+Each tarball contains:
 
 ```
-openbin-v0.1.0-linux-amd64/
+openbin-<ver>-<os>-<arch>/
 ├── openbin              ← the CLI binary
 ├── ghidra-worker.tar.gz ← bundled Ghidra Docker image (~1 GB)
 └── README.md            ← this file
 ```
 
+### Linux / macOS — install to your `$PATH`
+
+```bash
+# Extract anywhere
+tar xzf openbin-*-<os>-<arch>.tar.gz
+cd openbin-*-<os>-<arch>
+
+# Install: binary on PATH, image tarball in XDG data dir
+mkdir -p ~/.local/share/openbin ~/.local/bin
+mv ghidra-worker.tar.gz ~/.local/share/openbin/
+mv openbin              ~/.local/bin/
+chmod +x ~/.local/bin/openbin
+
+# One-time: add ~/.local/bin to PATH if it's not already
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+     echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc 2>/dev/null || true ;;
+esac
+exec $SHELL -l   # reload PATH in the current shell
+```
+
+Verify:
+
+```bash
+which openbin            # → /home/<you>/.local/bin/openbin
+openbin --help
+```
+
+System-wide alternative (needs `sudo`):
+
+```bash
+sudo mv ghidra-worker.tar.gz /usr/local/share/openbin/
+sudo mv openbin              /usr/local/bin/
+sudo chmod +x /usr/local/bin/openbin
+```
+
+The CLI looks for `ghidra-worker.tar.gz` in this order:
+
+1. Next to the binary (resolving symlinks — safe to symlink into PATH)
+2. `~/.local/share/openbin/` (XDG data dir)
+3. `/usr/local/share/openbin/` (system-wide)
+4. The current working directory (last resort)
+
+So as long as you put the tarball in any of those, the binary can live anywhere on PATH.
+
+### Quick start without installing
+
+You can skip the PATH step and just run the binary in place — it still
+works from the extracted folder:
+
+```bash
+tar xzf openbin-*.tar.gz
+cd openbin-*-<os>-<arch>
+./openbin login
+./openbin decompile firmware.elf
+```
+
 ## Requirements
 
+- **Linux or macOS.** Windows is not supported (use WSL2).
 - **Docker** running on your machine ([install](https://docs.docker.com/get-docker/)).
   Used to run the local Ghidra worker — no other Ghidra install needed.
 - An **OpenBin account** at <https://openbin.ai> (free).
