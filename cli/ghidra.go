@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -11,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -38,6 +41,16 @@ func runLocalGhidra(binaryPath, arch, image string) ([]byte, error) {
 	}
 	defer stopContainer(containerID) // best-effort cleanup; ignore errors
 
+	// Stream the worker's stdout/stderr to the user's terminal in the
+	// background, plus a wall-clock heartbeat. Ghidra can go quiet for
+	// minutes between analysis phases; without these the CLI looks frozen.
+	streamCtx, cancelStream := context.WithCancel(context.Background())
+	defer cancelStream()
+	var streamWG sync.WaitGroup
+	streamWG.Add(2)
+	go func() { defer streamWG.Done(); streamContainerLogs(streamCtx, containerID) }()
+	go func() { defer streamWG.Done(); heartbeat(streamCtx, "decompile") }()
+
 	if err := waitForHealth(port, 60*time.Second); err != nil {
 		// On a health failure, dump the container logs so the user has
 		// something to file a bug with instead of "it didn't work".
@@ -46,11 +59,69 @@ func runLocalGhidra(binaryPath, arch, image string) ([]byte, error) {
 	}
 
 	body, err := postBinary(port, binaryPath, arch)
+	cancelStream()
+	streamWG.Wait()
 	if err != nil {
 		dumpContainerLogs(containerID)
 		return nil, err
 	}
 	return body, nil
+}
+
+// streamContainerLogs pipes the worker's stdout/stderr to the CLI user's
+// terminal so they can see what Ghidra is doing in real time. Lines are
+// prefixed `[ghidra] ` to disambiguate them from the CLI's own messages.
+// Exits when ctx is cancelled (which happens once the worker call returns
+// or the run is otherwise torn down).
+func streamContainerLogs(ctx context.Context, containerID string) {
+	cmd := exec.CommandContext(ctx, "docker", "logs", "-f", "--tail", "0", containerID)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return
+	}
+	if err := cmd.Start(); err != nil {
+		return
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); pipePrefixed(stdout, "[ghidra] ") }()
+	go func() { defer wg.Done(); pipePrefixed(stderr, "[ghidra] ") }()
+	wg.Wait()
+	_ = cmd.Wait()
+}
+
+// heartbeat prints an elapsed-time tick every 30s so the user knows the
+// CLI hasn't hung even during the long Ghidra phases that produce no
+// container log output (stripped-symbol analysis can go silent for 5+ min).
+func heartbeat(ctx context.Context, label string) {
+	start := time.Now()
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			fmt.Fprintf(os.Stderr, "[%s] still working (%s elapsed)\n",
+				label, time.Since(start).Round(time.Second))
+		}
+	}
+}
+
+func pipePrefixed(r io.ReadCloser, prefix string) {
+	defer r.Close()
+	scanner := bufio.NewScanner(r)
+	// Buffer up to 1 MiB per line — Ghidra occasionally emits huge stack
+	// traces that overflow the default 64 KiB scanner buffer and would
+	// otherwise crash the goroutine mid-stream.
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		fmt.Fprintln(os.Stderr, prefix+scanner.Text())
+	}
 }
 
 // ensureDockerImage makes sure the local Docker daemon has the bundled

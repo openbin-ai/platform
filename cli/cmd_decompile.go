@@ -43,10 +43,14 @@ Examples:
 
 		cfg := loadConfig()
 
-		// Resolve auth FIRST so the user finds out about a missing login
-		// before the long Ghidra run, not after.
-		token, err := ensureValidAccessToken(cfg)
-		if err != nil {
+		// Verify the user is logged in BEFORE the long Ghidra run so they
+		// don't waste 20 minutes only to discover they're not authenticated.
+		// We deliberately throw the token away here — Ghidra can run for
+		// 30+ minutes and the access token's lifetime (5–15 min typically)
+		// won't survive that. A fresh ensureValidAccessToken() right before
+		// the upload below picks up a refreshed token from the on-disk
+		// credentials file.
+		if _, err := ensureValidAccessToken(cfg); err != nil {
 			return err
 		}
 
@@ -82,6 +86,16 @@ Examples:
 		}
 		fmt.Printf("Local decompile finished in %s. Uploading...\n",
 			roundDuration(time.Since(start)))
+
+		// Refresh the access token RIGHT BEFORE the upload — the decompile
+		// could have taken many minutes and the original token has almost
+		// certainly expired by now. ensureValidAccessToken triggers a
+		// refresh if the token is within 30s of expiry; the refresh_token
+		// has a much longer life (typically 30+ minutes) so this just works.
+		token, err := ensureValidAccessToken(cfg)
+		if err != nil {
+			return fmt.Errorf("re-auth before upload: %w", err)
+		}
 
 		ir, err := ingestProject(cfg, token, name, filename, arch, sha, size, workerJSON)
 		if err != nil {
