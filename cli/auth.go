@@ -27,9 +27,9 @@ type credentials struct {
 	ClientID     string    `json:"client_id"`
 }
 
-// loadCredentials reads ~/.config/openapk/credentials.json. Returns
+// loadCredentials reads ~/.config/openbin/credentials.json. Returns
 // (nil, nil) when the file doesn't exist so the caller can prompt for
-// `openapk login` cleanly instead of distinguishing "no file" from "broken
+// `openbin login` cleanly instead of distinguishing "no file" from "broken
 // file" itself.
 func loadCredentials() (*credentials, error) {
 	path, err := credentialsPath()
@@ -126,7 +126,7 @@ func pollDeviceFlow(cfg config, dc *deviceCodeResponse) (*tokenResponse, error) 
 
 	for {
 		if time.Now().After(deadline) {
-			return nil, errors.New("device code expired before login completed; run `openapk login` again")
+			return nil, errors.New("device code expired before login completed; run `openbin login` again")
 		}
 		time.Sleep(interval)
 
@@ -156,7 +156,7 @@ func pollDeviceFlow(cfg config, dc *deviceCodeResponse) (*tokenResponse, error) 
 		case "slow_down":
 			interval += 5 * time.Second
 		case "expired_token":
-			return nil, errors.New("device code expired; run `openapk login` again")
+			return nil, errors.New("device code expired; run `openbin login` again")
 		case "access_denied":
 			return nil, errors.New("login denied")
 		default:
@@ -171,7 +171,7 @@ func pollDeviceFlow(cfg config, dc *deviceCodeResponse) (*tokenResponse, error) 
 // is left untouched so the user can retry rather than landing in a half-state.
 func refreshAccessToken(cfg config, creds *credentials) error {
 	if creds.RefreshToken == "" {
-		return errors.New("no refresh token; run `openapk login` again")
+		return errors.New("no refresh token; run `openbin login` again")
 	}
 	form := url.Values{
 		"grant_type":    {"refresh_token"},
@@ -205,14 +205,14 @@ func refreshAccessToken(cfg config, creds *credentials) error {
 // ensureValidAccessToken loads credentials, refreshes if the access token is
 // about to expire (within 30s), and returns the bearer token to attach to
 // API calls. Returns an error if the user isn't logged in yet — caller
-// should surface that as "run `openapk login` first".
+// should surface that as "run `openbin login` first".
 func ensureValidAccessToken(cfg config) (string, error) {
 	creds, err := loadCredentials()
 	if err != nil {
 		return "", err
 	}
 	if creds == nil {
-		return "", errors.New("not logged in; run `openapk login` first")
+		return "", errors.New("not logged in; run `openbin login` first")
 	}
 	// Refresh slightly before expiry so a request that takes a few seconds
 	// can't time-out mid-flight on a stale token.

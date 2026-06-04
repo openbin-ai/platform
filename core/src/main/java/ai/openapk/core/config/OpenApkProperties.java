@@ -54,8 +54,14 @@ public record OpenApkProperties(
     /**
      * Connection details for the Ghidra worker microservice
      * (Python FastAPI + analyzeHeadless, deployed separately).
+     *
+     * <p>{@code workerDisabled=true} hard-fails any code path that would
+     * dispatch to the cloud worker (BIN upload + per-{@code .so} analyze)
+     * with the {@code GhidraSunsetMessage.TEXT} payload, pointing users at
+     * the desktop CLI. Set to false to re-enable cloud decompile (e.g.
+     * after sponsorship lands).
      */
-    public record Ghidra(String workerUrl, Duration workerTimeout) {}
+    public record Ghidra(String workerUrl, Duration workerTimeout, Boolean workerDisabled) {}
 
     /**
      * Connection details for the JADX worker microservice

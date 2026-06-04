@@ -9,14 +9,17 @@ import (
 
 // Defaults point at production. Local dev overrides with env vars:
 //
-//   OPENAPK_API_URL=http://localhost:8081 OPENAPK_AUTH_URL=http://localhost:8080 ./openapk login
+//   OPENBIN_API_URL=http://localhost:8081 OPENBIN_AUTH_URL=http://localhost:8080 ./openbin login
 //
-// Shipped release binaries hit api.openapk.ai/auth.openapk.ai out of the box.
+// Shipped release binaries hit api.openapk.ai / auth.openapk.ai out of the
+// box. The API + Keycloak domains are on openapk.ai because openbin and
+// openapk share one backend + one realm — the CLI brand is openbin (native
+// binaries) but the data plane is the shared one.
 const (
 	defaultAPIBaseURL  = "https://api.openapk.ai"
 	defaultAuthBaseURL = "https://auth.openapk.ai"
 	keycloakRealm      = "openapk"
-	cliClientID        = "openapk-cli"
+	cliClientID        = "openbin-cli"
 
 	// Pinned ingestion schema version. Backend rejects mismatched clients with
 	// a "please upgrade" error rather than guessing at an old shape. Bump in
@@ -27,8 +30,8 @@ const (
 	// Release tarballs ship the image as `ghidra-worker.tar.gz` next to the
 	// binary; we `docker load` it on first run so end users never need
 	// network access for the image. See `ensureDockerImage` in ghidra.go.
-	ghidraWorkerImage   = "openapk/ghidra-worker:bundled"
-	ghidraImageTarball  = "ghidra-worker.tar.gz"
+	ghidraWorkerImage  = "openbin/ghidra-worker:bundled"
+	ghidraImageTarball = "ghidra-worker.tar.gz"
 )
 
 // config groups the runtime endpoints + Keycloak details. Resolved once at
@@ -43,8 +46,8 @@ type config struct {
 
 func loadConfig() config {
 	return config{
-		apiBase:  envOr("OPENAPK_API_URL", defaultAPIBaseURL),
-		authBase: envOr("OPENAPK_AUTH_URL", defaultAuthBaseURL),
+		apiBase:  envOr("OPENBIN_API_URL", defaultAPIBaseURL),
+		authBase: envOr("OPENBIN_AUTH_URL", defaultAuthBaseURL),
 		realm:    keycloakRealm,
 		clientID: cliClientID,
 	}
@@ -67,7 +70,7 @@ func (c config) userInfoEndpoint() string {
 		strings.TrimRight(c.authBase, "/"), c.realm)
 }
 
-// credentialsPath returns ~/.config/openapk/credentials.json. We follow XDG
+// credentialsPath returns ~/.config/openbin/credentials.json. We follow XDG
 // when XDG_CONFIG_HOME is set so the file lands in the user's preferred
 // location on Linux; on macOS this resolves to ~/.config which is fine
 // even though Apple convention is ~/Library/Application Support.
@@ -80,7 +83,7 @@ func credentialsPath() (string, error) {
 		}
 		xdg = filepath.Join(home, ".config")
 	}
-	return filepath.Join(xdg, "openapk", "credentials.json"), nil
+	return filepath.Join(xdg, "openbin", "credentials.json"), nil
 }
 
 func envOr(key, fallback string) string {

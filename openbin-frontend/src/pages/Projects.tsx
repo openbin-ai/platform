@@ -238,88 +238,19 @@ function ProjectsTab({
   onDelete: (id: string, name: string) => void
   onPatch: (id: string, body: Partial<{ name: string; workflowStatus: WorkflowStatus }>) => void
 }) {
-  const uploading = upload !== null
-  // Clamp pct to [0, 99] while bytes are still streaming — 100% is reserved
-  // for the moment the server has fully acknowledged the request, after
-  // which setUpload(null) flips us back to the idle dropzone.
-  const pct =
-    upload && upload.total > 0
-      ? Math.min(99, Math.floor((upload.sent / upload.total) * 100))
-      : 0
+  // Cloud decompile is sunset — the live upload state still flows in from
+  // the parent so we can restore the dropzone in one revert. For now we
+  // void-reference the setters so TS's unused-locals check stays happy
+  // without having to thread the prop list back through the caller.
+  void [setDragActive, setArch, fileInputRef, onFiles, upload, dragActive, arch]
   return (
     <div className="space-y-6">
-      {/* Arch hint lives above the dropzone so it's discoverable without
-          crowding the drop area itself. Disabled while an upload is in
-          flight — changing it mid-flight wouldn't take effect anyway. */}
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="text-xs text-zinc-400">
-          <span className="mb-1 block uppercase tracking-wider">Arch hint</span>
-          <select
-            value={arch}
-            onChange={(e) => setArch(e.target.value as (typeof ARCHES)[number])}
-            disabled={uploading}
-            className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-200 disabled:opacity-50"
-          >
-            {ARCHES.map((a) => (
-              <option key={a} value={a}>{a}</option>
-            ))}
-          </select>
-        </label>
-        <p className="flex-1 text-xs text-zinc-500">
-          Ghidra auto-detects the arch for well-formed binaries; the hint
-          is forwarded as-is to the worker and round-tripped in metadata.
-        </p>
-      </div>
-
-      <div
-        onDragEnter={(e) => { e.preventDefault(); if (!uploading) setDragActive(true) }}
-        onDragOver={(e) => { e.preventDefault(); if (!uploading) setDragActive(true) }}
-        onDragLeave={(e) => { e.preventDefault(); setDragActive(false) }}
-        onDrop={(e) => {
-          e.preventDefault()
-          setDragActive(false)
-          if (!uploading) onFiles(e.dataTransfer.files)
-        }}
-        onClick={() => { if (!uploading) fileInputRef.current?.click() }}
-        className={`relative flex h-40 items-center justify-center overflow-hidden rounded-lg border-2 border-dashed transition-colors ${
-          uploading
-            ? 'cursor-progress border-purple-500/70 bg-purple-950/20'
-            : dragActive
-              ? 'cursor-pointer border-purple-500 bg-purple-950/30'
-              : 'cursor-pointer border-zinc-700 bg-zinc-900/40 hover:border-zinc-500'
-        }`}
-      >
-        {uploading && upload ? (
-          <div className="z-10 w-full max-w-xl px-6 text-center">
-            <p className="truncate font-mono text-sm text-zinc-100">{upload.filename}</p>
-            <p className="mt-1 text-xs text-zinc-400">
-              Uploading {pct}% · {formatBytes(upload.sent)} / {formatBytes(upload.total)}
-            </p>
-            <div className="mt-3 h-2 overflow-hidden rounded bg-zinc-800/80">
-              <div
-                className="h-full bg-linear-to-r from-purple-600 to-purple-400 transition-[width] duration-150 ease-out"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            <p className="mt-2 text-[10px] uppercase tracking-wider text-zinc-500">
-              Ghidra analysis starts automatically when transfer completes
-            </p>
-          </div>
-        ) : (
-          <div className="text-center">
-            <p className="text-zinc-200">Drop a binary here or click to browse</p>
-            <p className="mt-1 text-xs text-zinc-500">
-              ELF · PE · Mach-O · auto-detected by magic bytes
-            </p>
-          </div>
-        )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          onChange={(e) => onFiles(e.target.files)}
-        />
-      </div>
+      {/* Cloud decompile is sunset — Fargate compute outpaced what an OSS
+          project can self-fund. Users get pointed at the local CLI instead.
+          To re-enable: flip `openapk.ghidra.worker-disabled=false` in the
+          backend AND restore the original arch-hint + drop zone (still in
+          git history before this commit). */}
+      <GhidraSunsetCard />
 
       {loading ? (
         <p className="text-zinc-500">Loading…</p>
@@ -804,4 +735,66 @@ function formatBytes(n: number): string {
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'report'
+}
+
+/**
+ * Sunset notice replacing the upload dropzone while
+ * `openapk.ghidra.worker-disabled=true` is set on the backend. The CLI runs
+ * Ghidra on the user's own machine and POSTs the result here, so existing
+ * projects in the list below stay fully functional — only the cloud
+ * spin-up-a-worker path is gone. Sponsorship inbound goes to
+ * husam@openbin.ai.
+ */
+function GhidraSunsetCard() {
+  const releasesURL = 'https://github.com/openbin-ai/platform/releases/latest'
+  return (
+    <div className="overflow-hidden rounded-lg border border-amber-700/50 bg-linear-to-br from-amber-950/40 via-zinc-950/40 to-zinc-950/60 p-6 shadow-[0_8px_40px_rgba(251,191,36,0.08)]">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 rounded border border-amber-600/60 bg-amber-900/40 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-amber-300">
+          Cloud paused
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-lg font-semibold text-zinc-50">
+            Cloud Ghidra decompile is temporarily disabled
+          </h2>
+          <p className="mt-1 text-sm leading-relaxed text-zinc-300">
+            AWS compute for the Ghidra worker outpaced what a free open-source
+            project can self-fund. We've moved the decompile to a local CLI
+            you run on your own machine — your binary never leaves your laptop,
+            only the resulting analysis JSON is uploaded.
+          </p>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <a
+              href={releasesURL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center rounded-md bg-amber-400 px-4 py-2 text-sm font-semibold text-black shadow-[0_4px_20px_rgba(251,191,36,0.4)] transition hover:bg-amber-300"
+            >
+              Download the OpenBin CLI →
+            </a>
+            <span className="text-xs text-zinc-500">
+              Linux · macOS · Windows · free · open-source
+            </span>
+          </div>
+          <pre className="mt-4 overflow-x-auto rounded border border-zinc-800 bg-black/40 p-3 font-mono text-[11px] leading-relaxed text-zinc-300">
+{`# Linux/macOS — one-time setup
+tar xzf openbin-*-linux-amd64.tar.gz
+cd openbin-*-linux-amd64
+./openbin login
+./openbin decompile firmware.elf
+# Project appears in the list below when upload finishes.`}
+          </pre>
+          <p className="mt-4 border-t border-amber-900/40 pt-3 text-xs text-zinc-400">
+            Want to sponsor cloud Ghidra for the community?{' '}
+            <a
+              href="mailto:husam@openbin.ai"
+              className="font-medium text-amber-300 underline-offset-4 hover:underline"
+            >
+              husam@openbin.ai
+            </a>
+          </p>
+        </div>
+      </div>
+    </div>
+  )
 }

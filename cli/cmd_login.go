@@ -12,7 +12,7 @@ var loginCmd = &cobra.Command{
 	Short: "Authenticate via the browser and save credentials locally",
 	Long: `Runs the OAuth 2.0 device authorization grant against Keycloak. We open
 your browser to a verification URL and show you a short code to confirm; once
-you finish, the access + refresh tokens land in ~/.config/openapk/credentials.json
+you finish, the access + refresh tokens land in ~/.config/openbin/credentials.json
 (mode 0600). Subsequent commands renew automatically.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := loadConfig()

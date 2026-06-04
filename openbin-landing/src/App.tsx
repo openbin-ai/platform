@@ -127,12 +127,20 @@ function Hero() {
       </p>
       <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row">
         <a
-          href="https://app.openbin.ai"
+          href="https://github.com/openbin-ai/platform/releases/latest"
           target="_blank"
           rel="noopener noreferrer"
           className="rounded-md bg-amber-400 px-6 py-3 text-base font-semibold text-black shadow-[0_6px_30px_rgba(251,191,36,0.45)] transition hover:bg-amber-300"
         >
-          Open OpenBin →
+          Download the CLI →
+        </a>
+        <a
+          href="https://app.openbin.ai"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-md border border-amber-500/40 bg-zinc-900/60 px-6 py-3 text-base text-zinc-100 backdrop-blur hover:bg-zinc-800/60"
+        >
+          Open Web App →
         </a>
         <a
           href="https://openapk.ai"
@@ -143,10 +151,40 @@ function Hero() {
           Try OpenAPK →
         </a>
       </div>
+      <CloudSunsetNote />
       <p className="mt-8 font-mono text-sm uppercase tracking-[0.15em] text-zinc-300">
         Beta · BYOK (Anthropic · OpenAI · Bedrock) · AGPL v3 · self-hostable
       </p>
     </section>
+  )
+}
+
+/**
+ * Small inline note pinned beneath the hero CTAs. Explains why the
+ * "Download CLI" button is now the primary path: cloud Ghidra is scaled
+ * to zero (see GhidraSunsetMessage.java backend-side) and binaries get
+ * decompiled on the user's own machine instead. Sponsorship mailto for
+ * anyone willing to fund cloud compute is right here so it can't be
+ * missed.
+ */
+function CloudSunsetNote() {
+  return (
+    <div className="mt-6 max-w-2xl rounded-lg border border-amber-700/40 bg-amber-950/20 px-5 py-3 text-center text-sm text-zinc-200">
+      <p>
+        <span className="font-semibold text-amber-300">Cloud decompile is paused</span>{' '}
+        — AWS compute outpaced what a free OSS project can carry. The CLI
+        runs Ghidra on your own machine; your binary never leaves your laptop.
+      </p>
+      <p className="mt-1.5 text-xs text-zinc-400">
+        Want to sponsor cloud decompile for the community?{' '}
+        <a
+          href="mailto:husam@openbin.ai"
+          className="font-medium text-amber-300 underline-offset-4 hover:underline"
+        >
+          husam@openbin.ai
+        </a>
+      </p>
+    </div>
   )
 }
 

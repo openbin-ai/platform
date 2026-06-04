@@ -113,6 +113,14 @@ public class ProjectService {
         // Only sniff when the caller leaves it unspecified — keeps backward
         // compat with existing API clients while letting BIN uploads succeed.
         ProjectKind kind = requestedKind != null ? requestedKind : sniffKind(file);
+        // Cloud Ghidra sunset gate: BIN uploads have nowhere to run server-side
+        // when the worker is disabled. Reject up front (503) instead of saving
+        // the upload, persisting it to S3, and only THEN failing in the async
+        // decompile — that would waste a quota slot and look like a crash.
+        if (kind == ProjectKind.BIN && ghidraWorkerDisabled()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    GhidraSunsetMessage.TEXT);
+        }
         String filename = sanitizeFilename(file.getOriginalFilename(), kind);
 
         // Persist the row first to get a generated ID (and so the user sees it immediately).
@@ -203,6 +211,10 @@ public class ProjectService {
         });
 
         return ProjectResponse.from(project);
+    }
+
+    private boolean ghidraWorkerDisabled() {
+        return props.ghidra() != null && Boolean.TRUE.equals(props.ghidra().workerDisabled());
     }
 
     @Async("decompileExecutor")

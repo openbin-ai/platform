@@ -1,38 +1,38 @@
-# OpenAPK CLI
+# OpenBin CLI
 
 Decompile native binaries on your own machine and push the results to your
-OpenAPK account. Your binary never leaves your laptop — only the decompiled
+OpenBin account. Your binary never leaves your laptop — only the decompiled
 JSON (function listings, strings, imports, metadata) is uploaded.
 
 ## Install
 
 1. Download the latest release tarball for your platform from
    <https://github.com/openbin-ai/platform/releases/latest>:
-   - `openapk-cli-<version>-linux-amd64.tar.gz`
-   - `openapk-cli-<version>-linux-arm64.tar.gz`
-   - `openapk-cli-<version>-darwin-amd64.tar.gz` (Intel Mac)
-   - `openapk-cli-<version>-darwin-arm64.tar.gz` (Apple Silicon)
-   - `openapk-cli-<version>-windows-amd64.tar.gz`
+   - `openbin-<version>-linux-amd64.tar.gz`
+   - `openbin-<version>-linux-arm64.tar.gz`
+   - `openbin-<version>-darwin-amd64.tar.gz` (Intel Mac)
+   - `openbin-<version>-darwin-arm64.tar.gz` (Apple Silicon)
+   - `openbin-<version>-windows-amd64.tar.gz`
 
 2. Extract:
 
    ```bash
-   tar xzf openapk-cli-*-linux-amd64.tar.gz
-   cd openapk-cli-*-linux-amd64
+   tar xzf openbin-*-linux-amd64.tar.gz
+   cd openbin-*-linux-amd64
    ```
 
 3. (Linux/macOS) Mark the binary executable if your archive tool stripped
    the bit:
 
    ```bash
-   chmod +x openapk
+   chmod +x openbin
    ```
 
 The extracted directory looks like this:
 
 ```
-openapk-cli-v0.1.0-linux-amd64/
-├── openapk              ← the CLI binary
+openbin-v0.1.0-linux-amd64/
+├── openbin              ← the CLI binary
 ├── ghidra-worker.tar.gz ← bundled Ghidra Docker image (~1 GB)
 └── README.md            ← this file
 ```
@@ -41,30 +41,30 @@ openapk-cli-v0.1.0-linux-amd64/
 
 - **Docker** running on your machine ([install](https://docs.docker.com/get-docker/)).
   Used to run the local Ghidra worker — no other Ghidra install needed.
-- An **OpenAPK account** at <https://openapk.ai> (free).
+- An **OpenBin account** at <https://openbin.ai> (free).
 
 ## Usage
 
 ```bash
 # 1. Sign in (one-time per machine). Opens your browser; paste the short code
 #    shown, then come back to the terminal.
-./openapk login
+./openbin login
 
 # 2. Confirm it worked:
-./openapk whoami
+./openbin whoami
 
 # 3. Decompile a binary. First run loads the bundled Ghidra image into Docker
 #    (~1 GB; one-time). Subsequent runs skip that step.
-./openapk decompile firmware.elf
+./openbin decompile firmware.elf
 ```
 
 When the decompile finishes, the CLI prints the project URL — click it (or
-paste into your browser) to continue analysis in the OpenAPK web UI.
+paste into your browser) to continue analysis in the OpenBin web UI.
 
 ### Flags
 
 ```
-openapk decompile <binary>
+openbin decompile <binary>
     --arch  string   architecture hint (auto|x86_64|x86|arm64|arm); default auto
     --name  string   project display name (default: filename)
     --image string   override the Ghidra worker Docker image
@@ -72,17 +72,20 @@ openapk decompile <binary>
 
 ## Configuration
 
-The CLI defaults to OpenAPK's production endpoints. Override with env vars
-(useful for self-hosters or staging):
+The CLI defaults to OpenBin's production endpoints. The data plane lives on
+`*.openapk.ai` because OpenBin and OpenAPK share one backend + one Keycloak
+realm — the CLI brand is OpenBin (native binaries) but the API and auth
+domains are the shared ones. Override with env vars if you're self-hosting
+or running against staging:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OPENAPK_API_URL` | `https://api.openapk.ai` | Backend base URL |
-| `OPENAPK_AUTH_URL` | `https://auth.openapk.ai` | Keycloak base URL |
-| `OPENAPK_GHIDRA_IMAGE` | `openapk/ghidra-worker:bundled` | Local Docker image tag |
+| `OPENBIN_API_URL` | `https://api.openapk.ai` | Backend base URL (shared) |
+| `OPENBIN_AUTH_URL` | `https://auth.openapk.ai` | Keycloak base URL (shared) |
+| `OPENBIN_GHIDRA_IMAGE` | `openbin/ghidra-worker:bundled` | Local Docker image tag |
 
-Credentials are stored at `~/.config/openapk/credentials.json` (mode 0600)
-on Linux/macOS and `%APPDATA%\openapk\credentials.json` on Windows. The
+Credentials are stored at `~/.config/openbin/credentials.json` (mode 0600)
+on Linux/macOS and `%APPDATA%\openbin\credentials.json` on Windows. The
 access token auto-refreshes when within 30 s of expiry.
 
 ## Troubleshooting
@@ -99,7 +102,12 @@ current working directory.
 decompress and load into Docker. Subsequent runs skip this entirely.
 
 **`device code expired before login completed`** — you took too long on the
-browser step (usually 10 minutes). Just run `openapk login` again.
+browser step (usually 10 minutes). Just run `openbin login` again.
+
+**`invalid_client`** — your Keycloak realm doesn't have the `openbin-cli`
+public client configured yet. See `core/docker/keycloak/import/realm-openapk.json`
+for the exact shape, or hand-add it via the Keycloak admin UI with
+"OAuth 2.0 Device Authorization Grant" enabled.
 
 ## Privacy
 

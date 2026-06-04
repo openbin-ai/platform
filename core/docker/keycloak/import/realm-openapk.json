@@ -41,9 +41,9 @@
       ]
     },
     {
-      "clientId": "openapk-cli",
-      "name": "OpenAPK CLI",
-      "description": "Public client for the OpenAPK desktop CLI. Uses OAuth 2.0 device authorization grant (RFC 8628) — no client secret, no redirect URI; user confirms in browser, CLI polls token endpoint.",
+      "clientId": "openbin-cli",
+      "name": "OpenBin CLI",
+      "description": "Public client for the OpenBin desktop CLI (native binary RE via local Ghidra). Uses OAuth 2.0 device authorization grant (RFC 8628) — no client secret, no redirect URI; user confirms in browser, CLI polls token endpoint.",
       "enabled": true,
       "publicClient": true,
       "standardFlowEnabled": false,

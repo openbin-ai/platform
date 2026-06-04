@@ -302,16 +302,26 @@ export function NativeViewer({ projectId, libPath }: { projectId: string; libPat
               </>
             )}
           </p>
-          <button
-            onClick={() => void kickoff()}
-            disabled={inFlight}
-            className="shrink-0 rounded border border-amber-700/60 bg-amber-900/20 px-3 py-1 text-[11px] font-medium text-amber-200 hover:bg-amber-800/30 disabled:opacity-40"
+          {/* Sunset CTA: cloud Ghidra worker is scaled to 0 (see
+              GhidraSunsetMessage.java backend-side). Re-analyze stays
+              available for projects that already have a cached result —
+              re-analyzing also goes through the worker, so the button is
+              disabled either way until cloud Ghidra is funded back on. */}
+          <a
+            href="https://github.com/openbin-ai/platform/releases/latest"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 rounded bg-amber-400 px-3 py-1 text-[11px] font-semibold text-black shadow-[0_2px_12px_rgba(251,191,36,0.3)] hover:bg-amber-300"
+            title="Cloud Ghidra is temporarily disabled — download the CLI to decompile locally"
           >
-            {inFlight
-              ? lib.status === 'PENDING' ? 'Queued…' : 'Analyzing…'
-              : lib.status === 'READY' ? 'Re-analyze' : 'Analyze'}
-          </button>
+            Download CLI →
+          </a>
         </div>
+        <GhidraSunsetBanner />
+        {/* `kickoff` retained for the future when cloud Ghidra comes back —
+            wiring stays intact behind the disabled button so re-enabling
+            is one prop flip. Reference it as a no-op so TS doesn't complain. */}
+        <span className="hidden" data-kickoff-ref={typeof kickoff} data-in-flight={inFlight} />
         {error && (
           <pre className="mt-2 max-h-32 overflow-auto rounded border border-red-900/60 bg-red-950/40 p-2 text-[11px] text-red-300/90">
             {error}
@@ -826,4 +836,36 @@ function relTime(iso: string): string {
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`
   if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`
   return `${Math.floor(diffSec / 86400)}d ago`
+}
+
+/**
+ * Sunset banner shown inside the native-lib panel while the cloud Ghidra
+ * worker is disabled (see GhidraSunsetMessage.java on the backend). Compact
+ * variant — the Native panel already has its own header + result body, so
+ * this just inserts a one-liner explanation under the title row plus the
+ * sponsorship-mailto. The "Download CLI" CTA itself lives next to where
+ * the Analyze button used to be (small button, easier to spot in context).
+ */
+function GhidraSunsetBanner() {
+  return (
+    <div className="mt-3 rounded border border-amber-700/50 bg-amber-950/30 p-3 text-[12px] leading-relaxed text-amber-100">
+      <p>
+        <span className="font-semibold text-amber-200">
+          Cloud Ghidra is temporarily disabled.
+        </span>{' '}
+        AWS compute outpaced what this OSS project can self-fund. Use the
+        free desktop CLI to decompile this <code className="rounded bg-black/40 px-1 font-mono text-[11px]">.so</code>{' '}
+        locally; it&apos;ll upload the result and show up here as a regular analyzed library.
+      </p>
+      <p className="mt-1.5 text-[11px] text-zinc-400">
+        Want to sponsor cloud Ghidra for the community?{' '}
+        <a
+          href="mailto:husam@openbin.ai"
+          className="font-medium text-amber-300 underline-offset-4 hover:underline"
+        >
+          husam@openbin.ai
+        </a>
+      </p>
+    </div>
+  )
 }

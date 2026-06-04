@@ -1,4 +1,4 @@
-module openapk.ai/cli
+module openbin.ai/cli
 
 go 1.18
 

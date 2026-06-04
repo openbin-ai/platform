@@ -107,6 +107,11 @@ openapk:
     # in the worker env). With aggressive function-start search enabled,
     # stripped libs can take 15-20 min; this gives 5m of headroom.
     worker-timeout: PT30M
+    # 2026-06-03: cloud Ghidra disabled. AWS compute cost outpaced what a free
+    # OSS project can carry. Users get pointed at the desktop CLI which runs
+    # Ghidra on their own machine — see GhidraSunsetMessage.TEXT. Flip back to
+    # false (or set OPENAPK_GHIDRA_DISABLED=false) once sponsorship lands.
+    worker-disabled: ${OPENAPK_GHIDRA_DISABLED:true}
   jadx:
     # JADX worker microservice (Python FastAPI + jadx CLI). Runs in its own
     # container; see jadx-worker/ at the repo root. Replaces the in-JVM jadx

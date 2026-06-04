@@ -2,6 +2,8 @@ package ai.openapk.core.nativeanalysis;
 
 import ai.openapk.core.auth.User;
 import ai.openapk.core.nativeanalysis.dto.NativeLibraryView;
+import ai.openapk.core.config.OpenApkProperties;
+import ai.openapk.core.projects.GhidraSunsetMessage;
 import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.usage.WorkerQuotaService;
@@ -57,19 +59,22 @@ public class NativeAnalysisService {
     private final ProjectStorage storage;
     private final NativeAnalysisRunner runner;
     private final WorkerQuotaService workerQuota;
+    private final OpenApkProperties props;
 
     public NativeAnalysisService(
             ProjectRepository projectRepo,
             NativeAnalysisRepository nativeRepo,
             ProjectStorage storage,
             NativeAnalysisRunner runner,
-            WorkerQuotaService workerQuota
+            WorkerQuotaService workerQuota,
+            OpenApkProperties props
     ) {
         this.projectRepo = projectRepo;
         this.nativeRepo = nativeRepo;
         this.storage = storage;
         this.runner = runner;
         this.workerQuota = workerQuota;
+        this.props = props;
     }
 
     /**
@@ -143,6 +148,13 @@ public class NativeAnalysisService {
      */
     @Transactional
     public NativeLibraryView kickoff(User user, UUID projectId, String libPath) {
+        // Cloud Ghidra sunset gate: per-.so analyze hits the same worker as
+        // BIN upload. Reject up front with the friendly CLI/sponsorship
+        // message — the frontend renders this body as a paywall card.
+        if (props.ghidra() != null && Boolean.TRUE.equals(props.ghidra().workerDisabled())) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    GhidraSunsetMessage.TEXT);
+        }
         requireOwned(user, projectId);
         Path absLib = validateLibPath(user, projectId, libPath);
         long size;

@@ -21,14 +21,14 @@ var decompileCmd = &cobra.Command{
 	Use:   "decompile <binary>",
 	Short: "Decompile a native binary locally and upload the result",
 	Long: `Pulls the Ghidra worker Docker image, runs it on your machine against
-the given binary, and POSTs the decompiled JSON to your OpenAPK account
+the given binary, and POSTs the decompiled JSON to your OpenBin account
 as a new project. The binary bytes never leave your laptop — only the
 decompiled JSON (function listings, strings, imports, metadata) is uploaded.
 
 Examples:
-    openapk decompile firmware.elf
-    openapk decompile --arch x86_64 windows-malware.exe
-    openapk decompile --name "Acme Firmware v2.3" fw.bin
+    openbin decompile firmware.elf
+    openbin decompile --arch x86_64 windows-malware.exe
+    openbin decompile --name "Acme Firmware v2.3" fw.bin
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -61,7 +61,7 @@ Examples:
 		}
 		image := decompileImage
 		if image == "" {
-			image = envOr("OPENAPK_GHIDRA_IMAGE", ghidraWorkerImage)
+			image = envOr("OPENBIN_GHIDRA_IMAGE", ghidraWorkerImage)
 		}
 
 		// Hash before the long decompile — failures here are quick to surface
