@@ -42,6 +42,11 @@ public class SecurityConfig {
                         // under /api/projects/{id}/report/community/** which
                         // is still authenticated.
                         .requestMatchers("/api/community/**").permitAll()
+                        // /api/tos.md is the markdown body the acceptance
+                        // modal renders. Must be readable BEFORE the user
+                        // has signed in (the gate blocks all other /api/**)
+                        // and BEFORE acceptance.
+                        .requestMatchers("/api/tos.md").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().denyAll()
                 )
