@@ -170,14 +170,38 @@ public class Project {
 
     /**
      * BIN-only: full extract JSON from the Ghidra worker — functions (with
-     * decompiled C and, slice 2, disassembly), strings, imports, metadata.
-     * One blob per project for v1; will be shredded into a dedicated table
-     * once multi-binary corpora land (slice 5). NULL for APK projects and
-     * for BIN projects before analysis completes.
+     * decompiled C and disassembly), strings, imports, metadata. Legacy
+     * path: stored inline as JSONB. New path (Phase 1+): stored in S3 and
+     * referenced by {@link #binaryAnalysisS3Key}. Either field can be set;
+     * ProjectResponse prefers S3 and falls back to JSONB.
      */
     @Column(name = "binary_analysis_jsonb", columnDefinition = "jsonb")
     @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
     private String binaryAnalysisJson;
+
+    /**
+     * S3 object key for the gzipped worker JSON, format
+     * {@code analysis/{userUuid}/{projectUuid}/result.json.gz}. Set by
+     * /ingest/initiate (where the row is pre-created in INGEST_PENDING)
+     * and confirmed by /ingest/finalize after the CLI has PUT to S3.
+     * NULL for legacy projects whose body still lives in
+     * {@link #binaryAnalysisJson}.
+     */
+    @Column(name = "binary_analysis_s3_key")
+    private String binaryAnalysisS3Key;
+
+    /**
+     * S3 ETag of the uploaded object — captured on finalize via HeadObject.
+     * Used as a cheap integrity check (does S3 still have what we expected)
+     * and as a cache-buster for the CloudFront signed URL the frontend
+     * fetches.
+     */
+    @Column(name = "binary_analysis_s3_etag")
+    private String binaryAnalysisS3Etag;
+
+    /** Size of the gzipped S3 object in bytes — surfaces in the UI footer. */
+    @Column(name = "binary_analysis_size_bytes")
+    private Long binaryAnalysisSizeBytes;
 
     @PrePersist
     void prePersist() {

@@ -2,6 +2,7 @@ package ai.openapk.core.projects;
 
 import ai.openapk.core.auth.User;
 import ai.openapk.core.config.OpenApkProperties;
+import ai.openapk.core.projects.analysis.AnalysisStorageService;
 import ai.openapk.core.projects.dto.FileContentResponse;
 import ai.openapk.core.projects.dto.FileNode;
 import ai.openapk.core.projects.dto.ProjectResponse;
@@ -13,6 +14,7 @@ import ai.openapk.core.notifications.NotificationService;
 import ai.openapk.core.usage.WorkerQuotaService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Async;
@@ -57,6 +59,11 @@ public class ProjectService {
     private final UsageIndexerService usageIndexer;
     private final WorkerQuotaService workerQuota;
     private final NotificationService notifications;
+    // Null when openapk.analysis-storage.bucket isn't set (dev / pre-S3
+    // configs). Code paths that return a ProjectResponse check for null
+    // before minting a CloudFront signed URL and pass null to
+    // ProjectResponse.from() to disable URL embedding.
+    private final AnalysisStorageService analysisStorage;
 
     /**
      * Self-injected Spring proxy. Required for {@code @Async scheduleDecompile}
@@ -80,7 +87,8 @@ public class ProjectService {
             ObjectMapper mapper,
             UsageIndexerService usageIndexer,
             WorkerQuotaService workerQuota,
-            NotificationService notifications
+            NotificationService notifications,
+            @Autowired(required = false) AnalysisStorageService analysisStorage
     ) {
         this.self = self;
         this.repo = repo;
@@ -93,6 +101,17 @@ public class ProjectService {
         this.usageIndexer = usageIndexer;
         this.workerQuota = workerQuota;
         this.notifications = notifications;
+        this.analysisStorage = analysisStorage;
+    }
+
+    /**
+     * Build the URL-minter lambda passed to {@link ProjectResponse#from}.
+     * Returns null when CDN signing isn't configured — frontend then
+     * falls back to inline JSONB reads.
+     */
+    private java.util.function.Function<String, String> urlSigner() {
+        if (analysisStorage == null || !analysisStorage.cdnConfigured()) return null;
+        return analysisStorage::signDownloadUrl;
     }
 
     @Transactional(readOnly = true)
@@ -103,7 +122,11 @@ public class ProjectService {
 
     @Transactional(readOnly = true)
     public ProjectResponse get(User user, UUID id) {
-        return ProjectResponse.from(loadOwned(user, id));
+        // Detail endpoint mints the signed analysis URL so the frontend can
+        // fetch the worker JSON directly from CloudFront. List endpoint
+        // intentionally skips signing — one signature per row at page
+        // render is wasteful, and the list view doesn't need the body.
+        return ProjectResponse.from(loadOwned(user, id), urlSigner());
     }
 
     @Transactional
@@ -214,7 +237,7 @@ public class ProjectService {
             }
         });
 
-        return ProjectResponse.from(project);
+        return ProjectResponse.from(project, urlSigner());
     }
 
     private boolean ghidraWorkerDisabled() {
@@ -423,7 +446,7 @@ public class ProjectService {
             // sections" button can re-seed if the user wants to start fresh.
             project.setAnalysisMode(req.analysisMode());
         }
-        return ProjectResponse.from(repo.save(project));
+        return ProjectResponse.from(repo.save(project), urlSigner());
     }
 
     /** Bump workflow forward to {@code target} if (a) current is earlier and (b) not already published. */

@@ -24,7 +24,12 @@ const (
 	// Pinned ingestion schema version. Backend rejects mismatched clients with
 	// a "please upgrade" error rather than guessing at an old shape. Bump in
 	// lockstep when worker JSON output gains/loses required fields.
-	ingestSchemaVersion = "1.0"
+	//
+	//   1.0 — legacy: CLI POSTs the entire worker JSON to /api/projects/ingest.
+	//   2.0 — S3:     CLI uses /api/projects/ingest/initiate + S3 PUT + finalize.
+	//                 The CLI uses 2.0 by default; legacy path is kept on the
+	//                 backend during the cutover.
+	ingestSchemaVersion = "2.0"
 
 	// Local Docker tag the CLI loads from the bundled tarball and then runs.
 	// Release tarballs ship the image as `ghidra-worker.tar.gz` next to the

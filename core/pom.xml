@@ -180,6 +180,21 @@
 			<artifactId>s3</artifactId>
 		</dependency>
 
+		<!-- CloudFront URL signer (for the openbin-analysis-prod dist).
+		     Needed to mint short-TTL signed GET URLs the frontend uses
+		     to fetch worker JSON via the CDN. -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>cloudfront</artifactId>
+		</dependency>
+
+		<!-- Secrets Manager — holds the CloudFront private signing key in
+		     prod. In dev the key is read from a file path (config switch). -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>secretsmanager</artifactId>
+		</dependency>
+
 	</dependencies>
 
 	<dependencyManagement>

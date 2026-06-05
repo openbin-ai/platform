@@ -87,17 +87,19 @@ Examples:
 		fmt.Printf("Local decompile finished in %s. Uploading...\n",
 			roundDuration(time.Since(start)))
 
-		// Refresh the access token RIGHT BEFORE the upload — the decompile
-		// could have taken many minutes and the original token has almost
-		// certainly expired by now. ensureValidAccessToken triggers a
-		// refresh if the token is within 30s of expiry; the refresh_token
-		// has a much longer life (typically 30+ minutes) so this just works.
-		token, err := ensureValidAccessToken(cfg)
-		if err != nil {
-			return fmt.Errorf("re-auth before upload: %w", err)
+		// Schema-2.0 ingest: gzip the worker JSON, POST /initiate to get a
+		// presigned S3 PUT URL, stream the gzip to S3 directly, POST
+		// /finalize. The body never crosses our backend. Token is
+		// re-resolved before BOTH backend calls — a slow S3 PUT between
+		// initiate and finalize can easily outlast a 5-min access token.
+		tokenLookup := func() (string, error) {
+			tok, err := ensureValidAccessToken(cfg)
+			if err != nil {
+				return "", fmt.Errorf("refresh access token: %w", err)
+			}
+			return tok, nil
 		}
-
-		ir, err := ingestProject(cfg, token, name, filename, arch, sha, size, workerJSON)
+		ir, err := ingestProjectV2(cfg, tokenLookup, name, filename, arch, sha, size, workerJSON)
 		if err != nil {
 			return err
 		}

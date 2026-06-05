@@ -92,6 +92,32 @@ openapk:
       # Optional endpoint override — point at MinIO for local prod-parity testing
       # (see core/compose.yaml). Empty means real AWS S3.
       endpoint: ${OPENAPK_S3_ENDPOINT:}
+  analysis-storage:
+    # Dedicated bucket for BIN analysis blobs (the Ghidra worker JSON the
+    # CLI uploads via presigned PUT). Decoupled from `storage` above so
+    # dev can keep media on disk while still exercising S3 ingest.
+    # Leave bucket blank to disable analysis-S3 entirely — Spring won't
+    # create the beans and the new /ingest/initiate endpoint returns 503.
+    bucket: ${OPENAPK_ANALYSIS_S3_BUCKET:}
+    region: ${OPENAPK_ANALYSIS_S3_REGION:us-east-1}
+    prefix: ${OPENAPK_ANALYSIS_S3_PREFIX:analysis}
+    endpoint: ${OPENAPK_ANALYSIS_S3_ENDPOINT:}
+    # TTLs scoped tight so leaked URLs collapse fast. PUT longer than GET
+    # because a slow CLI upload (200MB on flaky wifi) needs a window.
+    presigned-put-ttl: ${OPENAPK_ANALYSIS_PUT_TTL:PT15M}
+    presigned-get-ttl: ${OPENAPK_ANALYSIS_GET_TTL:PT5M}
+    cloudfront:
+      # Domain of the CloudFront distribution fronting the bucket. Frontend
+      # fetches signed URLs like https://${distribution-domain}/${s3-key}.
+      distribution-domain: ${OPENAPK_ANALYSIS_CF_DOMAIN:}
+      # Public-key ID assigned by CloudFront when the keypair was uploaded.
+      key-pair-id: ${OPENAPK_ANALYSIS_CF_KEY_PAIR_ID:}
+      private-key:
+        # "file" in dev (reads PEM from filesystem path);
+        # "secretsmanager" in prod (reads PEM from Secrets Manager).
+        source: ${OPENAPK_ANALYSIS_CF_PK_SOURCE:file}
+        file-path: ${OPENAPK_ANALYSIS_CF_PK_FILE:}
+        secret-arn: ${OPENAPK_ANALYSIS_CF_PK_SECRET_ARN:}
   projects:
     # Max bytes returned by GET /api/projects/{id}/files/**. Files larger than this
     # are reported as "too large" rather than streamed in full (a UX guardrail; the

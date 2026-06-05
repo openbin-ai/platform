@@ -12,6 +12,7 @@ public record OpenApkProperties(
         Workspace workspace,
         Projects projects,
         Storage storage,
+        AnalysisStorage analysisStorage,
         Ghidra ghidra,
         Jadx jadx,
         Workers workers,
@@ -49,6 +50,42 @@ public record OpenApkProperties(
             Duration presignedUrlTtl
     ) {
         public record S3(String bucket, String region, String prefix, String endpoint) {}
+    }
+
+    /**
+     * Dedicated bucket for BIN analysis blobs (the Ghidra worker JSON the
+     * CLI uploads via presigned PUT). Decoupled from {@link Storage} so
+     * dev can keep media on disk while still exercising the S3 ingest
+     * path for analysis. All fields nullable so the local profile can
+     * leave this block off entirely.
+     *
+     * <p>Reads go through CloudFront with signed URLs (see
+     * {@link CloudFront}). The private key is loaded from a file in dev
+     * and from Secrets Manager in prod, switched via {@code privateKey.source}.
+     */
+    public record AnalysisStorage(
+            String bucket,
+            String region,
+            String prefix,
+            String endpoint,
+            Duration presignedPutTtl,
+            Duration presignedGetTtl,
+            CloudFront cloudfront
+    ) {
+        public record CloudFront(
+                String distributionDomain,
+                String keyPairId,
+                PrivateKey privateKey
+        ) {
+            public record PrivateKey(
+                    /** "file" or "secretsmanager". Anything else disables URL signing. */
+                    String source,
+                    /** Filesystem path to the PEM, used when source=file. */
+                    String filePath,
+                    /** AWS Secrets Manager ARN containing the PEM, used when source=secretsmanager. */
+                    String secretArn
+            ) {}
+        }
     }
 
     /**
