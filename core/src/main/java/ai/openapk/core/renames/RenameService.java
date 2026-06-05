@@ -8,6 +8,7 @@ import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.ProjectStatus;
+import ai.openapk.core.projects.analysis.BinaryAnalysisLoader;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.renames.dto.ApplyRenamesRequest;
 import ai.openapk.core.renames.dto.ManualRenameRequest;
@@ -138,6 +139,7 @@ public class RenameService {
     private final ProjectStorage storage;
     private final LlmInvoker invoker;
     private final ObjectMapper mapper;
+    private final BinaryAnalysisLoader analysisLoader;
 
     public RenameService(
             ProjectRepository projectRepo,
@@ -145,7 +147,8 @@ public class RenameService {
             LlmCredentialRepository credRepo,
             ProjectStorage storage,
             LlmInvoker invoker,
-            ObjectMapper mapper
+            ObjectMapper mapper,
+            BinaryAnalysisLoader analysisLoader
     ) {
         this.projectRepo = projectRepo;
         this.renameRepo = renameRepo;
@@ -153,6 +156,7 @@ public class RenameService {
         this.storage = storage;
         this.invoker = invoker;
         this.mapper = mapper;
+        this.analysisLoader = analysisLoader;
     }
 
     // -------------------------------------------------------------------
@@ -267,7 +271,7 @@ public class RenameService {
         LlmCredential cred = loadCredential(user, req.credentialId());
 
         String originalName = resolveOriginal(projectId, req.functionName());
-        String json = project.getBinaryAnalysisJson();
+        String json = analysisLoader.load(project);
         if (json == null || json.isBlank()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "binary analysis not available");
         }

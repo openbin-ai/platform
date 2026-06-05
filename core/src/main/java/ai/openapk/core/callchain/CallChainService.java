@@ -14,6 +14,7 @@ import ai.openapk.core.credentials.LlmCredentialRepository;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.projects.ProjectRepository;
+import ai.openapk.core.projects.analysis.BinaryAnalysisLoader;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.renames.RenameService;
 import ai.openapk.core.symbols.SymbolService;
@@ -89,6 +90,7 @@ public class CallChainService {
     private final LlmCredentialRepository credRepo;
     private final ProjectRepository projectRepo;
     private final ObjectMapper mapper;
+    private final BinaryAnalysisLoader analysisLoader;
 
     public CallChainService(
             SymbolService symbolService,
@@ -97,7 +99,8 @@ public class CallChainService {
             LlmInvoker invoker,
             LlmCredentialRepository credRepo,
             ProjectRepository projectRepo,
-            ObjectMapper mapper
+            ObjectMapper mapper,
+            BinaryAnalysisLoader analysisLoader
     ) {
         this.symbolService = symbolService;
         this.storage = storage;
@@ -106,6 +109,7 @@ public class CallChainService {
         this.credRepo = credRepo;
         this.projectRepo = projectRepo;
         this.mapper = mapper;
+        this.analysisLoader = analysisLoader;
     }
 
     @Transactional
@@ -414,7 +418,7 @@ public class CallChainService {
         LlmCredential cred = credRepo.findByIdAndUserId(credentialId, user.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "credential not found"));
 
-        String json = project.getBinaryAnalysisJson();
+        String json = analysisLoader.load(project);
         if (json == null || json.isBlank()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "binary analysis not available");
         }

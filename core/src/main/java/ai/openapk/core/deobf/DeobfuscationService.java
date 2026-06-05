@@ -10,6 +10,7 @@ import ai.openapk.core.deobf.dto.FunctionDeobfuscationResponse;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.projects.ProjectRepository;
+import ai.openapk.core.projects.analysis.BinaryAnalysisLoader;
 import ai.openapk.core.renames.RenameService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -93,6 +94,7 @@ public class DeobfuscationService {
     private final LlmInvoker invoker;
     private final RenameService renameService;
     private final ObjectMapper mapper;
+    private final BinaryAnalysisLoader analysisLoader;
 
     public DeobfuscationService(
             ProjectRepository projectRepo,
@@ -100,7 +102,8 @@ public class DeobfuscationService {
             LlmCredentialRepository credRepo,
             LlmInvoker invoker,
             RenameService renameService,
-            ObjectMapper mapper
+            ObjectMapper mapper,
+            BinaryAnalysisLoader analysisLoader
     ) {
         this.projectRepo = projectRepo;
         this.deobfRepo = deobfRepo;
@@ -108,6 +111,7 @@ public class DeobfuscationService {
         this.invoker = invoker;
         this.renameService = renameService;
         this.mapper = mapper;
+        this.analysisLoader = analysisLoader;
     }
 
     @Transactional(readOnly = true)
@@ -192,7 +196,7 @@ public class DeobfuscationService {
      * empty as a 400 "no body to deobfuscate".
      */
     private String loadDecompiled(Project project, String originalName) {
-        String json = project.getBinaryAnalysisJson();
+        String json = analysisLoader.load(project);
         if (json == null || json.isBlank()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "binary analysis not available");
         }

@@ -14,6 +14,7 @@ import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.ProjectStatus;
+import ai.openapk.core.projects.analysis.BinaryAnalysisLoader;
 import ai.openapk.core.renames.RenameService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +57,7 @@ public class AnalysisService {
     private final RenameService renameService;
     private final ObjectMapper mapper;
     private final TransactionTemplate tx;
+    private final BinaryAnalysisLoader analysisLoader;
 
     public AnalysisService(
             ProjectRepository projectRepo,
@@ -67,7 +69,8 @@ public class AnalysisService {
             StreamingLlmInvoker streamingInvoker,
             RenameService renameService,
             ObjectMapper mapper,
-            TransactionTemplate tx
+            TransactionTemplate tx,
+            BinaryAnalysisLoader analysisLoader
     ) {
         this.projectRepo = projectRepo;
         this.credRepo = credRepo;
@@ -79,6 +82,7 @@ public class AnalysisService {
         this.renameService = renameService;
         this.mapper = mapper;
         this.tx = tx;
+        this.analysisLoader = analysisLoader;
     }
 
     /**
@@ -305,7 +309,7 @@ public class AnalysisService {
                     throw new ResponseStatusException(HttpStatus.CONFLICT,
                             "project is not READY (current status: " + project.getStatus() + ")");
                 }
-                String raw = project.getBinaryAnalysisJson();
+                String raw = analysisLoader.load(project);
                 if (raw == null || raw.isBlank()) {
                     throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis stored for this project");
                 }

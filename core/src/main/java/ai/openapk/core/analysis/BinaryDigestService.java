@@ -6,6 +6,7 @@ import ai.openapk.core.analysis.dto.BinaryDigest.SuspiciousImport;
 import ai.openapk.core.analysis.dto.BinaryDigest.TopFunction;
 import ai.openapk.core.analysis.dto.Ioc;
 import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.analysis.BinaryAnalysisLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -143,10 +144,13 @@ public class BinaryDigestService {
 
     private final ObjectMapper mapper;
     private final IoCExtractor iocExtractor;
+    private final BinaryAnalysisLoader analysisLoader;
 
-    public BinaryDigestService(ObjectMapper mapper, IoCExtractor iocExtractor) {
+    public BinaryDigestService(ObjectMapper mapper, IoCExtractor iocExtractor,
+                               BinaryAnalysisLoader analysisLoader) {
         this.mapper = mapper;
         this.iocExtractor = iocExtractor;
+        this.analysisLoader = analysisLoader;
     }
 
     /**
@@ -156,7 +160,7 @@ public class BinaryDigestService {
      * the project's metadata columns populated).
      */
     public BinaryDigest computeFromProject(Project project) {
-        String raw = project.getBinaryAnalysisJson();
+        String raw = analysisLoader.load(project);
         if (raw == null || raw.isBlank()) {
             return emptyDigest(project);
         }
@@ -165,7 +169,7 @@ public class BinaryDigestService {
         try {
             root = mapper.readTree(raw);
         } catch (Exception e) {
-            log.warn("binary_analysis_jsonb unreadable for project {}: {}",
+            log.warn("binary analysis unreadable for project {}: {}",
                     project.getId(), e.toString());
             return emptyDigest(project);
         }

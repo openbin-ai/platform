@@ -15,6 +15,7 @@ import ai.openapk.core.crypto.dto.GenerateDecryptorResponse;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.projects.ProjectRepository;
+import ai.openapk.core.projects.analysis.BinaryAnalysisLoader;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.renames.RenameService;
 import org.slf4j.Logger;
@@ -146,6 +147,7 @@ public class CryptoService {
     private final LlmInvoker invoker;
     private final RenameService renameService;
     private final ObjectMapper mapper;
+    private final BinaryAnalysisLoader analysisLoader;
 
     public CryptoService(
             ProjectRepository projectRepo,
@@ -153,7 +155,8 @@ public class CryptoService {
             LlmCredentialRepository credRepo,
             LlmInvoker invoker,
             RenameService renameService,
-            ObjectMapper mapper
+            ObjectMapper mapper,
+            BinaryAnalysisLoader analysisLoader
     ) {
         this.projectRepo = projectRepo;
         this.storage = storage;
@@ -161,6 +164,7 @@ public class CryptoService {
         this.invoker = invoker;
         this.renameService = renameService;
         this.mapper = mapper;
+        this.analysisLoader = analysisLoader;
     }
 
     @Transactional(readOnly = true)
@@ -211,7 +215,7 @@ public class CryptoService {
         }
         LlmCredential cred = loadCredential(user, req.credentialId());
 
-        String json = project.getBinaryAnalysisJson();
+        String json = analysisLoader.load(project);
         if (json == null || json.isBlank()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "binary analysis not available");
         }

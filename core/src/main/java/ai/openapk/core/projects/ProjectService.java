@@ -3,6 +3,7 @@ package ai.openapk.core.projects;
 import ai.openapk.core.auth.User;
 import ai.openapk.core.config.OpenApkProperties;
 import ai.openapk.core.projects.analysis.AnalysisStorageService;
+import ai.openapk.core.projects.analysis.BinaryAnalysisLoader;
 import ai.openapk.core.projects.dto.FileContentResponse;
 import ai.openapk.core.projects.dto.FileNode;
 import ai.openapk.core.projects.dto.ProjectResponse;
@@ -64,6 +65,7 @@ public class ProjectService {
     // before minting a CloudFront signed URL and pass null to
     // ProjectResponse.from() to disable URL embedding.
     private final AnalysisStorageService analysisStorage;
+    private final BinaryAnalysisLoader analysisLoader;
 
     /**
      * Self-injected Spring proxy. Required for {@code @Async scheduleDecompile}
@@ -88,7 +90,8 @@ public class ProjectService {
             UsageIndexerService usageIndexer,
             WorkerQuotaService workerQuota,
             NotificationService notifications,
-            @Autowired(required = false) AnalysisStorageService analysisStorage
+            @Autowired(required = false) AnalysisStorageService analysisStorage,
+            BinaryAnalysisLoader analysisLoader
     ) {
         this.self = self;
         this.repo = repo;
@@ -102,6 +105,7 @@ public class ProjectService {
         this.workerQuota = workerQuota;
         this.notifications = notifications;
         this.analysisStorage = analysisStorage;
+        this.analysisLoader = analysisLoader;
     }
 
     /**
@@ -525,7 +529,7 @@ public class ProjectService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "analysis not ready (status=" + project.getStatus() + ")");
         }
-        String json = project.getBinaryAnalysisJson();
+        String json = analysisLoader.load(project);
         if (json == null || json.isBlank()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                     "no analysis stored for this project");
