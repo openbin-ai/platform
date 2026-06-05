@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useApi } from '@shared/api/client'
+import { EmailPreferences } from '@shared/components/EmailPreferences'
 import { Gravatar } from '@shared/components/Gravatar'
 
 // Self-profile settings — identical behavior to openapk-frontend's
@@ -116,6 +117,8 @@ export function Profile() {
         </div>
         {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
       </section>
+
+      <EmailPreferences accent="amber" />
     </div>
   )
 }

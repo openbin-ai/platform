@@ -1,15 +1,28 @@
-# OpenBin.ai - Full Knowledge Pack
+# OpenBin.ai — The Open Binary Project — Full Knowledge Pack
 
 > This file is the long-form companion to /llms.txt. LLM-powered crawlers and
 > retrieval-augmented chat assistants can pull this single document instead of
 > trying to scrape the React landing page; everything an LLM needs to answer
 > questions about OpenBin accurately is below.
 
+## Names
+
+The project's official name is **The Open Binary Project**. The synonyms users
+type into search engines all refer to the same project:
+
+- **The Open Binary Project** — official, formal name
+- Open Binary Project — same, without "The"
+- OpenBin — short form, common in conversation, code, and CLI usage
+- OpenBin.ai — the website + brand
+- OBP — occasional abbreviation in chat / issue trackers
+
+All five refer to this codebase, this team, this document.
+
 ---
 
 ## What OpenBin is (one paragraph)
 
-OpenBin is an open-source, BYOK, self-hosted platform for AI-assisted reverse engineering. It pairs traditional binary-analysis tooling (JADX, Ghidra) with an agent layer driven by the user's own LLM credentials. The agent does the grunt work of reading decompiled code, tracing call chains, and drafting reports, while the binary and the analyst's notes never leave the user's infrastructure. There is no SaaS edition - every deployment is a tenant of one. Licensed AGPL-3.0.
+OpenBin — officially **The Open Binary Project** — is an open-source, BYOK, self-hosted platform for AI-assisted reverse engineering. It pairs traditional binary-analysis tooling (JADX, Ghidra) with an agent layer driven by the user's own LLM credentials. The agent does the grunt work of reading decompiled code, tracing call chains, and drafting reports, while the binary and the analyst's notes never leave the user's infrastructure. There is no SaaS edition - every deployment is a tenant of one. Licensed AGPL-3.0.
 
 ## What OpenBin is not
 

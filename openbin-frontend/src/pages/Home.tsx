@@ -71,11 +71,12 @@ export function Home() {
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-6 py-8">
       <BrandBanner firstName={firstName} />
+      {/* Community is the platform's headline value prop — front-and-center
+          here, not buried at the bottom of a grid. The smaller bottom
+          CommunityCard that used to live in the grid is gone. */}
+      <CommunityHero />
       <RecentProjects />
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <UsageCard />
-        <CommunityCard />
-      </div>
+      <UsageCard />
     </div>
   )
 }
@@ -101,17 +102,21 @@ function BrandBanner({ firstName }: { firstName: string }) {
         >
           Upload binary →
         </Link>
+        {/* Community is co-primary with Upload — uses a contrasting purple
+            so it doesn't bleed into the amber brand chrome but still pops
+            against the muted nav around it. */}
+        <Link
+          to="/community"
+          className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-4 py-2 font-medium text-white shadow-[0_4px_20px_rgba(124,58,237,0.4)] hover:bg-purple-500"
+        >
+          <span aria-hidden>★</span>
+          Browse Community
+        </Link>
         <Link
           to="/settings/api-keys"
           className="rounded-md border border-zinc-700 bg-zinc-900/60 px-4 py-2 text-zinc-200 hover:bg-zinc-800/60"
         >
           API keys
-        </Link>
-        <Link
-          to="/community"
-          className="rounded-md border border-zinc-700 bg-zinc-900/60 px-4 py-2 text-zinc-200 hover:bg-zinc-800/60"
-        >
-          Community
         </Link>
       </div>
     </section>
@@ -249,7 +254,14 @@ function UsageCard() {
   )
 }
 
-function CommunityCard() {
+/**
+ * Headline community section on the dashboard. Bigger, more visually
+ * prominent than the per-project cards because collaborative security
+ * research IS the platform's value prop. Uses a purple accent against
+ * openbin's amber brand chrome so it stands out as a distinct front door,
+ * not blending into the rest of the page.
+ */
+function CommunityHero() {
   const api = useApi()
   const [reports, setReports] = useState<CommunityReportSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -263,31 +275,65 @@ function CommunityCard() {
   }, [api])
 
   return (
-    <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-5">
-      <header className="flex items-center justify-between">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-400">From the community</h2>
-        <Link to="/community" className="text-xs text-amber-400 hover:underline">Browse →</Link>
-      </header>
+    <section className="overflow-hidden rounded-xl border border-purple-500/30 bg-linear-to-br from-purple-950/30 via-zinc-950 to-zinc-950 p-6 shadow-[0_8px_40px_rgba(124,58,237,0.08)] sm:p-7">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span aria-hidden className="text-lg text-purple-400">★</span>
+            <h2 className="text-xl font-semibold text-zinc-50 sm:text-2xl">
+              Community research
+            </h2>
+            <span className="rounded border border-purple-600/60 bg-purple-900/30 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-purple-300">
+              public
+            </span>
+          </div>
+          <p className="mt-2 max-w-2xl text-sm text-zinc-300 sm:text-base">
+            Collaborative security research from the OpenBin community. Browse
+            published binary RE reports, learn from other researchers' triage,
+            and publish your own findings.
+          </p>
+        </div>
+        <Link
+          to="/community"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_4px_20px_rgba(124,58,237,0.4)] transition hover:bg-purple-500"
+        >
+          Browse all reports →
+        </Link>
+      </div>
 
-      {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-5 text-sm text-red-400">{error}</p>}
       {!error && reports === null && <SkeletonRows count={3} />}
       {!error && reports !== null && reports.length === 0 && (
-        <p className="mt-4 text-sm text-zinc-400">No community reports yet — be the first to publish.</p>
+        <div className="mt-5 rounded-md border border-zinc-800 bg-zinc-950/40 px-4 py-6 text-center">
+          <p className="text-sm text-zinc-300">
+            No community reports yet —{' '}
+            <Link to="/projects" className="font-medium text-purple-300 underline-offset-4 hover:underline">
+              be the first to publish
+            </Link>
+            .
+          </p>
+        </div>
       )}
       {reports !== null && reports.length > 0 && (
-        <ul className="mt-4 space-y-3">
+        <ul className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
           {reports.map((r) => (
             <li key={r.reportId}>
               <Link
                 to={`/community/reports/${r.reportId}`}
-                className="flex items-start gap-3 rounded-md p-1 transition hover:bg-zinc-900/60"
+                className="block h-full rounded-md border border-zinc-800 bg-zinc-950/60 p-3 transition hover:border-purple-500/40 hover:bg-zinc-900/60"
               >
-                <Gravatar emailMd5={r.authorEmailMd5} size={28} className="shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm text-zinc-100">{r.title}</div>
-                  <div className="mt-0.5 truncate text-xs text-zinc-500">
-                    {r.authorDisplayName} · {formatRelative(r.communityPublishedAt)}
-                    {r.malwareType && <span className="text-amber-400"> · {r.malwareType}</span>}
+                <div className="flex items-start gap-2.5">
+                  <Gravatar emailMd5={r.authorEmailMd5} size={28} className="shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="line-clamp-2 text-sm font-medium text-zinc-100">{r.title}</div>
+                    <div className="mt-1 truncate text-xs text-zinc-500">
+                      {r.authorDisplayName} · {formatRelative(r.communityPublishedAt)}
+                    </div>
+                    {r.malwareType && (
+                      <div className="mt-1.5 inline-block rounded border border-amber-700/60 bg-amber-950/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-amber-300">
+                        {r.malwareType}
+                      </div>
+                    )}
                   </div>
                 </div>
               </Link>

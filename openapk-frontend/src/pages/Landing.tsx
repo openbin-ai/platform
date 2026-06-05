@@ -48,11 +48,14 @@ export function Landing() {
           <span className="text-sm font-semibold tracking-wide text-zinc-200">OPENAPK<span className="text-red-500">.AI</span></span>
         </div>
         <div className="flex items-center gap-3 text-sm">
+          {/* Compact Community pill in the top nav — second visual cue for
+              the dashboard's headline CTA. Brand-amber to match the family
+              accent so it stands out from plain text links. */}
           <Link
             to="/community"
-            className="hidden text-purple-300 hover:text-purple-200 sm:inline"
+            className="hidden items-center gap-1 rounded-md bg-amber-500/15 px-3 py-1 text-amber-300 hover:bg-amber-500/25 hover:text-amber-200 sm:inline-flex"
           >
-            Community
+            <span aria-hidden>★</span> Community
           </Link>
           <a
             href="https://github.com/openbin-ai/platform"
@@ -87,10 +90,16 @@ export function Landing() {
             alt="OpenAPK"
             className="mb-8 h-40 w-auto drop-shadow-[0_8px_30px_rgba(239,68,68,0.35)] sm:h-52"
           />
+          {/* SEO: brand name in H1 so Google + ChatGPT search see "OpenAPK"
+              as the page's primary subject. The marketing line is now a
+              continuation rather than the whole heading. */}
           <h1 className="max-w-3xl text-4xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-5xl">
-            Android reverse engineering,{' '}
+            OpenAPK — Android reverse engineering,{' '}
             <span className="text-purple-400">from an agentic perspective</span>.
           </h1>
+          <p className="mt-3 font-mono text-xs uppercase tracking-[0.25em] text-amber-400/80 sm:text-sm">
+            Part of The Open Binary Project
+          </p>
           <p className="mt-5 max-w-2xl text-base text-zinc-300/90 sm:text-lg">
             A self-hosted research workspace for security teams and reverse
             engineers. Bring your own LLM key - point an agent at the decompiled
@@ -113,6 +122,13 @@ export function Landing() {
                 Get started →
               </button>
             )}
+            <Link
+              to="/community"
+              className="inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-5 py-2.5 text-sm font-semibold text-black shadow-[0_4px_20px_rgba(251,191,36,0.4)] hover:bg-amber-400"
+            >
+              <span aria-hidden>★</span>
+              Browse community
+            </Link>
             <a
               href="#capabilities"
               className="rounded-md border border-zinc-700 bg-zinc-900/60 px-5 py-2.5 text-sm text-zinc-200 backdrop-blur hover:bg-zinc-800/60"
@@ -211,7 +227,7 @@ export function Landing() {
 
         <section className="mx-auto max-w-4xl px-6 pb-20">
           <h2 className="mb-6 text-center text-xs font-medium uppercase tracking-[0.2em] text-amber-400">
-            Part of the OpenBin family
+            Part of The Open Binary Project (OpenBin)
           </h2>
           <a
             href="https://openbin.ai"

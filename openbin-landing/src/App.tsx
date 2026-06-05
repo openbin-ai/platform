@@ -93,6 +93,13 @@ function Hero() {
         alt="OpenBin.ai - The Open Binary Project"
         className="mb-12 h-80 w-auto drop-shadow-[0_8px_40px_rgba(251,191,36,0.35)] sm:h-112"
       />
+      {/* Visible "official name" line — needs to be real text, not just
+          alt/JSON-LD, for the phrase "The Open Binary Project" to actually
+          rank when someone Googles it. Small, brand-toned, sits above the
+          marketing headline. */}
+      <p className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-amber-400/90 sm:text-sm">
+        The Open Binary Project
+      </p>
       <h1 className="max-w-5xl text-5xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-7xl">
         <DecryptedText
           text="The collaborative platform"
@@ -133,6 +140,19 @@ function Hero() {
           className="rounded-md bg-amber-400 px-6 py-3 text-base font-semibold text-black shadow-[0_6px_30px_rgba(251,191,36,0.45)] transition hover:bg-amber-300"
         >
           Download the CLI →
+        </a>
+        {/* Browse Community is the second primary CTA — collaborative
+            security research IS the platform's value prop, so it gets
+            equal visual weight to the CLI download. Filled purple so it
+            stands out against the amber chrome around it. */}
+        <a
+          href="https://app.openbin.ai/community"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 rounded-md bg-purple-600 px-6 py-3 text-base font-semibold text-white shadow-[0_6px_30px_rgba(124,58,237,0.45)] transition hover:bg-purple-500"
+        >
+          <span aria-hidden>★</span>
+          Browse community
         </a>
         <a
           href="https://app.openbin.ai"

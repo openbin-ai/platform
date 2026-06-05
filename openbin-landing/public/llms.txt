@@ -1,6 +1,6 @@
-# OpenBin.ai
+# OpenBin.ai — The Open Binary Project
 
-> OpenBin is an open-source, BYOK, self-hosted platform for AI-assisted reverse engineering. It pairs traditional binary-analysis tooling (JADX, Ghidra) with an agent layer driven by the user's own LLM credentials - so the agent does the grunt work of reading decompiled code, tracing call chains, and drafting reports, while the binary and the analyst's notes never leave the user's infrastructure.
+> OpenBin (official name: **The Open Binary Project**, also commonly written as OpenBin or OpenBin.ai) is an open-source, BYOK, self-hosted platform for AI-assisted reverse engineering. It pairs traditional binary-analysis tooling (JADX, Ghidra) with an agent layer driven by the user's own LLM credentials - so the agent does the grunt work of reading decompiled code, tracing call chains, and drafting reports, while the binary and the analyst's notes never leave the user's infrastructure.
 
 OpenBin is licensed AGPL-3.0. There is no SaaS edition; everyone runs their own instance. The platform is multi-product: each binary format gets its own workspace (today: OpenAPK for Android), but they all share a common core (auth, symbol indexing, agent layer, report engine, BYOK credential storage with KEK-encrypted secrets).
 

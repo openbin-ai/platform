@@ -24,10 +24,27 @@ export function Layout() {
               OPENAPK<span className="text-red-500">.AI</span>
             </span>
           </Link>
-          <nav className="flex items-center gap-6 text-sm">
+          <nav className="flex items-center gap-5 text-sm">
             <NavItem to="/dashboard">Dashboard</NavItem>
             <NavItem to="/projects">Projects</NavItem>
-            <NavItem to="/community">Community</NavItem>
+            {/* Community is the platform's headline value prop, not a side
+                feature — give it a distinct button treatment so users hit it
+                without having to scan the nav. Filled purple accent, sits
+                between plain-text nav items and the Settings menu. */}
+            <NavLink
+              to="/community"
+              end
+              className={({ isActive }) =>
+                `inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium shadow-sm transition ${
+                  isActive
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-purple-700/30 text-purple-200 hover:bg-purple-600/40 hover:text-purple-100'
+                }`
+              }
+            >
+              <span aria-hidden>★</span>
+              Community
+            </NavLink>
             <SettingsMenu />
             <div className="flex items-center gap-3 border-l border-zinc-800 pl-6">
               <span className="text-zinc-400">{name}</span>

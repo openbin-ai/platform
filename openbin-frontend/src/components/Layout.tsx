@@ -29,10 +29,26 @@ export function Layout() {
               OPENBIN<span className="text-amber-400">.AI</span>
             </span>
           </Link>
-          <nav className="flex items-center gap-6 text-sm">
+          <nav className="flex items-center gap-5 text-sm">
             <NavItem to="/">Dashboard</NavItem>
             <NavItem to="/projects">Projects</NavItem>
-            <NavItem to="/community">Community</NavItem>
+            {/* Community is the platform's headline value prop — give it
+                a distinct button treatment so users find it without scanning
+                the nav. Filled amber accent matches the openbin brand. */}
+            <NavLink
+              to="/community"
+              end
+              className={({ isActive }) =>
+                `inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium shadow-sm transition ${
+                  isActive
+                    ? 'bg-amber-500 text-black'
+                    : 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 hover:text-amber-200'
+                }`
+              }
+            >
+              <span aria-hidden>★</span>
+              Community
+            </NavLink>
             <SettingsMenu />
             <div className="flex items-center gap-3 border-l border-zinc-800 pl-6">
               <span className="text-zinc-400">{name}</span>
