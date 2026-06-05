@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useApi, ApiError, API_BASE } from '@shared/api/client'
 
-// State returned by GET /api/me/tos. The frontend gate flips on the
-// `accepted === false` case and renders the modal until POST /accept
-// flips it back. Field names mirror TosService.AcceptanceState (Java).
+// State returned by GET /api/me/tos. Field names mirror
+// TosService.AcceptanceState (Java). We deliberately do NOT include the
+// derived `accepted()` method from the Java record — Jackson 3
+// serializes only record components, not derived methods, so it never
+// crosses the wire. Frontend computes acceptance via isAccepted() below.
 type TosState = {
   currentVersion: string
   acceptedVersion: string | null
   acceptedAt: string | null
-  // Derived backend-side: acceptedVersion === currentVersion.
-  accepted: boolean
+}
+
+function isAccepted(s: TosState | null): boolean {
+  return !!(s && s.acceptedVersion && s.acceptedVersion === s.currentVersion)
 }
 
 /**
@@ -99,7 +103,7 @@ export function TosGate({
     )
   }
 
-  if (state && !state.accepted) {
+  if (state && !isAccepted(state)) {
     return <TosModal state={state} onAccepted={() => void reload()} accent={accent} />
   }
 
@@ -126,6 +130,7 @@ function TosModal({
   const [posting, setPosting] = useState(false)
   const [scrolledToEnd, setScrolledToEnd] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
 
   // Fetch the markdown text from the backend (NOT signed — the endpoint
   // is public so users in a pre-acceptance state can read it). Plain
@@ -139,6 +144,19 @@ function TosModal({
       .catch((e) => { if (!cancelled) setBody(`(Could not load TOS text: ${(e as Error).message})`) })
     return () => { cancelled = true }
   }, [])
+
+  // After the body renders, check whether the content actually overflows
+  // its container. If it doesn't (small viewport, big screen, whatever),
+  // there's no scroll for the user to perform — pre-enable the button so
+  // we don't trap them in an undismissable modal.
+  useEffect(() => {
+    if (body === null) return
+    const el = scrollRef.current
+    if (!el) return
+    if (el.scrollHeight - el.clientHeight < 24) {
+      setScrolledToEnd(true)
+    }
+  }, [body])
 
   // Track scroll-to-end so we can require the user to scroll through
   // the whole TOS before the Accept button enables. Standard pattern
@@ -187,6 +205,7 @@ function TosModal({
           </p>
         </div>
         <div
+          ref={scrollRef}
           onScroll={onScroll}
           className="min-h-0 flex-1 overflow-y-auto bg-zinc-950 p-5 text-[13px] leading-relaxed text-zinc-300"
         >
