@@ -79,6 +79,38 @@ body {
   text-decoration-color: #c084fc;
 }
 
+/* Data-symbol link (DAT_xxx and resolved hex literals pointing into data).
+   Amber so the eye can quickly tell code refs (purple) apart from data
+   refs (amber) — useful in dense decompiled output. */
+.data-link {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-decoration-color: rgba(245, 158, 11, 0.4);
+  text-underline-offset: 2px;
+  transition: color 0.1s, text-decoration-color 0.1s, text-decoration-style 0.1s;
+}
+.data-link:hover {
+  color: #fbbf24;
+  text-decoration-style: solid;
+  text-decoration-color: #fbbf24;
+}
+
+/* Address-resolved link (FUN_addr / SUB_addr / bare 0x…). Cyan to mark
+   "navigated by address rather than name" — the underlying target may be
+   a function or a data symbol; the click handler does the dispatch. */
+.addr-link {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-decoration-color: rgba(34, 211, 238, 0.4);
+  text-underline-offset: 2px;
+  transition: color 0.1s, text-decoration-color 0.1s, text-decoration-style 0.1s;
+}
+.addr-link:hover {
+  color: #22d3ee;
+  text-decoration-style: solid;
+  text-decoration-color: #22d3ee;
+}
+
 /* Flash a code line when the user jumps to it from a panel (Network call
    site, future Crypto hit, future search result). The Shiki host has its
    own `.line` per row; the disassembly view tags rows with `data-addr` and

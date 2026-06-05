@@ -24,9 +24,14 @@
 #         xrefs: {callers: [name, ...], callees: [name, ...]},
 #         external, thunk
 #     }, ...],
-#     "strings":   ["...", ...],
-#     "imports":   ["malloc", ...],
-#     "metadata":  {compiler, language, executable_format, image_base, *_count}
+#     "strings":       ["...", ...],
+#     "imports":       ["malloc", ...],
+#     "exports":       [{name, address}, ...],     # exported symbols + entry points with real names
+#     "entry_points":  [{name, address}, ...],     # binary's actual entry symbols (DllMainCRTStartup, _start, etc.)
+#     "tls_callbacks": [{name, address}, ...],     # PE TLS directory callbacks (anti-debug hook surface)
+#     "data_symbols":  [{name, address, type}, ...], # DAT_* and named globals — for click-through from decompiled C
+#     "memory_blocks": [{name, start, end, size, permissions, executable, initialized}, ...],
+#     "metadata":      {compiler, language, executable_format, image_base, *_count}
 #   }
 # On failure:
 #   {"error": "<message + traceback>"}
@@ -35,11 +40,27 @@
 import json
 import traceback
 
-MAX_FUNCTIONS = 5000
+# Function-record cap: huge so navigation works on big binaries (silentXMR-
+# class XMR miners can have 10k+ functions). Each metadata-only record is
+# tiny (~200B), so 50k caps result.json's fn-metadata at <10MB even worst
+# case. Decompile/disasm bodies are gated by a separate, lower cap.
+MAX_FUNCTIONS = 50000
+# Bodies cap: only the first N functions get decompiled + disassembled.
+# A typical function body is 1-10KB; sized so the bulk of real binaries
+# (silentXMR-class miners, big stripped libs) get full coverage but a
+# pathological 100k-function blob still terminates with a bounded JSON.
+# Functions are iterated forward-by-address — future work could BFS from
+# entry points so the body budget is spent on call-graph-reachable code
+# instead of being address-order biased.
+MAX_DECOMPILE_BODIES = 15000
 MAX_STRINGS = 5000
 MAX_IMPORTS = 2000
+MAX_EXPORTS = 5000
+MAX_DATA_SYMBOLS = 20000
+MAX_TLS_CALLBACKS = 64
+MAX_MEMORY_BLOCKS = 256
 MIN_STRING_LEN = 4
-DECOMPILE_TIMEOUT_SEC = 60
+DECOMPILE_TIMEOUT_SEC = 90
 # Caps on the per-function payload. Disassembly is by far the biggest
 # contributor to result.json size -- a single 5000-instruction function is
 # ~250KB of mnemonics alone. Truncate aggressively; the AI layer doesn't need
@@ -48,6 +69,10 @@ DECOMPILE_TIMEOUT_SEC = 60
 # direction so a hotpath function with thousands of callers stays bounded.
 MAX_DISASM_LINES_PER_FUNCTION = 5000
 MAX_XREFS_PER_DIRECTION = 50
+# Data-symbol value preview: how many bytes of the underlying data to
+# include in each record's `value` field. Enough to identify magic
+# constants, small structs, and short strings without bloating the JSON.
+MAX_DATA_VALUE_BYTES = 64
 
 
 def _safe(thunk, default=None):
@@ -98,6 +123,7 @@ try:
     listing = program.getListing()
 
     functions = []
+    decompile_budget_hit = 0
     fm = program.getFunctionManager()
     fn_iter = fm.getFunctions(True)  # forward=True
     while fn_iter.hasNext():
@@ -114,9 +140,19 @@ try:
         is_external = bool(fn.isExternal())
         is_thunk = bool(fn.isThunk())
 
+        # Decompile/disassemble only the first MAX_DECOMPILE_BODIES non-
+        # external/non-thunk functions. Everything else gets a metadata-
+        # only stub so it remains clickable in the UI's function list and
+        # cross-references resolve, but the body is null (UI shows
+        # "decompile not available" empty state). This lets giant binaries
+        # stay navigable without blowing the JSON payload size.
+        decompile_this = (
+            not is_external and not is_thunk
+            and len(functions) < MAX_DECOMPILE_BODIES
+        )
         decompiled = None
         disassembly = None
-        if not is_external and not is_thunk:
+        if decompile_this:
             # Decompiled C pseudocode (Ghidra's main view).
             try:
                 res = decompiler.decompileFunction(fn, DECOMPILE_TIMEOUT_SEC, monitor)
@@ -189,6 +225,14 @@ try:
         except:
             xrefs_callees = []
 
+        # `body_skipped`: true when the function was eligible for decompile
+        # but we skipped it because the per-result MAX_DECOMPILE_BODIES
+        # budget was already spent. Distinct from external/thunk (no body
+        # to decompile) so the UI can show "click to request on-demand
+        # decompile" vs "this is a stub" later.
+        body_skipped = (not is_external and not is_thunk and not decompile_this)
+        if body_skipped:
+            decompile_budget_hit += 1
         functions.append({
             "name": name,
             "address": addr,
@@ -199,9 +243,11 @@ try:
             "xrefs": {"callers": xrefs_callers, "callees": xrefs_callees},
             "external": is_external,
             "thunk": is_thunk,
+            "body_skipped": body_skipped,
         })
 
-    println("[extract] functions: " + str(len(functions)))
+    println("[extract] functions: " + str(len(functions)) +
+            " (decompile_budget_skipped=" + str(decompile_budget_hit) + ")")
 
     # ---------- Strings (defined string-shaped data) ----------
     strings = []
@@ -250,6 +296,175 @@ try:
 
     println("[extract] imports: " + str(len(imports)))
 
+    # ---------- Entry points + exports ----------
+    # External entry points = addresses Ghidra marks as program entries.
+    # For a PE this is DllMainCRTStartup / mainCRTStartup plus every exported
+    # function; for ELF it's _start plus shared-object exports. We split into
+    # two views:
+    #   entry_points: every marked entry, named or auto-named (FUN_*/SUB_*).
+    #     This is the user's "where do I start reading?" anchor.
+    #   exports:      the subset with real (non-placeholder) names — i.e. the
+    #     public API surface the binary exposes to its loader/host.
+    entry_points = []
+    exports = []
+    seen_exports = set()
+    try:
+        ep_iter = sym_table.getExternalEntryPoints()
+        while ep_iter.hasNext():
+            ep_addr = ep_iter.next()
+            ep_sym = sym_table.getPrimarySymbol(ep_addr)
+            name = ep_sym.getName() if ep_sym is not None else ""
+            entry_points.append({
+                "name": name,
+                "address": str(ep_addr),
+            })
+            # Treat as export iff the symbol carries a real name (not one of
+            # Ghidra's address-suffixed placeholders). Anything with a curated
+            # name almost certainly came from a PE export table, ELF dynsym,
+            # or user rename — exactly the surface we want highlighted.
+            if name and not (name.startswith("FUN_") or name.startswith("SUB_") or name.startswith("LAB_")):
+                if name not in seen_exports and len(exports) < MAX_EXPORTS:
+                    seen_exports.add(name)
+                    exports.append({"name": name, "address": str(ep_addr)})
+    except:
+        pass
+
+    println("[extract] entry_points: " + str(len(entry_points)) +
+            " exports: " + str(len(exports)))
+
+    # ---------- TLS callbacks (PE only) ----------
+    # Ghidra labels TLS callback functions as TlsCallback_NN by convention.
+    # These run before DllMain on PE binaries and are a classic
+    # anti-debug / anti-analysis hook surface — malware (XMR miners
+    # included) frequently stashes early-execution logic here.
+    tls_callbacks = []
+    try:
+        seen_tls = set()
+        all_syms = sym_table.getAllSymbols(True)
+        while all_syms.hasNext():
+            if len(tls_callbacks) >= MAX_TLS_CALLBACKS:
+                break
+            s = all_syms.next()
+            nm = s.getName()
+            if nm and nm.startswith("TlsCallback_") and nm not in seen_tls:
+                seen_tls.add(nm)
+                tls_callbacks.append({"name": nm, "address": str(s.getAddress())})
+    except:
+        pass
+
+    println("[extract] tls_callbacks: " + str(len(tls_callbacks)))
+
+    # ---------- Data symbols (DAT_* and named globals) ----------
+    # Walks every defined-data location and emits its primary symbol +
+    # type display name. This is what powers DAT_xxx click-through in the
+    # decompiled view: a reference to DAT_140ae8d00 in the C output can
+    # be resolved here to its address + Ghidra-inferred type.
+    #
+    # We deliberately do NOT filter to only DAT_-prefixed names — user
+    # renames of global data should remain navigable too.
+    data_symbols = []
+    seen_data_addrs = set()
+    try:
+        data_iter = listing.getDefinedData(True)
+        while data_iter.hasNext():
+            if monitor.isCancelled():
+                break
+            if len(data_symbols) >= MAX_DATA_SYMBOLS:
+                break
+            d = data_iter.next()
+            addr_str = str(d.getAddress())
+            if addr_str in seen_data_addrs:
+                continue
+            seen_data_addrs.add(addr_str)
+            sym = sym_table.getPrimarySymbol(d.getAddress())
+            nm = sym.getName() if sym is not None else ""
+            if not nm:
+                continue
+            try:
+                dt_str = d.getDataType().getDisplayName()
+            except:
+                dt_str = ""
+            # Default value representation -- this is the same string Ghidra
+            # would render in the Listing view ("0x42", "12345", "\"hello\"",
+            # etc). Lets the DataDetail UI surface "what is this DAT_xxx
+            # actually" without us reconstructing the formatter.
+            try:
+                value_repr = d.getDefaultValueRepresentation() or ""
+            except:
+                value_repr = ""
+            # Raw byte preview as space-separated hex pairs. Useful for
+            # arrays / structs where the typed representation is opaque
+            # ("undefined[64]") -- the user can still eyeball the magic.
+            bytes_preview = ""
+            try:
+                d_len = d.getLength()
+                if d_len > 0:
+                    n = d_len if d_len < MAX_DATA_VALUE_BYTES else MAX_DATA_VALUE_BYTES
+                    raw = d.getBytes()
+                    if raw is not None:
+                        hex_parts = []
+                        for i in range(n):
+                            # Java bytes are signed; mask to unsigned before formatting.
+                            hex_parts.append("%02x" % (raw[i] & 0xff))
+                        bytes_preview = " ".join(hex_parts)
+                        if d_len > MAX_DATA_VALUE_BYTES:
+                            bytes_preview += " ..."
+            except:
+                bytes_preview = ""
+            # Caller count -- lets the UI flag "hot" globals at a glance.
+            try:
+                ref_count = sym.getReferenceCount() if sym is not None else 0
+            except:
+                ref_count = 0
+            try:
+                size_val = d.getLength()
+            except:
+                size_val = 0
+            data_symbols.append({
+                "name":          nm,
+                "address":       addr_str,
+                "type":          dt_str,
+                "size":          size_val,
+                "value":         value_repr,
+                "bytes_preview": bytes_preview,
+                "ref_count":     ref_count,
+            })
+    except:
+        pass
+
+    println("[extract] data_symbols: " + str(len(data_symbols)))
+
+    # ---------- Memory blocks (sections) ----------
+    # Mirrors what Ghidra GUI's Memory Map window shows: every named region
+    # the loader mapped, with its permission triple. The frontend uses this
+    # to (a) render a sections panel, and (b) classify an address as code-
+    # vs data-region when resolving a click on a raw hex literal.
+    memory_blocks = []
+    try:
+        mem = program.getMemory()
+        for blk in mem.getBlocks():
+            if len(memory_blocks) >= MAX_MEMORY_BLOCKS:
+                break
+            try:
+                size_val = blk.getSize()
+            except:
+                size_val = 0
+            memory_blocks.append({
+                "name":        blk.getName(),
+                "start":       str(blk.getStart()),
+                "end":         str(blk.getEnd()),
+                "size":        size_val,
+                "permissions": ("r" if blk.isRead() else "-") +
+                                ("w" if blk.isWrite() else "-") +
+                                ("x" if blk.isExecute() else "-"),
+                "executable":  bool(blk.isExecute()),
+                "initialized": bool(blk.isInitialized()),
+            })
+    except:
+        pass
+
+    println("[extract] memory_blocks: " + str(len(memory_blocks)))
+
     # ---------- Metadata ----------
     metadata = {
         "compiler":          _safe(lambda: program.getCompiler(), ""),
@@ -259,20 +474,35 @@ try:
         "function_count":    len(functions),
         "string_count":      len(strings),
         "import_count":      len(imports),
+        "export_count":      len(exports),
+        "entry_point_count": len(entry_points),
+        "tls_callback_count": len(tls_callbacks),
+        "data_symbol_count": len(data_symbols),
+        "memory_block_count": len(memory_blocks),
     }
 
     result = {
-        "functions": functions,
-        "strings":   strings,
-        "imports":   imports,
-        "metadata":  metadata,
+        "functions":     functions,
+        "strings":       strings,
+        "imports":       imports,
+        "exports":       exports,
+        "entry_points":  entry_points,
+        "tls_callbacks": tls_callbacks,
+        "data_symbols":  data_symbols,
+        "memory_blocks": memory_blocks,
+        "metadata":      metadata,
     }
 
     _write(OUT_PATH, result)
     println("[extract] wrote " + OUT_PATH +
             " functions=" + str(len(functions)) +
             " strings=" + str(len(strings)) +
-            " imports=" + str(len(imports)))
+            " imports=" + str(len(imports)) +
+            " exports=" + str(len(exports)) +
+            " entry_points=" + str(len(entry_points)) +
+            " tls=" + str(len(tls_callbacks)) +
+            " data=" + str(len(data_symbols)) +
+            " blocks=" + str(len(memory_blocks)))
 
 except SystemExit:
     raise

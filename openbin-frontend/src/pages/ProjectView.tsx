@@ -16,7 +16,46 @@ import { captureScreen } from '../components/captureScreen'
 // `?` and `$`. First-char excludes digits + `.` so we don't accidentally
 // match the leading byte of a hex address like `00401234` against a
 // hypothetical function named `00401234`.
-const FN_IDENT = /[A-Za-z_$@?][A-Za-z0-9_$@.?]*/g
+// Fetches a JSON body from a presigned URL (CloudFront-signed today). We
+// deliberately do NOT pass the project's bearer token — the signed URL is
+// the authorization. `referrerPolicy: 'no-referrer'` keeps the signature
+// from leaking via the Referer header to any downstream service. On HTTP
+// error we throw with the status so the caller's catch can surface a
+// useful message; on JSON parse error we throw the underlying parse
+// exception. Cache: 'no-store' because the URL itself rotates per render.
+async function fetchFromSignedUrl<T>(url: string): Promise<T> {
+  const resp = await fetch(url, {
+    method: 'GET',
+    referrerPolicy: 'no-referrer',
+    cache: 'no-store',
+  })
+  if (!resp.ok) {
+    throw new Error(`analysis download failed: status=${resp.status}`)
+  }
+  return (await resp.json()) as T
+}
+
+// Normalize an address string for map lookups. Accepts:
+//   "140001180"         — Ghidra's raw form
+//   "0x140001180"       — C / disasm form
+//   "ram:140001180"     — Ghidra's space-qualified form
+//   "00000000`140001180" — Windbg-style (rare but possible)
+// Returns lowercase hex without prefix / leading zeros. Empty string on
+// inputs that don't look hex at all.
+function canonAddr(raw: string): string {
+  if (!raw) return ''
+  let s = raw.trim().toLowerCase()
+  // Strip any ram:/rom:/etc. memory-space prefix Ghidra prepends.
+  const colon = s.lastIndexOf(':')
+  if (colon >= 0) s = s.slice(colon + 1)
+  // Strip windbg-style segment backtick.
+  const tick = s.lastIndexOf('`')
+  if (tick >= 0) s = s.slice(tick + 1)
+  if (s.startsWith('0x')) s = s.slice(2)
+  // Drop leading zeros but keep at least one digit so "0" stays "0".
+  s = s.replace(/^0+(?=.)/, '')
+  return /^[0-9a-f]+$/.test(s) ? s : ''
+}
 
 // Panel layout — fixed left width, resizable right width, both collapsible
 // to a 36px rail with a single expand button. State is persisted to
@@ -46,11 +85,46 @@ type BinaryFunction = {
   xrefs: Xrefs
   external: boolean
   thunk: boolean
+  // True when Ghidra produced a body but extract.py skipped decompile/disasm
+  // because the per-result MAX_DECOMPILE_BODIES budget was already spent.
+  // Renders a distinct empty-state ("metadata only — body capped") so the
+  // user can tell this apart from a thunk or an external import.
+  body_skipped?: boolean
+}
+// All `*_symbols`/`entry_points`/etc. fields are optional because the v1.0
+// CLI ingest schema doesn't ship them, and older worker JSON cached in the
+// DB likewise won't have them. Code paths that read these must tolerate
+// `undefined` and fall back to "no data" empty states.
+type AddressedSymbol = { name: string; address: string }
+type DataSymbol = {
+  name: string
+  address: string
+  type: string
+  // All four optional — v1 schema didn't carry them, so older cached
+  // projects still render (with empty detail) when the user opens them.
+  size?: number
+  value?: string
+  bytes_preview?: string
+  ref_count?: number
+}
+type MemoryBlock = {
+  name: string
+  start: string
+  end: string
+  size: number
+  permissions: string
+  executable: boolean
+  initialized: boolean
 }
 type BinaryAnalysis = {
   functions: BinaryFunction[]
   strings: string[]
   imports: string[]
+  exports?: AddressedSymbol[]
+  entry_points?: AddressedSymbol[]
+  tls_callbacks?: AddressedSymbol[]
+  data_symbols?: DataSymbol[]
+  memory_blocks?: MemoryBlock[]
   metadata: Record<string, string | number>
 }
 
@@ -64,10 +138,25 @@ type ProjectSummary = {
   compiler: string | null
   languageId: string | null
   imageBase: string | null
+  // BIN schema-2.0: short-TTL CloudFront signed URL for the worker JSON.
+  // When non-empty the frontend fetches the body directly from CloudFront
+  // instead of going through /api/projects/{id}/binary-analysis. Null/empty
+  // means legacy inline JSONB — fall back to the backend endpoint.
+  analysisDownloadUrl?: string | null
+  analysisSizeBytes?: number
 }
 
 type ViewMode = 'pseudo' | 'disasm' | 'deobf'
-type SidePanelKind = 'xrefs' | 'chain' | 'network' | 'ask' | 'ai' | 'crypto' | 'renames' | 'report' | 'gallery' | 'strings' | 'imports'
+type SidePanelKind =
+  | 'xrefs' | 'chain' | 'network' | 'ask' | 'ai' | 'crypto'
+  | 'renames' | 'report' | 'gallery'
+  | 'strings' | 'imports'
+// Tab in the LEFT sidebar (next to the Call Graph button). Default is the
+// existing function list; the rest are symbol-navigation views surfaced
+// from the v2 worker output. Lives on the LEFT because they share the
+// "where do I go next?" intent with the function list, not the
+// per-function inspector tools on the RIGHT.
+type LeftTab = 'functions' | 'entry' | 'exports' | 'tls' | 'data' | 'sections'
 
 // Server-side AI-cleaned versions of obfuscated functions. The original
 // decompiled body in the analysis JSON is untouched — chain/xref/network/
@@ -89,6 +178,27 @@ type Deobfuscation = {
 // rather than the function's first line. Nonce changes per click so the
 // same target can be flashed again on a repeated click.
 type JumpHint = { pseudoLine?: number; asmAddr?: string }
+
+// Discriminated jump target used by the unified click dispatcher. `fn` =
+// navigate to a function by name; `data` = surface a data symbol in the
+// Data side panel; `addr` = resolve a hex literal or FUN_/DAT_-prefixed
+// token to whichever index it matches (function-by-address takes precedence
+// over data-by-address).
+type JumpTarget =
+  | { kind: 'fn'; value: string }
+  | { kind: 'data'; value: string }
+  | { kind: 'addr'; value: string }
+
+// Bundle of address + name indexes used by render-time link wrapping and
+// click dispatch. Passed as one object so adding a new index later (e.g.
+// strings-by-address, future xref tables) doesn't churn every component
+// signature in the prop chain.
+type SymbolLookups = {
+  fnByName: Map<string, BinaryFunction>
+  fnByAddr: Map<string, BinaryFunction>
+  dataByName: Map<string, DataSymbol>
+  dataByAddr: Map<string, DataSymbol>
+}
 type PendingHighlight = {
   fnName: string
   pseudoLine?: number
@@ -151,12 +261,20 @@ export function ProjectView() {
   const [view, setView] = useState<ViewMode>('pseudo')
   const [filter, setFilter] = useState('')
   const [sidePanel, setSidePanel] = useState<SidePanelKind>('ai')
+  // Left-sidebar tab. Stays in URL-less local state because the user's
+  // primary task is reading code; the tab choice doesn't deserve a route.
+  const [leftTab, setLeftTab] = useState<LeftTab>('functions')
 
   // Set whenever a side-panel hit (Network call site today; Xrefs / Chain /
   // future Crypto and Search) wants the code view to scroll to + flash a
   // specific spot. Cleared on plain function selection so a later select
   // doesn't accidentally re-fire a stale jump.
   const [pendingHighlight, setPendingHighlight] = useState<PendingHighlight | null>(null)
+
+  // When the user clicks a DAT_xxx token in decompiled C / disasm, we route
+  // them to the Data side panel with this name pre-selected. Cleared when
+  // the user dismisses or selects something else in the panel.
+  const [selectedDataName, setSelectedDataName] = useState<string | null>(null)
 
   // Screenshot capture state + gallery refresh counter. Bumping galleryKey
   // forces the Gallery panel to refetch when a new shot is saved.
@@ -242,11 +360,24 @@ export function ProjectView() {
   // view replaces the old one and the selected function tracks across the
   // rename. Deobf is fetched alongside (single round trip) so the third
   // view tab is immediately accurate on page load.
+  //
+  // Worker JSON sourcing (schema 2.0): project.analysisDownloadUrl is a
+  // CloudFront signed URL minted by the backend when the analysis lives
+  // in S3. Frontend fetches directly from CloudFront via the URL — no
+  // backend hop, no inline JSONB streaming. Legacy projects (pre-S3
+  // migration) have analysisDownloadUrl=null/missing and fall back to
+  // the existing /api/projects/{id}/binary-analysis endpoint.
   const reload = useCallback(async (preserveName?: string) => {
     try {
-      const [p, a, d] = await Promise.all([
-        api<ProjectSummary>(`/api/projects/${id}`),
-        api<BinaryAnalysis>(`/api/projects/${id}/binary-analysis`),
+      // Fetch project detail FIRST so we know whether to go CloudFront
+      // or fall back to the legacy backend endpoint for the analysis.
+      const p = await api<ProjectSummary>(`/api/projects/${id}`)
+      const analysisFetch: Promise<BinaryAnalysis> =
+        p.analysisDownloadUrl
+          ? fetchFromSignedUrl<BinaryAnalysis>(p.analysisDownloadUrl)
+          : api<BinaryAnalysis>(`/api/projects/${id}/binary-analysis`)
+      const [a, d] = await Promise.all([
+        analysisFetch,
         // Treat a deobf-fetch failure as "no deobfs yet" — endpoint is
         // BIN-only and returns [] when there's nothing stored. Crashing
         // the whole project load on this would be a regression.
@@ -280,6 +411,43 @@ export function ProjectView() {
     return new Map(analysis.functions.map((f) => [f.name, f]))
   }, [analysis])
 
+  // Address-indexed lookups. Ghidra emits addresses without a 0x prefix and
+  // with arbitrary leading-zero padding ("00140001180"); decompiled C and
+  // disassembly emit them with `0x` and minimal padding ("0x140001180").
+  // canonAddr normalizes both to a lowercase, unpadded hex string so the
+  // map keys line up regardless of source.
+  const fnByAddr = useMemo(() => {
+    const m = new Map<string, BinaryFunction>()
+    if (!analysis) return m
+    for (const f of analysis.functions) {
+      const k = canonAddr(f.address)
+      if (k && !m.has(k)) m.set(k, f)
+    }
+    return m
+  }, [analysis])
+
+  // Data symbols indexed by both name and (normalized) address. Click-
+  // through from the decompiled view uses these to resolve references to
+  // DAT_xxx labels or to raw hex literals that point into a data region.
+  const dataByName = useMemo(() => {
+    const m = new Map<string, DataSymbol>()
+    if (!analysis?.data_symbols) return m
+    for (const d of analysis.data_symbols) {
+      if (!m.has(d.name)) m.set(d.name, d)
+    }
+    return m
+  }, [analysis])
+
+  const dataByAddr = useMemo(() => {
+    const m = new Map<string, DataSymbol>()
+    if (!analysis?.data_symbols) return m
+    for (const d of analysis.data_symbols) {
+      const k = canonAddr(d.address)
+      if (k && !m.has(k)) m.set(k, d)
+    }
+    return m
+  }, [analysis])
+
   const filtered = useMemo(() => {
     if (!analysis) return []
     const q = filter.trim().toLowerCase()
@@ -288,6 +456,13 @@ export function ProjectView() {
       (f) => f.name.toLowerCase().includes(q) || f.address.toLowerCase().includes(q),
     )
   }, [analysis, filter])
+
+  // Bundle the lookup maps into a single object so deeper components don't
+  // need a four-prop add. useMemo keeps the reference stable across renders
+  // unless one of the underlying maps actually changes.
+  const lookups: SymbolLookups = useMemo(() => ({
+    fnByName, fnByAddr, dataByName, dataByAddr,
+  }), [fnByName, fnByAddr, dataByName, dataByAddr])
 
   const selected = selectedName ? fnByName.get(selectedName) ?? null : null
 
@@ -322,6 +497,44 @@ export function ProjectView() {
     }
   }, [fnByName])
 
+  // Unified jump dispatcher for click-through from decompiled C / disasm.
+  // Resolves a click target in priority order:
+  //   1. function-by-name (e.g. `FUN_140001180` matches an extracted fn)
+  //   2. function-by-address (the raw hex inside a FUN_/SUB_ name, or a bare
+  //      `0x...` literal that points at a function entry)
+  //   3. data-by-name (e.g. `DAT_140ae8d00` matches an extracted data symbol)
+  //   4. data-by-address (a bare hex literal pointing into mapped data)
+  // Returns a boolean so the caller can suppress default behavior on a hit
+  // and skip wrapping on a miss (keeps unresolved tokens as plain text).
+  const jumpToTarget = useCallback((target: { kind: 'fn' | 'data' | 'addr'; value: string }): boolean => {
+    if (target.kind === 'fn') {
+      const fn = fnByName.get(target.value)
+      if (fn) { selectFn(fn.name); return true }
+      return false
+    }
+    if (target.kind === 'data') {
+      const d = dataByName.get(target.value)
+      if (d) {
+        setSelectedDataName(d.name)
+        setLeftTab('data')
+        return true
+      }
+      return false
+    }
+    // kind === 'addr' — canonicalize then probe both indexes.
+    const k = canonAddr(target.value)
+    if (!k) return false
+    const fn = fnByAddr.get(k)
+    if (fn) { selectFn(fn.name); return true }
+    const d = dataByAddr.get(k)
+    if (d) {
+      setSelectedDataName(d.name)
+      setLeftTab('data')
+      return true
+    }
+    return false
+  }, [fnByName, fnByAddr, dataByName, dataByAddr, selectFn])
+
   if (loading) {
     return <CenteredMessage>Loading analysis…</CenteredMessage>
   }
@@ -354,20 +567,27 @@ export function ProjectView() {
       />
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: gridCols }}>
         {leftOpen ? (
-          <FunctionList
+          <LeftSidebar
             projectId={id}
+            tab={leftTab}
+            onTabChange={setLeftTab}
             functions={filtered}
             filter={filter}
             onFilterChange={setFilter}
             selectedName={selectedName}
             onSelect={selectFn}
             total={analysis.functions.length}
+            analysis={analysis}
+            lookups={lookups}
+            onJump={jumpToTarget}
+            selectedDataName={selectedDataName}
+            onSelectData={setSelectedDataName}
             onCollapse={() => setLeftOpen(false)}
           />
         ) : (
           <PanelRail
             side="left"
-            label="Functions"
+            label="Symbols"
             onExpand={() => setLeftOpen(true)}
           />
         )}
@@ -378,7 +598,9 @@ export function ProjectView() {
           projectId={id}
           onRenamed={reload}
           fnByName={fnByName}
+          lookups={lookups}
           onSelect={selectFn}
+          onJump={jumpToTarget}
           pendingHighlight={pendingHighlight}
           deobfs={deobfs}
           onDeobfChange={(originalName, deobf) => {
@@ -521,64 +743,202 @@ function Header({
   )
 }
 
-function FunctionList({
+// Tabs hosted in the left sidebar. Each row's count is shown next to the
+// label so the user knows whether the tab has anything before clicking
+// (no count when zero — visually quiet for binaries that don't ship the
+// underlying field). Order is "Functions first" because that's the
+// most-used view, then Entry/Exports/TLS/Data/Sections grouped together
+// because they share the "symbol-as-label-on-an-address" semantic.
+function LeftTabStrip({
+  tab,
+  onTabChange,
+  totals,
+}: {
+  tab: LeftTab
+  onTabChange: (t: LeftTab) => void
+  totals: Record<LeftTab, number>
+}) {
+  const tabs: ReadonlyArray<{ id: LeftTab; label: string }> = [
+    { id: 'functions', label: 'Funcs' },
+    { id: 'entry',     label: 'Entry' },
+    { id: 'exports',   label: 'Exports' },
+    { id: 'tls',       label: 'TLS' },
+    { id: 'data',      label: 'Data' },
+    { id: 'sections',  label: 'Secs' },
+  ]
+  return (
+    <div className="flex border-b border-zinc-800 text-[10px]">
+      {tabs.map((t) => {
+        const active = tab === t.id
+        const n = totals[t.id] ?? 0
+        return (
+          <button
+            key={t.id}
+            onClick={() => onTabChange(t.id)}
+            className={`flex-1 border-r border-zinc-800 px-1 py-1 last:border-r-0 ${
+              active ? 'bg-zinc-900 text-purple-300' : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+            title={`${t.label} (${n})`}
+          >
+            <span>{t.label}</span>
+            {n > 0 && <span className="ml-0.5 text-zinc-600">·{n}</span>}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// Composes the Call Graph button + tab strip + active tab body. Renders
+// the existing FunctionList for the default 'functions' tab, and the
+// Entry/Exports/TLS/Data/Sections panels for the others. The bordered
+// shell + collapse handle live here so each tab body can stay focused on
+// just its own content.
+function LeftSidebar({
   projectId,
+  tab,
+  onTabChange,
   functions,
   filter,
   onFilterChange,
   selectedName,
   onSelect,
   total,
+  analysis,
+  lookups,
+  onJump,
+  selectedDataName,
+  onSelectData,
   onCollapse,
 }: {
   projectId: string
+  tab: LeftTab
+  onTabChange: (t: LeftTab) => void
   functions: BinaryFunction[]
   filter: string
   onFilterChange: (v: string) => void
   selectedName: string | null
   onSelect: (name: string) => void
   total: number
+  analysis: BinaryAnalysis
+  lookups: SymbolLookups
+  onJump: (target: JumpTarget) => boolean
+  selectedDataName: string | null
+  onSelectData: (name: string | null) => void
   onCollapse: () => void
 }) {
-  // Graph link anchors on the currently selected function (if any) so the
-  // call-graph page opens centered on whatever the user was just looking at.
   const graphHref = selectedName
     ? `/projects/${projectId}/graph?root=${encodeURIComponent(selectedName)}`
     : `/projects/${projectId}/graph`
+  const totals: Record<LeftTab, number> = {
+    functions: total,
+    entry: analysis.entry_points?.length ?? 0,
+    exports: analysis.exports?.length ?? 0,
+    tls: analysis.tls_callbacks?.length ?? 0,
+    data: analysis.data_symbols?.length ?? 0,
+    sections: analysis.memory_blocks?.length ?? 0,
+  }
   return (
     <aside className="flex min-h-0 flex-col border-r border-zinc-800">
-      <div className="relative border-b border-zinc-800 p-2">
+      <div className="relative flex items-center gap-1 border-b border-zinc-800 p-2">
         <Link
           to={graphHref}
           target="_blank"
           rel="noopener noreferrer"
-          className="group/graph relative flex w-full items-center justify-center gap-2 rounded border border-zinc-700 bg-zinc-900/60 px-2 py-1.5 text-[11px] font-medium text-zinc-200 hover:border-purple-700 hover:bg-purple-950/40 hover:text-purple-200"
+          className="group/graph relative flex min-w-0 flex-1 items-center justify-center gap-2 rounded border border-zinc-700 bg-zinc-900/60 px-2 py-1.5 text-[11px] font-medium text-zinc-200 hover:border-purple-700 hover:bg-purple-950/40 hover:text-purple-200"
         >
           <Network className="h-3.5 w-3.5" strokeWidth={2} />
           <span>Call Graph</span>
           <span className="text-zinc-500 group-hover/graph:text-purple-400">↗</span>
-          {/* Hover tooltip — sits below the button, doesn't interfere with the
-              list, and uses pointer-events-none so it never eats clicks. */}
           <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 w-64 -translate-x-1/2 rounded border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-[10px] leading-snug text-zinc-300 opacity-0 shadow-lg transition-opacity group-hover/graph:opacity-100">
             Opens an interactive tree of every function reachable from the entry point — see the full branching structure and control flow at a glance.
           </span>
         </Link>
+        <button
+          onClick={onCollapse}
+          title="Collapse left panel"
+          className="shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100"
+        >
+          <span aria-hidden>‹</span>
+        </button>
       </div>
-      <div className="flex items-center gap-1 border-b border-zinc-800 p-2">
+      <LeftTabStrip tab={tab} onTabChange={onTabChange} totals={totals} />
+      {tab === 'functions' && (
+        <FunctionList
+          functions={functions}
+          filter={filter}
+          onFilterChange={onFilterChange}
+          selectedName={selectedName}
+          onSelect={onSelect}
+          total={total}
+        />
+      )}
+      {tab === 'entry' && (
+        <AddressedListPanel
+          kind="entry"
+          items={analysis.entry_points}
+          lookups={lookups}
+          emptyHint="No entry points were extracted. Older projects (pre-v2 worker JSON) don't carry this field — re-decompile with the latest CLI to populate it."
+          onJump={onJump}
+        />
+      )}
+      {tab === 'exports' && (
+        <AddressedListPanel
+          kind="exports"
+          items={analysis.exports}
+          lookups={lookups}
+          emptyHint="No exports detected. For an executable this is normal; for a DLL or .so it usually means the export table wasn't parseable."
+          onJump={onJump}
+        />
+      )}
+      {tab === 'tls' && (
+        <AddressedListPanel
+          kind="tls"
+          items={analysis.tls_callbacks}
+          lookups={lookups}
+          emptyHint="No TLS callbacks. Common for ELF binaries; on PE this means the loader doesn't run any code before the entry point."
+          onJump={onJump}
+        />
+      )}
+      {tab === 'data' && (
+        <DataSymbolsPanel
+          items={analysis.data_symbols}
+          selectedName={selectedDataName}
+          onSelectData={onSelectData}
+        />
+      )}
+      {tab === 'sections' && (
+        <SectionsPanel blocks={analysis.memory_blocks} />
+      )}
+    </aside>
+  )
+}
+
+function FunctionList({
+  functions,
+  filter,
+  onFilterChange,
+  selectedName,
+  onSelect,
+  total,
+}: {
+  functions: BinaryFunction[]
+  filter: string
+  onFilterChange: (v: string) => void
+  selectedName: string | null
+  onSelect: (name: string) => void
+  total: number
+}) {
+  return (
+    <>
+      <div className="border-b border-zinc-800 p-2">
         <input
           type="text"
           value={filter}
           onChange={(e) => onFilterChange(e.target.value)}
           placeholder={`Filter ${total} functions…`}
-          className="min-w-0 flex-1 rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-purple-600 focus:outline-none"
+          className="w-full rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-purple-600 focus:outline-none"
         />
-        <button
-          onClick={onCollapse}
-          title="Collapse functions panel"
-          className="shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100"
-        >
-          <span aria-hidden>‹</span>
-        </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {functions.length === 0 ? (
@@ -607,13 +967,17 @@ function FunctionList({
       >
         Click underlined names in code to jump
       </p>
-    </aside>
+    </>
   )
 }
 
 function FunctionTag({ fn }: { fn: BinaryFunction }) {
   if (fn.external) return <span className="text-[10px] text-amber-400">ext</span>
   if (fn.thunk) return <span className="text-[10px] text-zinc-500">thunk</span>
+  // body_skipped: function exists but extract.py hit its decompile budget
+  // before reaching it. The list entry is still useful for navigation;
+  // the orange tag tells the user clicking it will land on an empty body.
+  if (fn.body_skipped) return <span className="text-[10px] text-orange-500" title="Body capped — metadata only">stub</span>
   return <span className="text-[10px] text-zinc-600">{fn.address.slice(-6)}</span>
 }
 
@@ -624,7 +988,9 @@ function CodePane({
   projectId,
   onRenamed,
   fnByName,
+  lookups,
   onSelect,
+  onJump,
   pendingHighlight,
   deobfs,
   onDeobfChange,
@@ -635,7 +1001,16 @@ function CodePane({
   projectId: string
   onRenamed: (newName: string) => Promise<void>
   fnByName: Map<string, BinaryFunction>
+  // Address + data-symbol indexes used by render-time link wrapping so
+  // hex literals + DAT_/FUN_-prefixed tokens become clickable when they
+  // resolve. Passed as a bundle to keep the prop list manageable.
+  lookups: SymbolLookups
   onSelect: (name: string) => void
+  // Click-through dispatcher. CodePane's handleClick reads data-jump-*
+  // attributes off the click target and invokes this. Returns boolean so
+  // the caller can ignore misses (we still wrap on the way IN, but only
+  // for resolved targets, so a miss here is exceptional).
+  onJump: (target: JumpTarget) => boolean
   pendingHighlight: PendingHighlight | null
   // Project-wide deobf cache keyed by original (pre-rename) function name.
   // Look-ups in this map use the displayed fn.name directly since renames
@@ -649,20 +1024,36 @@ function CodePane({
   // (originalName, deobf | null) so the parent's Map stays in sync.
   onDeobfChange: (originalName: string, deobf: Deobfuscation | null) => void
 }) {
-  // Plain click on a function name navigates to its definition. The actual
-  // matching happens at render time — PseudocodeView post-processes Shiki's
-  // HTML and DisassemblyView tokenizes raw text, both wrapping known names
-  // in a `.fn-link` span with a `data-fn` attribute. Click bubbles up here,
-  // we read the attribute, and call onSelect. Bare text and hex addresses
-  // never get the wrapper, so they remain inert.
+  // Plain click on a wrapped token navigates. addFunctionLinks wraps
+  // resolved tokens at render time with one of three attributes:
+  //   data-fn          — function name, navigate via onSelect (existing path)
+  //   data-jump-data   — data symbol name (DAT_xxx), opens Data side panel
+  //   data-jump-addr   — raw / address-suffixed reference, dispatched to
+  //                      fn-by-addr or data-by-addr by jumpToTarget
+  // Bare text and unresolved tokens never get a wrapper, so they remain inert.
   const handleClick = useCallback((e: React.MouseEvent) => {
-    const t = (e.target as HTMLElement).closest('[data-fn]') as HTMLElement | null
+    const t = (e.target as HTMLElement).closest(
+      '[data-fn], [data-jump-data], [data-jump-addr]',
+    ) as HTMLElement | null
     if (!t) return
-    const name = t.dataset.fn
-    if (!name || !fnByName.has(name) || name === fn?.name) return
-    e.preventDefault()
-    onSelect(name)
-  }, [fn?.name, fnByName, onSelect])
+    if (t.dataset.fn) {
+      const name = t.dataset.fn
+      if (!name || !fnByName.has(name) || name === fn?.name) return
+      e.preventDefault()
+      onSelect(name)
+      return
+    }
+    if (t.dataset.jumpData) {
+      e.preventDefault()
+      onJump({ kind: 'data', value: t.dataset.jumpData })
+      return
+    }
+    if (t.dataset.jumpAddr) {
+      e.preventDefault()
+      onJump({ kind: 'addr', value: t.dataset.jumpAddr })
+      return
+    }
+  }, [fn?.name, fnByName, onSelect, onJump])
 
   if (!fn) {
     return (
@@ -725,10 +1116,10 @@ function CodePane({
         onClick={handleClick}
       >
         {view === 'pseudo' && (
-          <PseudocodeView fn={fn} fnByName={fnByName} pendingHighlight={pendingHighlight} />
+          <PseudocodeView fn={fn} lookups={lookups} pendingHighlight={pendingHighlight} />
         )}
         {view === 'disasm' && (
-          <DisassemblyView fn={fn} fnByName={fnByName} pendingHighlight={pendingHighlight} />
+          <DisassemblyView fn={fn} lookups={lookups} pendingHighlight={pendingHighlight} />
         )}
         {view === 'deobf' && (
           <DeobfView
@@ -900,11 +1291,11 @@ function TabButton({
 
 function PseudocodeView({
   fn,
-  fnByName,
+  lookups,
   pendingHighlight,
 }: {
   fn: BinaryFunction
-  fnByName: Map<string, BinaryFunction>
+  lookups: SymbolLookups
   pendingHighlight: PendingHighlight | null
 }) {
   // Run Shiki async whenever the selected function changes. The first call
@@ -925,10 +1316,10 @@ function PseudocodeView({
     setHtml(null)
     void highlightC(fn.decompiled).then((rendered) => {
       if (cancelled) return
-      setHtml(addFunctionLinks(rendered, fnByName, fn.name))
+      setHtml(addFunctionLinks(rendered, lookups, fn.name))
     })
     return () => { cancelled = true }
-  }, [fn, fnByName])
+  }, [fn, lookups])
 
   // Scroll-to-line + flash, mirroring openapk's HighlightedCode behavior.
   // Fires when html is rendered AND a pending highlight targets this exact
@@ -967,6 +1358,18 @@ function PseudocodeView({
       </EmptyState>
     )
   }
+  if (fn.body_skipped) {
+    return (
+      <EmptyState>
+        Body capped — this function is present in the analysis but its
+        decompilation was skipped because the per-result budget was already
+        spent on functions at lower addresses. The xrefs, signature, and
+        address are still navigable. Re-decompile with a tuned worker (or
+        increase <code>MAX_DECOMPILE_BODIES</code> in extract.py) to fill
+        this in.
+      </EmptyState>
+    )
+  }
   if (!fn.decompiled) {
     return <EmptyState>Decompiler produced no output for this function.</EmptyState>
   }
@@ -989,20 +1392,72 @@ function PseudocodeView({
 }
 
 /**
- * Walk the text nodes of a parsed-Shiki HTML fragment and wrap every
- * occurrence of a known function name in a `.fn-link[data-fn=NAME]` span.
- * Color spans and structural elements emitted by Shiki are left untouched —
- * only text nodes are split — so syntax highlighting survives the pass.
+ * Resolve a single token (identifier or hex literal) against the symbol
+ * lookups. Returns the click attribute payload to wrap the token with, or
+ * null if nothing resolves. Shared by addFunctionLinks (pseudocode pass)
+ * and DisasmTokens (disassembly per-line) so the click-through rules
+ * stay in one place.
  *
- * The current function's own name is intentionally skipped: clicking the
- * line in `int main(...)` shouldn't try to navigate to main again.
+ * Resolution order:
+ *   1. fnByName        — direct hit on a known function (existing behavior)
+ *   2. dataByName      — DAT_xxx or user-named global data
+ *   3. FUN_/SUB_-prefix → fnByAddr by the trailing hex
+ *   4. DAT_-prefix     → dataByAddr by the trailing hex (handles the case
+ *                        where the symbol was renamed but the auto-name
+ *                        still shows up in stale decompiled output)
+ *   5. bare 0x... hex  → fnByAddr then dataByAddr
+ * Self-name is filtered so clicking `int main(...)` doesn't try to navigate
+ * to main again.
+ */
+type LinkPayload = { className: string; attr: string; value: string }
+
+function resolveJump(token: string, lookups: SymbolLookups, selfName: string): LinkPayload | null {
+  if (token === selfName) return null
+  if (lookups.fnByName.has(token)) {
+    return { className: 'fn-link', attr: 'data-fn', value: token }
+  }
+  if (lookups.dataByName.has(token)) {
+    return { className: 'data-link', attr: 'data-jump-data', value: token }
+  }
+  const ghidra = /^(?:FUN|SUB|DAT|LAB)_([0-9a-fA-F]{5,})$/i.exec(token)
+  if (ghidra) {
+    const k = canonAddr(ghidra[1])
+    if (k && (lookups.fnByAddr.has(k) || lookups.dataByAddr.has(k))) {
+      return { className: 'addr-link', attr: 'data-jump-addr', value: token }
+    }
+  }
+  if (/^0x[0-9a-fA-F]{5,}$/i.test(token)) {
+    const k = canonAddr(token)
+    if (k && (lookups.fnByAddr.has(k) || lookups.dataByAddr.has(k))) {
+      return { className: 'addr-link', attr: 'data-jump-addr', value: token }
+    }
+  }
+  return null
+}
+
+// Combined token regex: identifiers (existing FN_IDENT shape) OR hex
+// literals with a `0x` prefix (5+ digits to avoid wrapping small magic
+// numbers). Ordering matters: identifiers first so a token like `0x` —
+// not that this ever appears alone — wouldn't get mis-classified.
+const PSEUDO_TOKEN = /([A-Za-z_$@?][A-Za-z0-9_$@.?]*)|(0x[0-9a-fA-F]{5,})/g
+
+/**
+ * Walk the text nodes of a parsed-Shiki HTML fragment and wrap every
+ * resolvable click target — function names, data symbols (DAT_xxx),
+ * Ghidra-prefixed address tokens (FUN_xxx), and bare hex literals
+ * (0x140001180) — in a click-target span. Color spans and structural
+ * elements emitted by Shiki are left untouched: only text nodes are
+ * split, so syntax highlighting survives the pass.
  */
 function addFunctionLinks(
   html: string,
-  fnByName: Map<string, BinaryFunction>,
+  lookups: SymbolLookups,
   selfName: string,
 ): string {
-  if (fnByName.size === 0) return html
+  if (lookups.fnByName.size === 0 && lookups.dataByName.size === 0 &&
+      lookups.fnByAddr.size === 0 && lookups.dataByAddr.size === 0) {
+    return html
+  }
   // Wrap in a sentinel so we can read innerHTML back out without the
   // <html>/<body> boilerplate DOMParser adds.
   const doc = new DOMParser().parseFromString(`<div id="r">${html}</div>`, 'text/html')
@@ -1014,21 +1469,22 @@ function addFunctionLinks(
   while ((cur = walker.nextNode())) texts.push(cur as Text)
   for (const node of texts) {
     const text = node.data
-    FN_IDENT.lastIndex = 0
+    PSEUDO_TOKEN.lastIndex = 0
     const frag = doc.createDocumentFragment()
     let lastIndex = 0
     let mutated = false
     let m: RegExpExecArray | null
-    while ((m = FN_IDENT.exec(text)) !== null) {
+    while ((m = PSEUDO_TOKEN.exec(text)) !== null) {
       const word = m[0]
-      if (word === selfName || !fnByName.has(word)) continue
+      const payload = resolveJump(word, lookups, selfName)
+      if (!payload) continue
       mutated = true
       if (m.index > lastIndex) {
         frag.appendChild(doc.createTextNode(text.slice(lastIndex, m.index)))
       }
       const span = doc.createElement('span')
-      span.className = 'fn-link'
-      span.dataset.fn = word
+      span.className = payload.className
+      span.setAttribute(payload.attr, payload.value)
       span.textContent = word
       frag.appendChild(span)
       lastIndex = m.index + word.length
@@ -1151,11 +1607,11 @@ function tokenizeAsmLine(line: string): AsmToken[] {
  */
 function DisasmTokens({
   text,
-  fnByName,
+  lookups,
   selfName,
 }: {
   text: string
-  fnByName: Map<string, BinaryFunction>
+  lookups: SymbolLookups
   selfName: string
 }) {
   const tokens = tokenizeAsmLine(text)
@@ -1173,11 +1629,24 @@ function DisasmTokens({
           <span key={key} className="italic text-zinc-500">{t.text}</span>,
         )
         break
-      case 'number':
-        parts.push(
-          <span key={key} className="text-orange-300">{t.text}</span>,
-        )
+      case 'number': {
+        // Numbers in disassembly are usually immediates. A `0x…` operand may
+        // be an address pointing into code or data — try to resolve it and
+        // promote to a clickable addr-link if we hit either index.
+        const payload = resolveJump(t.text, lookups, selfName)
+        if (payload && payload.attr === 'data-jump-addr') {
+          parts.push(
+            <span key={key} className="addr-link text-orange-300" data-jump-addr={payload.value}>
+              {t.text}
+            </span>,
+          )
+        } else {
+          parts.push(
+            <span key={key} className="text-orange-300">{t.text}</span>,
+          )
+        }
         break
+      }
       case 'punct':
         parts.push(
           <span key={key} className="text-zinc-500">{t.text}</span>,
@@ -1185,13 +1654,20 @@ function DisasmTokens({
         break
       case 'ident': {
         const lc = t.text.toLowerCase()
-        // Function-link wins first — even if a function happens to share a
-        // name with a register (rare but possible for short imports like
-        // `sp` or `lr` in pathological binaries), navigation is more
-        // valuable than the color hint.
-        if (t.text !== selfName && fnByName.has(t.text)) {
+        // Function/data/addr link wins first — even if a function happens
+        // to share a name with a register (rare but possible for short
+        // imports like `sp` or `lr` in pathological binaries), navigation
+        // is more valuable than the color hint.
+        const payload = resolveJump(t.text, lookups, selfName)
+        if (payload) {
           parts.push(
-            <span key={key} className="fn-link" data-fn={t.text}>{t.text}</span>,
+            <span
+              key={key}
+              className={payload.className}
+              {...{ [payload.attr]: payload.value }}
+            >
+              {t.text}
+            </span>,
           )
         } else if (!mnemonicSeen) {
           // First identifier on the line is the mnemonic. Bright color so
@@ -1222,11 +1698,11 @@ function DisasmTokens({
 
 function DisassemblyView({
   fn,
-  fnByName,
+  lookups,
   pendingHighlight,
 }: {
   fn: BinaryFunction
-  fnByName: Map<string, BinaryFunction>
+  lookups: SymbolLookups
   pendingHighlight: PendingHighlight | null
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -1250,6 +1726,15 @@ function DisassemblyView({
   }, [fn.name, pendingHighlight])
 
   if (!fn.disassembly || fn.disassembly.length === 0) {
+    if (fn.body_skipped) {
+      return (
+        <EmptyState>
+          Body capped — disassembly was skipped because the per-result
+          MAX_DECOMPILE_BODIES budget was spent before reaching this
+          function. Re-decompile with a higher budget to populate it.
+        </EmptyState>
+      )
+    }
     return <EmptyState>No disassembly available for this function.</EmptyState>
   }
   return (
@@ -1262,7 +1747,7 @@ function DisassemblyView({
         >
           <span className="w-20 shrink-0 text-zinc-600">{line.addr}</span>
           <span className="text-zinc-200">
-            <DisasmTokens text={line.text} fnByName={fnByName} selfName={fn.name} />
+            <DisasmTokens text={line.text} lookups={lookups} selfName={fn.name} />
           </span>
         </div>
       ))}
@@ -4220,6 +4705,278 @@ function ImportsPanel({ imports }: { imports: string[] }) {
         </li>
       ))}
     </ul>
+  )
+}
+
+// Shared panel for entry points / exports / TLS callbacks. All three are
+// "list of (name, address) pairs that navigate to a function". The `kind`
+// only affects the empty-state copy and the accent color; the behavior
+// is identical. Clicking a row calls onJump with kind='addr' so the
+// dispatcher can resolve it to fn-by-addr or data-by-addr.
+//
+// Rows surface the resolved function name when the address maps to an
+// extracted function — making it visible that Ghidra exports/entries/TLS
+// callbacks ARE the underlying function records, not separate entities.
+// When no function record exists at the address (because Ghidra didn't
+// promote it), the row still jumps to disassembly via the address.
+function AddressedListPanel({
+  kind,
+  items,
+  lookups,
+  emptyHint,
+  onJump,
+}: {
+  kind: 'entry' | 'exports' | 'tls'
+  items: AddressedSymbol[] | undefined
+  lookups: SymbolLookups
+  emptyHint: string
+  onJump: (target: JumpTarget) => boolean
+}) {
+  const [q, setQ] = useState('')
+  const filtered = useMemo(() => {
+    if (!items) return []
+    const needle = q.trim().toLowerCase()
+    if (!needle) return items
+    return items.filter(
+      (it) => it.name.toLowerCase().includes(needle) || it.address.toLowerCase().includes(needle),
+    )
+  }, [items, q])
+  if (!items || items.length === 0) {
+    return (
+      <div className="p-3 text-[11px] text-zinc-500">{emptyHint}</div>
+    )
+  }
+  const accent =
+    kind === 'entry' ? 'text-emerald-300' :
+    kind === 'exports' ? 'text-purple-300' :
+    'text-amber-300'
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <input
+        type="text"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder={`Filter ${items.length}…`}
+        className="mb-2 w-full rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-purple-600 focus:outline-none"
+      />
+      <ul className="space-y-0.5">
+        {filtered.map((it) => {
+          const k = canonAddr(it.address)
+          const resolvedFn = k ? lookups.fnByAddr.get(k) : undefined
+          const displayName = it.name || (resolvedFn ? resolvedFn.name : '')
+          // Show "→ realFnName" only when the export/entry/tls name
+          // differs from the underlying function name (the user's #4
+          // request: surface the Ghidra semantic that these labels live
+          // ON a function, not next to one).
+          const showResolved = resolvedFn && resolvedFn.name !== displayName
+          return (
+            <li key={it.address + it.name}>
+              <button
+                type="button"
+                onClick={() => onJump({ kind: 'addr', value: it.address })}
+                className="w-full rounded px-1.5 py-1 text-left font-mono text-[11px] hover:bg-zinc-900"
+              >
+                <div className={`truncate ${accent}`} title={displayName}>
+                  {displayName || '(unnamed)'}
+                </div>
+                {showResolved && (
+                  <div className="truncate text-cyan-400" title={resolvedFn.name}>
+                    → {resolvedFn.name}
+                  </div>
+                )}
+                <div className="truncate text-zinc-600">
+                  {it.address}
+                  {!resolvedFn && (
+                    <span className="ml-1 text-zinc-700" title="No function record at this address — click still jumps via disassembly view">
+                      · no fn
+                    </span>
+                  )}
+                </div>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+// Data symbols panel. Lists every defined data location with its
+// Ghidra-inferred type, and on click expands to a Ghidra-Listing-style
+// detail strip showing the address, type, size, default value, raw
+// bytes preview, and reference count. The expansion is inline (no
+// modal) so the user can compare against the function they're reading
+// without losing context.
+//
+// `selectedName` comes from outside (the user clicked DAT_xxx in code);
+// when it changes, scroll + flash + auto-expand that row.
+function DataSymbolsPanel({
+  items,
+  selectedName,
+  onSelectData,
+}: {
+  items: DataSymbol[] | undefined
+  selectedName: string | null
+  onSelectData: (name: string | null) => void
+}) {
+  const [q, setQ] = useState('')
+  const rowRefs = useRef<Map<string, HTMLLIElement>>(new Map())
+  const filtered = useMemo(() => {
+    if (!items) return []
+    const needle = q.trim().toLowerCase()
+    if (!needle) return items
+    return items.filter(
+      (d) =>
+        d.name.toLowerCase().includes(needle) ||
+        d.address.toLowerCase().includes(needle) ||
+        d.type.toLowerCase().includes(needle) ||
+        (d.value ?? '').toLowerCase().includes(needle),
+    )
+  }, [items, q])
+  useEffect(() => {
+    if (!selectedName) return
+    const el = rowRefs.current.get(selectedName)
+    if (!el) return
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    el.classList.add('search-flash')
+    const t = setTimeout(() => el.classList.remove('search-flash'), 1600)
+    return () => clearTimeout(t)
+  }, [selectedName])
+  if (!items || items.length === 0) {
+    return (
+      <div className="p-3 text-[11px] text-zinc-500">
+        No data symbols were extracted. Older projects (pre-v2 worker JSON)
+        don't carry this field — re-decompile with the latest CLI to
+        populate it.
+      </div>
+    )
+  }
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <input
+        type="text"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder={`Filter ${items.length} data symbols…`}
+        className="mb-2 w-full rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-amber-500 focus:outline-none"
+      />
+      <ul className="space-y-0.5">
+        {filtered.map((d) => {
+          const isSel = d.name === selectedName
+          return (
+            <li
+              key={d.address + d.name}
+              ref={(el) => {
+                if (el) rowRefs.current.set(d.name, el)
+                else rowRefs.current.delete(d.name)
+              }}
+              data-addr={d.address}
+              className={`rounded px-1.5 py-1 font-mono text-[11px] hover:bg-zinc-900 ${isSel ? 'bg-amber-900/30 ring-1 ring-amber-700/40' : ''}`}
+              onClick={() => onSelectData(isSel ? null : d.name)}
+            >
+              <div className="flex items-baseline gap-2">
+                <span className="truncate text-amber-300" title={d.name}>{d.name}</span>
+                {d.type && (
+                  <span className="shrink-0 text-zinc-500" title={d.type}>{d.type}</span>
+                )}
+                {(d.ref_count ?? 0) > 0 && (
+                  <span className="shrink-0 text-cyan-500" title="Number of references">
+                    ×{d.ref_count}
+                  </span>
+                )}
+              </div>
+              <div className="truncate text-zinc-600">{d.address}</div>
+              {isSel && <DataSymbolDetail d={d} />}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+// Expanded detail for a selected data symbol — mimics the relevant rows
+// of Ghidra's Listing view: address, type label, size, default value
+// representation, and a raw-byte hex preview when available. Read-only
+// today; future work could let the user edit the type or rename inline.
+function DataSymbolDetail({ d }: { d: DataSymbol }) {
+  return (
+    <div className="mt-1 rounded border border-zinc-800 bg-zinc-950/60 p-2 text-[10px]">
+      <DetailRow label="address" value={d.address} mono />
+      {d.type && <DetailRow label="type" value={d.type} mono />}
+      {(d.size ?? 0) > 0 && <DetailRow label="size" value={`${d.size} bytes`} />}
+      {d.value && (
+        <DetailRow label="value" value={d.value} mono valueClass="text-emerald-300 break-all" />
+      )}
+      {d.bytes_preview && (
+        <DetailRow
+          label="bytes"
+          value={d.bytes_preview}
+          mono
+          valueClass="text-zinc-400 break-all"
+        />
+      )}
+      {(d.ref_count ?? 0) > 0 && <DetailRow label="refs" value={String(d.ref_count)} />}
+    </div>
+  )
+}
+
+function DetailRow({
+  label,
+  value,
+  mono,
+  valueClass,
+}: {
+  label: string
+  value: string
+  mono?: boolean
+  valueClass?: string
+}) {
+  return (
+    <div className="flex gap-2 py-0.5">
+      <span className="w-14 shrink-0 text-zinc-600">{label}</span>
+      <span className={`min-w-0 flex-1 ${mono ? 'font-mono' : ''} ${valueClass ?? 'text-zinc-300'}`}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
+// Memory map / sections panel. Renders one row per loader-mapped block
+// with its permission triple. Read-only today — clicking a row could
+// later filter the function/data lists to that range, but the immediate
+// value is just letting the user see whether 0x1405ec170 is in .text
+// vs a packed/overlay section.
+function SectionsPanel({ blocks }: { blocks: MemoryBlock[] | undefined }) {
+  if (!blocks || blocks.length === 0) {
+    return (
+      <div className="p-3 text-[11px] text-zinc-500">
+        No memory blocks were extracted. Older projects (pre-v2 worker JSON)
+        don't carry this field — re-decompile with the latest CLI to
+        populate it.
+      </div>
+    )
+  }
+  return (
+    <div className="p-2">
+      <ul className="space-y-1">
+        {blocks.map((b) => (
+          <li key={b.start + b.name} className="rounded border border-zinc-800 bg-zinc-900/40 p-2 font-mono text-[11px]">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="truncate font-semibold text-zinc-200" title={b.name}>{b.name}</span>
+              <span className={`shrink-0 ${b.executable ? 'text-emerald-300' : 'text-zinc-500'}`}>
+                {b.permissions}
+              </span>
+            </div>
+            <div className="mt-0.5 text-zinc-500">
+              {b.start} – {b.end}
+              {b.size > 0 && <span className="ml-2 text-zinc-600">{b.size.toLocaleString()} B</span>}
+              {!b.initialized && <span className="ml-2 text-zinc-600">uninitialized</span>}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
