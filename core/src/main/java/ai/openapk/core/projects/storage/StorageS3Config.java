@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -33,7 +34,13 @@ public class StorageS3Config {
 
     private static final Logger log = LoggerFactory.getLogger(StorageS3Config.class);
 
+    // @Primary so unqualified S3Client constructor params (S3ProjectStorage,
+    // etc.) keep resolving here even after AnalysisStorageConfig adds a
+    // second analysisS3Client bean. Analysis-storage code uses
+    // @Qualifier("analysisS3Client") explicitly so it always picks the
+    // right one.
     @Bean
+    @Primary
     public S3Client s3Client(OpenApkProperties props) {
         OpenApkProperties.Storage.S3 s3 = requireS3(props);
         var builder = S3Client.builder()
@@ -53,6 +60,7 @@ public class StorageS3Config {
     }
 
     @Bean
+    @Primary
     public S3Presigner s3Presigner(OpenApkProperties props) {
         OpenApkProperties.Storage.S3 s3 = requireS3(props);
         var builder = S3Presigner.builder()
