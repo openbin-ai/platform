@@ -245,9 +245,12 @@ func findFreePort() (int, error) {
 }
 
 func startContainer(image string, port int) (string, error) {
-	// --rm so a successful run cleans itself up; we still defer stopContainer
-	// for the abnormal-exit case. -d detaches so we can poll /health.
-	cmd := exec.Command("docker", "run", "-d", "--rm",
+	// Note: we intentionally do NOT pass --rm. When Ghidra dies mid-request
+	// (cgroup OOM, JVM crash, hang) we need the container to STAY around
+	// long enough to grab `docker logs` + `docker inspect` post-mortem.
+	// Cleanup is done by stopContainer() (defer in runLocalGhidra), which
+	// removes the container after we've persisted its logs.
+	cmd := exec.Command("docker", "run", "-d",
 		"-p", fmt.Sprintf("127.0.0.1:%d:8000", port),
 		image,
 	)
@@ -261,23 +264,66 @@ func startContainer(image string, port int) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// stopContainer best-effort tears the container down. Runs after
+// dumpContainerLogs (defer order: LIFO) so logs are persisted before the
+// container is removed.
 func stopContainer(id string) {
 	if id == "" {
 		return
 	}
 	_ = exec.Command("docker", "stop", id).Run()
+	_ = exec.Command("docker", "rm", "-f", id).Run()
 }
 
+// dumpContainerLogs persists the entire stdout+stderr of the container
+// to a tempfile + prints the path. Also runs `docker inspect` to extract
+// the post-mortem fields most useful for diagnosing why Ghidra died:
+//   - State.OOMKilled  — true when cgroup-OOM'd
+//   - State.ExitCode   — distinguishes clean exit from a kill signal
+//   - State.Error      — Docker's own error message, if any
+//   - State.FinishedAt — when it died (helps correlate with system events)
+//
+// Called on any /analyze failure (mid-stream EOF, non-2xx, timeout) so
+// the user has actionable evidence to paste back.
 func dumpContainerLogs(id string) {
 	if id == "" {
 		return
 	}
-	out, err := exec.Command("docker", "logs", "--tail", "50", id).CombinedOutput()
-	if err == nil && len(out) > 0 {
-		fmt.Fprintln(os.Stderr, "---- ghidra-worker logs (last 50 lines) ----")
+	// 1. Container state via inspect. The four fields above are extracted
+	//    with --format; the full inspect output is too verbose to dump.
+	inspectFmt := `{{"OOMKilled="}}{{.State.OOMKilled}}{{"\n"}}` +
+		`{{"ExitCode="}}{{.State.ExitCode}}{{"\n"}}` +
+		`{{"Error="}}{{.State.Error}}{{"\n"}}` +
+		`{{"FinishedAt="}}{{.State.FinishedAt}}{{"\n"}}`
+	insOut, _ := exec.Command("docker", "inspect", "--format", inspectFmt, id).CombinedOutput()
+
+	// 2. Full container logs to a tempfile so we don't drown the user's
+	//    terminal in 5000 lines of Ghidra analyzer output. The path is
+	//    printed at the bottom so they can `less` / paste it.
+	tmpLog, err := os.CreateTemp("", "openbin-ghidra-*.log")
+	if err != nil {
+		// Fall back to last-100-lines on stderr if tempfile creation fails.
+		out, _ := exec.Command("docker", "logs", "--tail", "100", id).CombinedOutput()
+		fmt.Fprintln(os.Stderr, "---- ghidra-worker logs (last 100 lines; tempfile failed) ----")
 		fmt.Fprintln(os.Stderr, string(out))
-		fmt.Fprintln(os.Stderr, "--------------------------------------------")
+		fmt.Fprintln(os.Stderr, "--------------------------------------------------------------")
+		return
 	}
+	defer tmpLog.Close()
+	// `docker logs` separates stdout/stderr; we combine via CombinedOutput
+	// so the file matches what the user would see if they ran `docker logs`
+	// themselves. No --tail — we want the whole thing.
+	logsCmd := exec.Command("docker", "logs", id)
+	logsCmd.Stdout = tmpLog
+	logsCmd.Stderr = tmpLog
+	_ = logsCmd.Run()
+
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "---- ghidra-worker post-mortem ----")
+	fmt.Fprint(os.Stderr, string(insOut))
+	fmt.Fprintln(os.Stderr, "full logs saved to: "+tmpLog.Name())
+	fmt.Fprintln(os.Stderr, "  paste with:  cat "+tmpLog.Name())
+	fmt.Fprintln(os.Stderr, "-----------------------------------")
 }
 
 func waitForHealth(port int, timeout time.Duration) error {
