@@ -35,6 +35,101 @@ async function fetchFromSignedUrl<T>(url: string): Promise<T> {
   return (await resp.json()) as T
 }
 
+// Client-side port of RenameService.applyMapToBinaryAnalysisJson (Java).
+// When the worker JSON is fetched directly from CloudFront the backend has
+// no chance to apply user-applied renames, so we do it here over the
+// in-memory analysis object.
+//
+// Two passes, order matters:
+//   1. Variable-scope renames are stored against a specific function body
+//      (sourcePath="function:<originalName>") because Ghidra reuses
+//      placeholder names like uVar1/param_1 across every function — a
+//      global pass would mass-rewrite identical names everywhere. So we
+//      rewrite each owning function's decompiled/signature/disassembly
+//      lines only, using the function's *original* name to match.
+//   2. Global renames (function-scope and other non-variable scopes) get
+//      a word-boundary substitution applied to every function name,
+//      signature, decompiled body, disassembly line, xref entry, and
+//      addressed-symbol name (exports/entry/tls). Function names move
+//      after the variable pass so the function:<originalName> tag still
+//      resolves above.
+//
+// SUGGESTED renames are ignored — only APPLIED ones change the view.
+function applyRenamesToAnalysis(analysis: BinaryAnalysis, renames: Rename[]): BinaryAnalysis {
+  const applied = renames.filter((r) => r.status === 'APPLIED')
+  if (applied.length === 0) return analysis
+
+  const varsByFn = new Map<string, Array<[string, string]>>()
+  const globalRenames: Array<[string, string]> = []
+  for (const r of applied) {
+    if (r.scope === 'variable') {
+      if (r.sourcePath && r.sourcePath.startsWith('function:')) {
+        const fnName = r.sourcePath.slice('function:'.length)
+        const list = varsByFn.get(fnName)
+        if (list) list.push([r.original, r.suggested])
+        else varsByFn.set(fnName, [[r.original, r.suggested]])
+      }
+      // Variable renames without a function: sourcePath are skipped —
+      // they have no scope, so applying them globally would be unsafe
+      // (mirrors the backend's behavior).
+    } else {
+      globalRenames.push([r.original, r.suggested])
+    }
+  }
+
+  const applyPairs = (s: string, pairs: Array<[string, string]>): string => {
+    if (!s || pairs.length === 0) return s
+    let out = s
+    for (const [orig, sugg] of pairs) {
+      out = out.replace(new RegExp(`\\b${escapeRegex(orig)}\\b`, 'g'), sugg)
+    }
+    return out
+  }
+
+  // Pass 1: per-function variable rewrite using the function's ORIGINAL name.
+  let fns = analysis.functions
+  if (varsByFn.size > 0) {
+    fns = fns.map((fn) => {
+      const vars = varsByFn.get(fn.name)
+      if (!vars) return fn
+      return {
+        ...fn,
+        signature: applyPairs(fn.signature, vars),
+        decompiled: fn.decompiled !== null ? applyPairs(fn.decompiled, vars) : fn.decompiled,
+        disassembly: fn.disassembly
+          ? fn.disassembly.map((l) => ({ ...l, text: applyPairs(l.text, vars) }))
+          : fn.disassembly,
+      }
+    })
+  }
+
+  // Pass 2: global rename substitution everywhere a function name might appear.
+  if (globalRenames.length === 0) {
+    return { ...analysis, functions: fns }
+  }
+  const G = (s: string) => applyPairs(s, globalRenames)
+  const fnsFinal = fns.map((fn) => ({
+    ...fn,
+    name: G(fn.name),
+    signature: G(fn.signature),
+    decompiled: fn.decompiled !== null ? G(fn.decompiled) : fn.decompiled,
+    disassembly: fn.disassembly ? fn.disassembly.map((l) => ({ ...l, text: G(l.text) })) : fn.disassembly,
+    xrefs: {
+      callers: fn.xrefs.callers.map(G),
+      callees: fn.xrefs.callees.map(G),
+    },
+  }))
+  const mapNames = <T extends AddressedSymbol>(xs?: T[]): T[] | undefined =>
+    xs ? xs.map((x) => ({ ...x, name: G(x.name) })) : xs
+  return {
+    ...analysis,
+    functions: fnsFinal,
+    exports: mapNames(analysis.exports),
+    entry_points: mapNames(analysis.entry_points),
+    tls_callbacks: mapNames(analysis.tls_callbacks),
+  }
+}
+
 // Normalize an address string for map lookups. Accepts:
 //   "140001180"         — Ghidra's raw form
 //   "0x140001180"       — C / disasm form
@@ -372,17 +467,27 @@ export function ProjectView() {
       // Fetch project detail FIRST so we know whether to go CloudFront
       // or fall back to the legacy backend endpoint for the analysis.
       const p = await api<ProjectSummary>(`/api/projects/${id}`)
+      const useCloudFront = !!p.analysisDownloadUrl
       const analysisFetch: Promise<BinaryAnalysis> =
-        p.analysisDownloadUrl
-          ? fetchFromSignedUrl<BinaryAnalysis>(p.analysisDownloadUrl)
+        useCloudFront
+          ? fetchFromSignedUrl<BinaryAnalysis>(p.analysisDownloadUrl!)
           : api<BinaryAnalysis>(`/api/projects/${id}/binary-analysis`)
-      const [a, d] = await Promise.all([
+      // On the CloudFront path the worker JSON is raw — backend never sees
+      // it — so the frontend must apply user renames itself. On the legacy
+      // /binary-analysis path the backend has already applied them, so we
+      // skip the fetch (and skip applyRenamesToAnalysis below).
+      const renamesFetch: Promise<Rename[]> = useCloudFront
+        ? api<Rename[]>(`/api/projects/${id}/renames`).catch(() => [] as Rename[])
+        : Promise.resolve([] as Rename[])
+      const [aRaw, d, renames] = await Promise.all([
         analysisFetch,
         // Treat a deobf-fetch failure as "no deobfs yet" — endpoint is
         // BIN-only and returns [] when there's nothing stored. Crashing
         // the whole project load on this would be a regression.
         api<Deobfuscation[]>(`/api/projects/${id}/deobfuscations`).catch(() => [] as Deobfuscation[]),
+        renamesFetch,
       ])
+      const a = useCloudFront ? applyRenamesToAnalysis(aRaw, renames) : aRaw
       setProject(p)
       setAnalysis(a)
       setDeobfs(new Map(d.map((x) => [x.originalName, x])))
