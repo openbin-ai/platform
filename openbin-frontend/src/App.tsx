@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from 'react-oidc-context'
 import { RequireAuth } from '@shared/auth/RequireAuth'
+import { TosGate } from '@shared/components/TosGate'
 import { oidcConfig } from './auth/oidcConfig'
 import { Layout } from './components/Layout'
 import { Home } from './pages/Home'
@@ -50,7 +51,7 @@ export default function App() {
             path="projects/:id/report/print"
             element={
               <RequireAuth>
-                <ReportPrint />
+                <TosGate accent="purple"><ReportPrint /></TosGate>
               </RequireAuth>
             }
           />
@@ -60,14 +61,14 @@ export default function App() {
             path="projects/:id/graph"
             element={
               <RequireAuth>
-                <CallGraph />
+                <TosGate accent="purple"><CallGraph /></TosGate>
               </RequireAuth>
             }
           />
           <Route
             element={
               <RequireAuth>
-                <Layout />
+                <TosGate accent="purple"><Layout /></TosGate>
               </RequireAuth>
             }
           >

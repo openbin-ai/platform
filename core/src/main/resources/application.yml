@@ -163,6 +163,14 @@ openapk:
     region: ${OPENAPK_SES_REGION:}
     abuse-from: ${OPENAPK_ABUSE_FROM:}
     abuse-to: ${OPENAPK_ABUSE_TO:}
+  tos:
+    # Current Terms-of-Service version. Compared against
+    # users.tos_accepted_version by TosAcceptanceFilter; mismatch trips a
+    # 412 on /api/** and the frontend shows the blocking acceptance modal.
+    # Bump in lockstep with the "Effective" date in
+    # src/main/resources/legal/tos.md whenever you make a material change
+    # — every user will be forced to re-accept on next API call.
+    current-version: ${OPENAPK_TOS_VERSION:2026-06-05}
 
 management:
   endpoints:

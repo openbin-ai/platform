@@ -16,8 +16,18 @@ public record OpenApkProperties(
         Ghidra ghidra,
         Jadx jadx,
         Workers workers,
-        Email email
+        Email email,
+        Tos tos
 ) {
+
+    /**
+     * Terms-of-Service config. {@code currentVersion} is the version
+     * string (YYYY-MM-DD date) that {@link
+     * ai.openapk.core.tos.TosAcceptanceFilter} compares against the
+     * user's accepted version. Bump in lockstep with any material TOS
+     * change to force a re-accept across the user base.
+     */
+    public record Tos(String currentVersion) {}
 
     public record Crypto(String masterKeyB64) {}
 

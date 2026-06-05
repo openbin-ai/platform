@@ -40,6 +40,19 @@ public class User {
     @Column(name = "last_seen_at", nullable = false)
     private Instant lastSeenAt;
 
+    /**
+     * Version string of the TOS the user has accepted. Compared against
+     * {@code openapk.tos.current-version} in {@code TosAcceptanceFilter};
+     * mismatch (or null) trips a 412 on protected endpoints. Bumped when
+     * material TOS terms change so every account must re-accept before
+     * the next API call lands.
+     */
+    @Column(name = "tos_accepted_version")
+    private String tosAcceptedVersion;
+
+    @Column(name = "tos_accepted_at")
+    private Instant tosAcceptedAt;
+
     @PrePersist
     void prePersist() {
         var now = Instant.now();
