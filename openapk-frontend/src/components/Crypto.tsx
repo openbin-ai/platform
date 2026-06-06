@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, useApi } from '../api/client'
+import { useCanEdit } from '@shared/components/ProjectRoleContext'
 import { buildCyberChefUrl, type CyberChefOp } from './cyberchef'
 
 type CryptoHit = { file: string; line: number; snippet: string }
@@ -35,6 +36,7 @@ export function Crypto({
   onOpenFile: (path: string, line?: number) => void
 }) {
   const api = useApi()
+  const callerCanEdit = useCanEdit()
   const [hits, setHits] = useState<CryptoHit[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busyKey, setBusyKey] = useState<string | null>(null)
@@ -124,8 +126,8 @@ export function Crypto({
           </label>
           <button
             onClick={() => void rescan()}
-            disabled={rescanning}
-            title="Re-run the static signature scan with the latest patterns"
+            disabled={!callerCanEdit || rescanning}
+            title={!callerCanEdit ? 'Viewer access — rescan is owner/editor-only.' : 'Re-run the static signature scan with the latest patterns'}
             className="text-[10px] text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
           >
             {rescanning ? 'Rescanning…' : '↻ Rescan'}
@@ -161,9 +163,13 @@ export function Crypto({
                 </div>
                 <button
                   onClick={() => void generate(h)}
-                  disabled={busyKey === k || !credentialId}
+                  disabled={!callerCanEdit || busyKey === k || !credentialId}
                   className="shrink-0 rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
-                  title={!credentialId ? 'Pick a credential above' : 'Generate a Python decryptor'}
+                  title={
+                    !callerCanEdit ? 'Viewer access — decryptor generation is owner/editor-only.'
+                    : !credentialId ? 'Pick a credential above'
+                    : 'Generate a Python decryptor'
+                  }
                 >
                   {busyKey === k ? '…' : script ? '↻' : '✨ Generate'}
                 </button>

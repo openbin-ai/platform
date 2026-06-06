@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useApi } from '../api/client'
 import { canEdit, isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { ShareProjectModal } from '@shared/components/ShareProjectModal'
+import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleContext'
 import { AskPanel } from '../components/AskPanel'
 import { estimateCost } from '../lib/llmCost'
 import { detectLang, highlight } from '../syntax/highlight'
@@ -132,7 +133,6 @@ export function ProjectView() {
   const api = useApi()
 
   const [project, setProject] = useState<Project | null>(null)
-  const [shareOpen, setShareOpen] = useState(false)
   const [tree, setTree] = useState<FileNode | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   // Open tab paths in display order. The leftmost is the oldest; clicking a
@@ -508,6 +508,7 @@ export function ProjectView() {
   const modelOptions = currentProvider ? MODELS_BY_PROVIDER[currentProvider] : []
 
   return (
+    <ProjectRoleProvider role={project?.role ?? null}>
     <div className="flex h-full flex-col px-4 py-3">
       <PageHeader
         project={project}
@@ -614,8 +615,9 @@ export function ProjectView() {
             <div className="flex shrink-0 items-center gap-1 border-l border-zinc-800 pl-2 pr-1">
               <button
                 onClick={suggestRenames}
-                disabled={suggesting || !selected || !credentialId || !content || content.encoding === 'binary'}
+                disabled={!canEdit(project?.role) || suggesting || !selected || !credentialId || !content || content.encoding === 'binary'}
                 title={
+                  !canEdit(project?.role) ? 'Viewer access — rename suggestions are owner/editor-only.' :
                   !selected ? 'Open a file first' :
                   !credentialId ? 'Pick a credential in the AI panel' :
                   content?.encoding === 'binary' ? 'Binary files can\'t be analyzed' :
@@ -730,6 +732,7 @@ export function ProjectView() {
         />
       )}
     </div>
+    </ProjectRoleProvider>
   )
 }
 
@@ -758,6 +761,7 @@ function PageHeader({
 }) {
   const [editing, setEditing] = useState(false)
   const [draftName, setDraftName] = useState('')
+  const [shareOpen, setShareOpen] = useState(false)
 
   function startEdit() {
     if (!project) return
@@ -1175,6 +1179,7 @@ function TabButton({ active, onClick, children }: {
 function AnalysisTab({
   mode, onMode, analyzing, analyzeElapsed, onRun, analysis, onHotspotOpen,
 }: AnalysisTabProps) {
+  const callerCanEdit = useCanEdit()
   return (
     <div className="space-y-4 p-3">
       <div className="space-y-2 rounded border border-zinc-800 bg-zinc-950/40 p-3">
@@ -1183,7 +1188,9 @@ function AnalysisTab({
           <select
             value={mode}
             onChange={e => onMode(e.target.value as Mode)}
-            className="mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-100"
+            disabled={!callerCanEdit}
+            title={!callerCanEdit ? 'Viewer access — analysis mode is owner/editor-only.' : undefined}
+            className="mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-100 disabled:opacity-50"
           >
             <option value="MALWARE">Malware Analysis</option>
             <option value="VULN_RESEARCH">Vulnerability Research</option>
@@ -1191,7 +1198,8 @@ function AnalysisTab({
         </label>
         <button
           onClick={onRun}
-          disabled={analyzing}
+          disabled={!callerCanEdit || analyzing}
+          title={!callerCanEdit ? 'Viewer access — running analysis is owner/editor-only.' : undefined}
           className="w-full rounded bg-purple-600 px-3 py-2 text-sm font-medium text-white hover:bg-purple-500 disabled:opacity-50"
         >
           {analyzing ? `Analyzing… ${analyzeElapsed}s` : 'Run Analysis'}

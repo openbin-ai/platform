@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ApiError, useApi } from '@shared/api/client'
 import type { AddCollaboratorRequest, Collaborator, ProjectRole } from '@shared/api/collaborators'
 
@@ -75,25 +76,41 @@ export function ShareProjectModal({
     }
   }, [api, projectId, reload])
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [onClose])
+
   const ac = ACCENTS[accent]
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-zinc-950/80 p-4"
+      className="fixed inset-0 z-[10000] flex items-center justify-center p-4"
+      style={{ backgroundColor: 'rgba(0,0,0,0.85)' }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="share-title"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className={`flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 shadow-2xl ring-1 ${ac.ring}`}>
+      <div
+        className={`flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-zinc-800 shadow-2xl ring-1 ${ac.ring}`}
+        style={{ backgroundColor: '#18181b' }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
           <h2 id="share-title" className="text-sm font-semibold text-zinc-100">
             Share project
           </h2>
           <button
             type="button"
-            onClick={onClose}
-            className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+            onClick={(e) => { e.stopPropagation(); onClose() }}
+            className="rounded p-1 text-lg leading-none text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
             aria-label="Close"
           >
             ✕
@@ -199,7 +216,8 @@ export function ShareProjectModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

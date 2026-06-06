@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useApi } from '../api/client'
+import { useCanEdit } from '@shared/components/ProjectRoleContext'
 
 // =========================================================================
 // Types — must mirror JniBridgeView + its nested records on the backend.
@@ -61,6 +62,7 @@ export function NativeBridge({
   onOpenFile: (path: string, line?: number) => void
 }) {
   const api = useApi()
+  const callerCanEdit = useCanEdit()
   const [view, setView] = useState<JniBridgeView | null>(null)
   const [loading, setLoading] = useState(false)
   const [rescanning, setRescanning] = useState(false)
@@ -142,7 +144,8 @@ export function NativeBridge({
           </p>
           <button
             onClick={() => void rescan()}
-            disabled={rescanning}
+            disabled={!callerCanEdit || rescanning}
+            title={!callerCanEdit ? 'Viewer access — rescan is owner/editor-only.' : undefined}
             className="shrink-0 rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
           >
             {rescanning ? 'Rescanning…' : 'Rescan'}

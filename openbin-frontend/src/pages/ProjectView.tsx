@@ -3,8 +3,9 @@ import { Link, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { Network } from 'lucide-react'
 import { useApi } from '@shared/api/client'
-import { canEdit, isOwner, type ProjectRole } from '@shared/api/collaborators'
+import { isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { ShareProjectModal } from '@shared/components/ShareProjectModal'
+import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleContext'
 import { useStreamingApi } from '@shared/api/streaming'
 import { highlightC } from '../syntax/highlight'
 import { ReportEditor } from './Report'
@@ -669,6 +670,7 @@ export function ProjectView() {
     `${rightOpen ? rightWidth : RAIL_WIDTH}px`
 
   return (
+    <ProjectRoleProvider role={project.role ?? null}>
     <div className="flex h-full flex-col bg-zinc-950 text-zinc-200">
       <Header
         project={project}
@@ -768,6 +770,7 @@ export function ProjectView() {
         </div>
       )}
     </div>
+    </ProjectRoleProvider>
   )
 }
 
@@ -2013,6 +2016,7 @@ function DeobfView({
   onDeobfChange: (originalName: string, deobf: Deobfuscation | null) => void
 }) {
   const api = useApi()
+  const callerCanEdit = useCanEdit()
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
   const [credentialId, setCredentialId] = useState<string>('')
   const [busy, setBusy] = useState<'generate' | 'delete' | null>(null)
@@ -2227,7 +2231,8 @@ function DeobfView({
 
         <button
           onClick={() => void generate()}
-          disabled={busy !== null || !credentialId}
+          disabled={!callerCanEdit || busy !== null || !credentialId}
+          title={!callerCanEdit ? 'Viewer access — generating deobfuscation is owner/editor-only.' : undefined}
           className="w-full rounded bg-purple-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy === 'generate' ? 'Generating…' : '✨ Generate deobfuscation'}
@@ -2267,22 +2272,26 @@ function DeobfView({
         <span>·</span>
         <span>{new Date(deobf.createdAt).toLocaleString()}</span>
         <div className="ml-auto flex items-center gap-1">
-          <button
-            onClick={() => void generate()}
-            disabled={busy !== null}
-            title="Regenerate — replaces the cached version"
-            className="rounded border border-zinc-700 px-2 py-0.5 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-          >
-            {busy === 'generate' ? '…' : '↻ Regenerate'}
-          </button>
-          <button
-            onClick={() => void deleteDeobf()}
-            disabled={busy !== null}
-            title="Delete this cached deobfuscation"
-            className="rounded border border-red-900/60 px-2 py-0.5 text-red-300 hover:bg-red-950/40 disabled:opacity-50"
-          >
-            {busy === 'delete' ? '…' : '✕'}
-          </button>
+          {callerCanEdit && (
+            <>
+              <button
+                onClick={() => void generate()}
+                disabled={busy !== null}
+                title="Regenerate — replaces the cached version"
+                className="rounded border border-zinc-700 px-2 py-0.5 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {busy === 'generate' ? '…' : '↻ Regenerate'}
+              </button>
+              <button
+                onClick={() => void deleteDeobf()}
+                disabled={busy !== null}
+                title="Delete this cached deobfuscation"
+                className="rounded border border-red-900/60 px-2 py-0.5 text-red-300 hover:bg-red-950/40 disabled:opacity-50"
+              >
+                {busy === 'delete' ? '…' : '✕'}
+              </button>
+            </>
+          )}
         </div>
       </div>
       {verdict && (
@@ -3207,6 +3216,7 @@ function RenamesPanel({
   onMutation: (newName?: string) => void
 }) {
   const api = useApi()
+  const callerCanEdit = useCanEdit()
 
   const [items, setItems] = useState<Rename[] | null>(null)
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
@@ -3377,15 +3387,17 @@ function RenamesPanel({
         )}
         <button
           onClick={() => void suggest()}
-          disabled={busy !== null || fnDisabled || credDisabled}
+          disabled={!callerCanEdit || busy !== null || fnDisabled || credDisabled}
           title={
-            !fn
-              ? 'Select a function first'
-              : fn.external
-                ? 'External functions have no body to analyze'
-                : fn.thunk
-                  ? 'Thunks have no body to analyze'
-                  : 'Send this function to the LLM for rename suggestions'
+            !callerCanEdit
+              ? 'Viewer access — rename suggestions are owner/editor-only.'
+              : !fn
+                ? 'Select a function first'
+                : fn.external
+                  ? 'External functions have no body to analyze'
+                  : fn.thunk
+                    ? 'Thunks have no body to analyze'
+                    : 'Send this function to the LLM for rename suggestions'
           }
           className="w-full rounded bg-purple-600 px-3 py-1.5 font-medium text-white hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -3475,7 +3487,8 @@ function RenamesPanel({
             <div className="mt-3 flex items-center gap-2">
               <button
                 onClick={() => void applySelected()}
-                disabled={busy !== null || selected.size === 0}
+                disabled={!callerCanEdit || busy !== null || selected.size === 0}
+                title={!callerCanEdit ? 'Viewer access — applying renames is owner/editor-only.' : undefined}
                 className="rounded bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
               >
                 {busy === 'apply' ? 'Applying…' : `Apply selected (${selected.size})`}
@@ -3505,14 +3518,16 @@ function RenamesPanel({
                     <span className="text-emerald-200">{r.suggested}</span>
                   </span>
                   <ScopePill scope={r.scope} />
-                  <button
-                    onClick={() => void unapply(r.original, r.suggested)}
-                    disabled={busy !== null}
-                    title="Unapply this rename"
-                    className="rounded text-[11px] text-zinc-400 hover:text-red-300 disabled:opacity-30"
-                  >
-                    ✕
-                  </button>
+                  {callerCanEdit && (
+                    <button
+                      onClick={() => void unapply(r.original, r.suggested)}
+                      disabled={busy !== null}
+                      title="Unapply this rename"
+                      className="rounded text-[11px] text-zinc-400 hover:text-red-300 disabled:opacity-30"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -3590,6 +3605,7 @@ function CryptoPanel({
   fn: BinaryFunction | null
 }) {
   const api = useApi()
+  const callerCanEdit = useCanEdit()
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
   const [credentialId, setCredentialId] = useState<string>('')
   const [busy, setBusy] = useState(false)
@@ -3728,15 +3744,17 @@ function CryptoPanel({
         </select>
         <button
           onClick={() => void generate()}
-          disabled={busy || fnDisabled}
+          disabled={!callerCanEdit || busy || fnDisabled}
           title={
-            !fn
-              ? 'Select a function first'
-              : fn.external
-                ? 'External functions have no body to analyze'
-                : fn.thunk
-                  ? 'Thunks have no body to analyze'
-                  : 'Send the decompiled C to the LLM and generate a Python decryptor'
+            !callerCanEdit
+              ? 'Viewer access — decryptor generation is owner/editor-only.'
+              : !fn
+                ? 'Select a function first'
+                : fn.external
+                  ? 'External functions have no body to analyze'
+                  : fn.thunk
+                    ? 'Thunks have no body to analyze'
+                    : 'Send the decompiled C to the LLM and generate a Python decryptor'
           }
           className="w-full rounded bg-purple-600 px-3 py-1.5 font-medium text-white hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -4606,6 +4624,7 @@ function AIPanel({
   onSelect: (name: string) => void
 }) {
   const api = useApi()
+  const callerCanEdit = useCanEdit()
 
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
   const [credentialId, setCredentialId] = useState<string>('')
@@ -4717,7 +4736,8 @@ function AIPanel({
         </label>
         <button
           onClick={() => void run()}
-          disabled={running || !credentialId}
+          disabled={!callerCanEdit || running || !credentialId}
+          title={!callerCanEdit ? 'Viewer access — running AI analysis is owner/editor-only.' : undefined}
           className="w-full rounded bg-purple-600 px-3 py-1.5 font-medium text-white hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {running ? 'Analyzing…' : result ? 'Re-run analysis' : 'Run analysis'}

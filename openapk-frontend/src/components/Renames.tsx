@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useApi } from '../api/client'
+import { useCanEdit } from '@shared/components/ProjectRoleContext'
 
 type RenameStatus = 'SUGGESTED' | 'APPLIED'
 
@@ -34,6 +35,7 @@ export function Renames({
   onMutation: () => void
 }) {
   const api = useApi()
+  const callerCanEdit = useCanEdit()
   const [items, setItems] = useState<Rename[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -171,7 +173,8 @@ export function Renames({
           <div className="mt-3 flex items-center gap-2">
             <button
               onClick={applySelected}
-              disabled={busy || selected.size === 0}
+              disabled={!callerCanEdit || busy || selected.size === 0}
+              title={!callerCanEdit ? 'Viewer access — applying renames is owner/editor-only.' : undefined}
               className="rounded bg-purple-600 px-3 py-1 text-xs font-medium text-white hover:bg-purple-500 disabled:opacity-50"
             >
               {busy ? 'Applying…' : `Apply selected (${selected.size})`}
@@ -200,14 +203,16 @@ export function Renames({
                   <span className="text-emerald-200">{r.suggested}</span>
                 </span>
                 <ScopePill scope={r.scope} />
-                <button
-                  onClick={() => unapply(r.original)}
-                  disabled={busy}
-                  className="rounded text-[11px] text-zinc-400 hover:text-red-300 disabled:opacity-30"
-                  title="Unapply"
-                >
-                  ✕
-                </button>
+                {callerCanEdit && (
+                  <button
+                    onClick={() => unapply(r.original)}
+                    disabled={busy}
+                    className="rounded text-[11px] text-zinc-400 hover:text-red-300 disabled:opacity-30"
+                    title="Unapply"
+                  >
+                    ✕
+                  </button>
+                )}
               </li>
             ))}
           </ul>

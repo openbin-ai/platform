@@ -31,6 +31,27 @@ body, .pf-v5-c-login, .pf-v5-c-login__container {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
+/* ─── page layout: center the card horizontally ────────────────────────── */
+/*
+ * Patternfly 5's `.pf-v5-c-login__container` is a 2-column grid:
+ *   `grid-template-columns: 34rem minmax(auto, 34rem)`
+ *   `grid-template-areas: "main header" "main footer" "main ."`
+ * Column 1 = the card (`__main`), column 2 = the header sidebar. We hide
+ * the header (logo is baked into the card via ::before), which leaves
+ * column 2 empty — but the grid still reserves it, parking the card on
+ * the left. Collapse to a single centered column.
+ *
+ * Also kill the container's hefty 6.125rem (≈ 98px) horizontal padding,
+ * which is meant to balance the 2-col layout and just adds dead space
+ * once we collapse to one.
+ */
+.pf-v5-c-login__container {
+  grid-template-areas: "main" !important;
+  grid-template-columns: minmax(auto, 28rem) !important;
+  padding-inline: var(--pf-v5-global--spacer--lg, 24px) !important;
+  justify-content: center !important;
+}
+
 /* Subtle radial glow behind the card so the page doesn't feel flat. */
 body::before {
   content: "";
@@ -166,7 +187,15 @@ a:hover {
 }
 
 /* ─── social login buttons (Google / GitHub) ──────────────────────────── */
-.pf-v5-c-login__main-footer-band,
+/*
+ * Restraint on selectors here is deliberate. The Keycloak v2 social-providers
+ * template uses fragile, varying markup across Keycloak versions; previous
+ * attempts that force-set width/height/font-size on icon elements either
+ * stretched icons grotesquely or made them disappear (SVG/img elements
+ * don't honour font-size). We only restyle the link (colors + border) and
+ * cap the icon's max box. Layout-level flex/gap are left to the parent
+ * template defaults, which already balance icon ↔ label.
+ */
 #kc-social-providers {
   background: transparent !important;
   border-top: 1px solid var(--openbin-zinc-800) !important;
@@ -174,20 +203,38 @@ a:hover {
   margin-top: 16px;
 }
 
-.zocial,
-#kc-social-providers a {
+#kc-social-providers ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+/* The link/button — colors only, no layout overrides. */
+#kc-social-providers li > a {
   background-color: var(--openbin-zinc-900) !important;
   border: 1px solid var(--openbin-zinc-700) !important;
   color: var(--openbin-zinc-100) !important;
   border-radius: 6px;
-  padding: 10px 14px;
+  text-decoration: none !important;
   transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-.zocial:hover,
-#kc-social-providers a:hover {
+#kc-social-providers li > a:hover {
   background-color: var(--openbin-zinc-800) !important;
   border-color: var(--openbin-amber) !important;
+}
+
+/* Cap the icon box so a too-tall Font Awesome glyph or SVG can't blow up
+   the row. max-* respects natural rendering: font-icons stay font-sized,
+   SVG/img get scaled down without distortion. */
+#kc-social-providers li > a > i,
+#kc-social-providers li > a > svg,
+#kc-social-providers li > a > img {
+  max-width: 20px;
+  max-height: 20px;
 }
 
 /* ─── alerts / messages ────────────────────────────────────────────────── */

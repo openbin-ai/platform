@@ -68,10 +68,17 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HEALTH_ENABLED: "true"
       KC_HTTP_ENABLED: "true"
+      # Live theme reload: disable template + asset caching so editing
+      # styles.css under themes/openbin/login/resources/css/ shows on next
+      # Ctrl+Shift+R without restarting the container.
+      KC_SPI_THEME_STATIC_MAX_AGE: "-1"
+      KC_SPI_THEME_CACHE_THEMES: "false"
+      KC_SPI_THEME_CACHE_TEMPLATES: "false"
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./docker/keycloak/import:/opt/keycloak/data/import:ro
+      - ./docker/keycloak/themes:/opt/keycloak/themes:ro
       - openapk-keycloak-data:/opt/keycloak/data
     # No healthcheck: the Keycloak image is too minimal to run one reliably
     # (no curl/wget, /dev/tcp not available in sh). Spring Boot treats a

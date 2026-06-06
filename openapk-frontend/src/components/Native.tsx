@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from 'react-oidc-context'
 import { API_BASE, useApi } from '../api/client'
+import { useCanEdit } from '@shared/components/ProjectRoleContext'
 import { highlight } from '../syntax/highlight'
 
 // =========================================================================
@@ -130,6 +131,7 @@ function decorateCalls(
  */
 export function NativeViewer({ projectId, libPath }: { projectId: string; libPath: string }) {
   const api = useApi()
+  const callerCanEdit = useCanEdit()
   const [lib, setLib] = useState<NativeLibrary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -283,7 +285,6 @@ export function NativeViewer({ projectId, libPath }: { projectId: string; libPat
 
   const filename = libPath.substring(libPath.lastIndexOf('/') + 1)
   const inFlight = lib.status === 'PENDING' || lib.status === 'RUNNING'
-  const cliPending = lib.status === 'INGEST_PENDING'
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -319,8 +320,13 @@ export function NativeViewer({ projectId, libPath }: { projectId: string; libPat
           <button
             type="button"
             onClick={() => setCliModalOpen(true)}
-            className="shrink-0 rounded bg-amber-400 px-3 py-1 text-[11px] font-semibold text-black shadow-[0_2px_12px_rgba(251,191,36,0.3)] hover:bg-amber-300"
-            title="Run Ghidra locally via the openbin CLI and upload the result here"
+            disabled={!callerCanEdit}
+            className="shrink-0 rounded bg-amber-400 px-3 py-1 text-[11px] font-semibold text-black shadow-[0_2px_12px_rgba(251,191,36,0.3)] hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-40"
+            title={
+              !callerCanEdit
+                ? 'Viewer access — decompilation is owner/editor-only.'
+                : 'Run Ghidra locally via the openbin CLI and upload the result here'
+            }
           >
             {lib.status === 'READY' ? 'Re-decompile via CLI' : 'Decompile via CLI'}
           </button>
@@ -618,6 +624,7 @@ function StatusBadge({ status }: { status: NativeStatus | null }) {
   }
   const style: Record<NativeStatus, string> = {
     PENDING: 'border-zinc-600 bg-zinc-800 text-zinc-300',
+    INGEST_PENDING: 'border-amber-700 bg-amber-900/40 text-amber-300',
     RUNNING: 'border-amber-700 bg-amber-900/40 text-amber-300',
     READY: 'border-emerald-700 bg-emerald-900/40 text-emerald-300',
     FAILED: 'border-red-800 bg-red-950/50 text-red-300',

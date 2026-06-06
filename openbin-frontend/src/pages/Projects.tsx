@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ApiError, API_BASE, useApi } from '@shared/api/client'
+import { canEdit, isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { useAuth } from 'react-oidc-context'
 
 /**
@@ -29,6 +30,7 @@ type Project = {
   decompiledAt: string | null
   decompilePhase: string | null
   decompileStartedAt: string | null
+  role: ProjectRole | null
 }
 
 type ReportSummary = {
@@ -290,6 +292,8 @@ function ProjectRow({
   // the workflow dropdown when in that state.
   const statusChoices: WorkflowStatus[] = ['NEW', 'TRIAGING', 'ANALYZING', 'DRAFTING_REPORT']
   const lockedAtPublished = project.workflowStatus === 'PUBLISHED'
+  const callerCanEdit = canEdit(project.role)
+  const callerIsOwner = isOwner(project.role)
 
   return (
     <li className="flex items-center gap-4 p-4">
@@ -316,7 +320,7 @@ function ProjectRow({
               {project.name}
             </Link>
           )}
-          {!editing && (
+          {!editing && callerCanEdit && (
             <button
               onClick={() => { setDraftName(project.name); setEditing(true) }}
               title="Rename"
@@ -356,8 +360,12 @@ function ProjectRow({
       <select
         value={lockedAtPublished ? 'PUBLISHED' : project.workflowStatus}
         onChange={(e) => onPatch(project.id, { workflowStatus: e.target.value as WorkflowStatus })}
-        disabled={lockedAtPublished}
-        title={lockedAtPublished ? 'Unpublish the report first' : 'Set workflow status'}
+        disabled={lockedAtPublished || !callerCanEdit}
+        title={
+          !callerCanEdit ? 'Viewer access — workflow is read-only.'
+          : lockedAtPublished ? 'Unpublish the report first'
+          : 'Set workflow status'
+        }
         className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-100 disabled:opacity-50"
       >
         {lockedAtPublished && <option value="PUBLISHED">Published (locked)</option>}
@@ -367,12 +375,21 @@ function ProjectRow({
           ))}
       </select>
 
-      <button
-        className="rounded border border-red-900/60 px-3 py-1 text-sm text-red-300 hover:bg-red-950/40"
-        onClick={() => onDelete(project.id, project.name)}
-      >
-        Delete
-      </button>
+      {callerIsOwner ? (
+        <button
+          className="rounded border border-red-900/60 px-3 py-1 text-sm text-red-300 hover:bg-red-950/40"
+          onClick={() => onDelete(project.id, project.name)}
+        >
+          Delete
+        </button>
+      ) : (
+        <span
+          className="rounded border border-zinc-800 px-2 py-0.5 font-mono text-[10px] uppercase text-zinc-500"
+          title={project.role === 'EDITOR' ? 'Shared with you as editor' : 'Shared with you as viewer'}
+        >
+          {project.role?.toLowerCase() ?? 'shared'}
+        </span>
+      )}
     </li>
   )
 }
