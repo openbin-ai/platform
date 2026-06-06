@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { Network } from 'lucide-react'
 import { useApi } from '@shared/api/client'
+import { canEdit, isOwner, type ProjectRole } from '@shared/api/collaborators'
+import { ShareProjectModal } from '@shared/components/ShareProjectModal'
 import { useStreamingApi } from '@shared/api/streaming'
 import { highlightC } from '../syntax/highlight'
 import { ReportEditor } from './Report'
@@ -239,6 +241,9 @@ type ProjectSummary = {
   // means legacy inline JSONB — fall back to the backend endpoint.
   analysisDownloadUrl?: string | null
   analysisSizeBytes?: number
+  // Caller's role on this project ('OWNER' | 'EDITOR' | 'VIEWER').
+  // Null on pre-collab backends — treat as OWNER for back-compat.
+  role?: ProjectRole | null
 }
 
 type ViewMode = 'pseudo' | 'disasm' | 'deobf'
@@ -348,6 +353,7 @@ export function ProjectView() {
   const api = useApi()
 
   const [project, setProject] = useState<ProjectSummary | null>(null)
+  const [shareOpen, setShareOpen] = useState(false)
   const [analysis, setAnalysis] = useState<BinaryAnalysis | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -669,7 +675,15 @@ export function ProjectView() {
         functionCount={analysis.functions.length}
         onPickScreenshot={() => setShot({ mode: 'pick' })}
         onStartCapture={() => { void startCapture() }}
+        onShare={() => setShareOpen(true)}
       />
+      {shareOpen && (
+        <ShareProjectModal
+          projectId={project.id}
+          accent="purple"
+          onClose={() => setShareOpen(false)}
+        />
+      )}
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: gridCols }}>
         {leftOpen ? (
           <LeftSidebar
@@ -801,19 +815,40 @@ function Header({
   functionCount,
   onPickScreenshot,
   onStartCapture,
+  onShare,
 }: {
   project: ProjectSummary
   functionCount: number
   onPickScreenshot: () => void
   onStartCapture: () => void
+  onShare: () => void
 }) {
+  const callerIsOwner = isOwner(project.role)
   return (
     <header className="flex items-center gap-3 border-b border-zinc-800 px-4 py-2.5 text-sm">
       <Link to="/" className="text-zinc-500 hover:text-zinc-300">
         ← Projects
       </Link>
       <div className="min-w-0 flex-1">
-        <div className="truncate font-medium text-zinc-100">{project.name}</div>
+        <div className="flex items-center gap-2">
+          <div className="truncate font-medium text-zinc-100">{project.name}</div>
+          {project.role === 'VIEWER' && (
+            <span
+              className="shrink-0 rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-zinc-400"
+              title="View-only access on this project"
+            >
+              viewer
+            </span>
+          )}
+          {project.role === 'EDITOR' && (
+            <span
+              className="shrink-0 rounded border border-emerald-700/60 bg-emerald-900/30 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-emerald-300"
+              title="Shared with you — editor access"
+            >
+              editor
+            </span>
+          )}
+        </div>
         <div className="mt-0.5 truncate text-xs text-zinc-500">
           {project.executableFormat ?? '—'} · {project.arch ?? 'arch unknown'} ·{' '}
           {project.languageId ?? '—'} · {functionCount} functions
@@ -834,6 +869,16 @@ function Header({
         >
           📸
         </button>
+        {callerIsOwner && (
+          <button
+            type="button"
+            onClick={onShare}
+            title="Invite collaborators to this project"
+            className="rounded border border-purple-700/60 bg-purple-950/30 px-3 py-1 text-[11px] font-medium text-purple-200 hover:bg-purple-900/40"
+          >
+            Share
+          </button>
+        )}
         <Link
           to={`/projects/${project.id}/report`}
           target="_blank"

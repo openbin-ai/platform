@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useApi } from '../api/client'
+import { canEdit, isOwner, type ProjectRole } from '@shared/api/collaborators'
+import { ShareProjectModal } from '@shared/components/ShareProjectModal'
 import { AskPanel } from '../components/AskPanel'
 import { estimateCost } from '../lib/llmCost'
 import { detectLang, highlight } from '../syntax/highlight'
@@ -51,6 +53,9 @@ type Project = {
   analysisMode: Mode
   packageName: string | null
   errorMessage: string | null
+  // Caller's effective access tier on this project. Null on pre-collab
+  // backends or anonymous callers — treat null as OWNER for back-compat.
+  role: ProjectRole | null
 }
 
 type Provider = 'ANTHROPIC' | 'OPENAI' | 'BEDROCK'
@@ -127,6 +132,7 @@ export function ProjectView() {
   const api = useApi()
 
   const [project, setProject] = useState<Project | null>(null)
+  const [shareOpen, setShareOpen] = useState(false)
   const [tree, setTree] = useState<FileNode | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   // Open tab paths in display order. The leftmost is the oldest; clicking a
@@ -768,6 +774,12 @@ function PageHeader({
   }
 
   const locked = project?.workflowStatus === 'PUBLISHED'
+  // Role gating: collab-naive backends + the caller-is-owner case both
+  // surface role=null, which canEdit/isOwner treat as full access.
+  // Genuine VIEWERs see read-only UI (mode/workflow disabled, no rename,
+  // no Share button).
+  const callerCanEdit = canEdit(project?.role)
+  const callerIsOwner = isOwner(project?.role)
 
   return (
     <div>
@@ -793,7 +805,7 @@ function PageHeader({
               {project?.name ?? 'Loading…'}
             </h1>
           )}
-          {project && !editing && (
+          {project && !editing && callerCanEdit && (
             <button
               onClick={startEdit}
               title="Rename project"
@@ -802,13 +814,32 @@ function PageHeader({
               ✎
             </button>
           )}
+          {project?.role === 'VIEWER' && (
+            <span
+              className="shrink-0 rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-zinc-400"
+              title="You have view-only access on this project"
+            >
+              viewer
+            </span>
+          )}
+          {project?.role === 'EDITOR' && (
+            <span
+              className="shrink-0 rounded border border-emerald-700/60 bg-emerald-900/30 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-emerald-300"
+              title="Shared with you — editor access"
+            >
+              editor
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {project && (
             <select
               value={project.analysisMode}
               onChange={e => void onModeChange(e.target.value as Mode)}
-              title="Primary analysis mode. Drives the default Report section template and the Analysis tab's mode dropdown."
+              disabled={!callerCanEdit}
+              title={callerCanEdit
+                ? "Primary analysis mode. Drives the default Report section template and the Analysis tab's mode dropdown."
+                : 'Viewer access — analysis mode is read-only.'}
               className={`rounded border px-2 py-1 text-xs disabled:opacity-50 ${
                 project.analysisMode === 'VULN_RESEARCH'
                   ? 'border-rose-700/60 bg-rose-950/30 text-rose-200'
@@ -823,8 +854,10 @@ function PageHeader({
             <select
               value={project.workflowStatus}
               onChange={e => void onPatch({ workflowStatus: e.target.value as WorkflowStatus })}
-              disabled={locked}
-              title={locked ? 'Unpublish the report to change status' : 'Workflow status'}
+              disabled={locked || !callerCanEdit}
+              title={locked
+                ? 'Unpublish the report to change status'
+                : !callerCanEdit ? 'Viewer access — workflow is read-only.' : 'Workflow status'}
               className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-100 disabled:opacity-50"
             >
               {locked && <option value="PUBLISHED">Published (locked)</option>}
@@ -832,6 +865,16 @@ function PageHeader({
                 <option key={s} value={s}>{WORKFLOW_LABEL[s]}</option>
               ))}
             </select>
+          )}
+          {project && callerIsOwner && (
+            <button
+              type="button"
+              onClick={() => setShareOpen(true)}
+              className="rounded border border-amber-700/60 bg-amber-950/30 px-3 py-1 text-xs font-medium text-amber-200 hover:bg-amber-900/40"
+              title="Invite collaborators to this project"
+            >
+              Share
+            </button>
           )}
           <Link
             to={`/projects/${projectId}/report`}
@@ -844,6 +887,13 @@ function PageHeader({
           </Link>
         </div>
       </div>
+      {shareOpen && projectId && (
+        <ShareProjectModal
+          projectId={projectId}
+          accent="amber"
+          onClose={() => setShareOpen(false)}
+        />
+      )}
       {project && (project.name !== project.originalFilename || project.packageName) && (
         <div className="mt-1 text-xs text-zinc-500">
           {project.name !== project.originalFilename && (
