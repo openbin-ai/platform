@@ -10,16 +10,15 @@ import ai.openapk.core.nativeanalysis.NativeAnalysisJsonLoader;
 import ai.openapk.core.nativeanalysis.NativeAnalysisRepository;
 import ai.openapk.core.nativeanalysis.NativeAnalysisStatus;
 import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.charset.MalformedInputException;
@@ -114,19 +113,22 @@ public class JniBridgeScanService {
     private final NativeAnalysisJsonLoader nativeJsonLoader;
     private final ProjectStorage storage;
     private final ObjectMapper objectMapper;
+    private final ProjectAccessGuard guard;
 
     public JniBridgeScanService(
             ProjectRepository projectRepo,
             NativeAnalysisRepository nativeRepo,
             NativeAnalysisJsonLoader nativeJsonLoader,
             ProjectStorage storage,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            ProjectAccessGuard guard
     ) {
         this.projectRepo = projectRepo;
         this.nativeRepo = nativeRepo;
         this.nativeJsonLoader = nativeJsonLoader;
         this.storage = storage;
         this.objectMapper = objectMapper;
+        this.guard = guard;
     }
 
     /**
@@ -135,7 +137,9 @@ public class JniBridgeScanService {
      */
     @Transactional
     public JniBridgeView getOrBuild(User user, UUID projectId) {
-        Project p = requireOwned(user, projectId);
+        // VIEWER-OK: the lazy-cache write inside buildAndPersist is benign
+        // (cache belongs to the project, not the caller).
+        Project p = guard.requireRead(user, projectId);
         String cached = p.getJniBridgeJson();
         if (cached != null && !cached.isBlank()) {
             try {
@@ -144,21 +148,23 @@ public class JniBridgeScanService {
                 log.warn("jni bridge cache for {} is unreadable, rebuilding: {}", projectId, e.toString());
             }
         }
-        return buildAndPersist(user, p);
+        return buildAndPersist(p);
     }
 
     /** Force a fresh scan, overwriting any cached doc. */
     @Transactional
     public JniBridgeView rescan(User user, UUID projectId) {
-        Project p = requireOwned(user, projectId);
-        return buildAndPersist(user, p);
+        // EDITOR: explicit re-scan overwrites the cache; treat as a mutation.
+        Project p = guard.requireEdit(user, projectId);
+        return buildAndPersist(p);
     }
 
     // ---------- internals ----------
 
-    private JniBridgeView buildAndPersist(User user, Project p) {
+    private JniBridgeView buildAndPersist(Project p) {
         UUID projectId = p.getId();
-        Path root = storage.srcDir(user.getId(), projectId).normalize();
+        // Owner-keyed srcDir so collaborators resolve to the project owner's workspace.
+        Path root = storage.srcDir(p.getUser().getId(), projectId).normalize();
 
         long start = System.currentTimeMillis();
         List<LoaderCall> loaders = new ArrayList<>();
@@ -518,8 +524,4 @@ public class JniBridgeScanService {
         return s.substring(start, end);
     }
 
-    private Project requireOwned(User user, UUID projectId) {
-        return projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
-    }
 }

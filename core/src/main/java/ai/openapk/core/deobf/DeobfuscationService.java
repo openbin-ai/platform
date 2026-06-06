@@ -8,8 +8,8 @@ import ai.openapk.core.credentials.LlmCredentialRepository;
 import ai.openapk.core.deobf.dto.DeobfuscateFunctionRequest;
 import ai.openapk.core.deobf.dto.FunctionDeobfuscationResponse;
 import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectKind;
-import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.analysis.BinaryAnalysisLoader;
 import ai.openapk.core.renames.RenameService;
 import org.slf4j.Logger;
@@ -88,35 +88,35 @@ public class DeobfuscationService {
                "no obfuscation detected" verdict.
             """;
 
-    private final ProjectRepository projectRepo;
     private final FunctionDeobfuscationRepository deobfRepo;
     private final LlmCredentialRepository credRepo;
     private final LlmInvoker invoker;
     private final RenameService renameService;
     private final ObjectMapper mapper;
     private final BinaryAnalysisLoader analysisLoader;
+    private final ProjectAccessGuard guard;
 
     public DeobfuscationService(
-            ProjectRepository projectRepo,
             FunctionDeobfuscationRepository deobfRepo,
             LlmCredentialRepository credRepo,
             LlmInvoker invoker,
             RenameService renameService,
             ObjectMapper mapper,
-            BinaryAnalysisLoader analysisLoader
+            BinaryAnalysisLoader analysisLoader,
+            ProjectAccessGuard guard
     ) {
-        this.projectRepo = projectRepo;
         this.deobfRepo = deobfRepo;
         this.credRepo = credRepo;
         this.invoker = invoker;
         this.renameService = renameService;
         this.mapper = mapper;
         this.analysisLoader = analysisLoader;
+        this.guard = guard;
     }
 
     @Transactional(readOnly = true)
     public List<FunctionDeobfuscationResponse> list(User user, UUID projectId) {
-        ensureOwnedBin(user, projectId);
+        ensureReadableBin(user, projectId);
         return deobfRepo.findByProjectId(projectId).stream()
                 .map(FunctionDeobfuscationResponse::from)
                 .toList();
@@ -124,7 +124,7 @@ public class DeobfuscationService {
 
     @Transactional
     public FunctionDeobfuscationResponse generate(User user, UUID projectId, DeobfuscateFunctionRequest req) {
-        Project project = ensureOwnedBin(user, projectId);
+        Project project = ensureEditableBin(user, projectId);
         LlmCredential cred = credRepo.findByIdAndUserId(req.credentialId(), user.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "credential not found"));
 
@@ -174,14 +174,20 @@ public class DeobfuscationService {
 
     @Transactional
     public void delete(User user, UUID projectId, String functionName) {
-        ensureOwnedBin(user, projectId);
+        ensureEditableBin(user, projectId);
         String originalName = renameService.resolveOriginal(projectId, functionName);
         deobfRepo.deleteByProjectIdAndOriginalName(projectId, originalName);
     }
 
-    private Project ensureOwnedBin(User user, UUID projectId) {
-        Project project = projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+    private Project ensureReadableBin(User user, UUID projectId) {
+        return ensureBin(guard.requireRead(user, projectId));
+    }
+
+    private Project ensureEditableBin(User user, UUID projectId) {
+        return ensureBin(guard.requireEdit(user, projectId));
+    }
+
+    private static Project ensureBin(Project project) {
         if (project.getKind() != ProjectKind.BIN) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "deobfuscation is only available for binary projects");

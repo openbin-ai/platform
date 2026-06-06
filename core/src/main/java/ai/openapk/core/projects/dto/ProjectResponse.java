@@ -3,6 +3,7 @@ package ai.openapk.core.projects.dto;
 import ai.openapk.core.analysis.AnalysisMode;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectKind;
+import ai.openapk.core.projects.ProjectRole;
 import ai.openapk.core.projects.ProjectStatus;
 import ai.openapk.core.projects.WorkflowStatus;
 
@@ -39,24 +40,42 @@ public record ProjectResponse(
         // signing isn't configured. Frontend treats null as "fall back to
         // inline reads via the existing project detail endpoint".
         String analysisDownloadUrl,
-        long analysisSizeBytes
+        long analysisSizeBytes,
+        // Caller's effective role on the project. OWNER for the project's
+        // creator, EDITOR / VIEWER for collaborators. Null when the
+        // response is built outside an authenticated request context
+        // (e.g. internal worker code paths) — frontend treats null as
+        // "assume owner" for back-compat with pre-collab clients.
+        ProjectRole role
 ) {
     /**
-     * Convenience variant that omits the signed URL. Used by code paths
-     * that don't yet have the CloudFront signer at hand (legacy ingest,
-     * tests). Equivalent to {@code from(p, key -> null)}.
+     * Convenience variant for code paths that don't have a URL signer or
+     * caller role at hand (legacy ingest, async worker callbacks, tests).
+     * The frontend treats a null role as "assume owner" for back-compat
+     * with pre-collab clients.
      */
     public static ProjectResponse from(Project p) {
-        return from(p, null);
+        return from(p, null, null);
     }
 
     /**
-     * Build a response with an optional URL signer. When {@code urlSigner}
-     * is non-null AND the project has an S3 key set, the URL is minted
-     * and embedded in the response. Otherwise {@code analysisDownloadUrl}
-     * is null and the frontend falls back to the legacy inline read.
+     * Variant with URL signer but no caller role. Used by code paths that
+     * upload / create a new project (where the caller IS the owner by
+     * definition) — pass null role and the frontend uses its back-compat
+     * fallback.
      */
     public static ProjectResponse from(Project p, Function<String, String> urlSigner) {
+        return from(p, urlSigner, null);
+    }
+
+    /**
+     * Full variant. {@code role} is the caller's effective access tier
+     * on this project, resolved through {@link ai.openapk.core.projects.ProjectAccessGuard}.
+     * When {@code urlSigner} is non-null AND the project has an S3 key,
+     * the CloudFront signed URL is embedded; otherwise the frontend falls
+     * back to the legacy inline read.
+     */
+    public static ProjectResponse from(Project p, Function<String, String> urlSigner, ProjectRole role) {
         String signedUrl = null;
         String s3Key = p.getBinaryAnalysisS3Key();
         if (urlSigner != null && s3Key != null && !s3Key.isBlank()) {
@@ -85,7 +104,8 @@ public record ProjectResponse(
                 p.getDecompilePhase(),
                 p.getDecompileStartedAt(),
                 signedUrl,
-                size
+                size,
+                role
         );
     }
 }

@@ -1,7 +1,8 @@
 package ai.openapk.core.search;
 
 import ai.openapk.core.auth.User;
-import ai.openapk.core.projects.ProjectRepository;
+import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.search.dto.SearchHit;
 import ai.openapk.core.util.SdkPaths;
@@ -54,11 +55,11 @@ public class SearchService {
             "cfg", "ini", "html", "js", "ts"
     );
 
-    private final ProjectRepository projectRepo;
+    private final ProjectAccessGuard guard;
     private final ProjectStorage storage;
 
-    public SearchService(ProjectRepository projectRepo, ProjectStorage storage) {
-        this.projectRepo = projectRepo;
+    public SearchService(ProjectAccessGuard guard, ProjectStorage storage) {
+        this.guard = guard;
         this.storage = storage;
     }
 
@@ -68,10 +69,10 @@ public class SearchService {
             String q, boolean caseSensitive, boolean regex, boolean includeSdks, int limit
     ) {
         if (q == null || q.isBlank()) return List.of();
-        projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+        // VIEWER-OK: code search is read-only.
+        Project project = guard.requireRead(user, projectId);
 
-        Path root = storage.srcDir(user.getId(), projectId).normalize();
+        Path root = storage.srcDir(project.getUser().getId(), projectId).normalize();
         if (!Files.isDirectory(root)) return List.of();
 
         Pattern pattern;

@@ -11,6 +11,7 @@ import ai.openapk.core.auth.User;
 import ai.openapk.core.credentials.LlmCredential;
 import ai.openapk.core.credentials.LlmCredentialRepository;
 import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.ProjectStatus;
@@ -58,6 +59,7 @@ public class AnalysisService {
     private final ObjectMapper mapper;
     private final TransactionTemplate tx;
     private final BinaryAnalysisLoader analysisLoader;
+    private final ProjectAccessGuard guard;
 
     public AnalysisService(
             ProjectRepository projectRepo,
@@ -70,7 +72,8 @@ public class AnalysisService {
             RenameService renameService,
             ObjectMapper mapper,
             TransactionTemplate tx,
-            BinaryAnalysisLoader analysisLoader
+            BinaryAnalysisLoader analysisLoader,
+            ProjectAccessGuard guard
     ) {
         this.projectRepo = projectRepo;
         this.credRepo = credRepo;
@@ -83,6 +86,7 @@ public class AnalysisService {
         this.mapper = mapper;
         this.tx = tx;
         this.analysisLoader = analysisLoader;
+        this.guard = guard;
     }
 
     /**
@@ -92,8 +96,7 @@ public class AnalysisService {
      */
     @Transactional(readOnly = true)
     public AnalysisResponse latestAnalysis(User user, UUID projectId) {
-        Project project = projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+        Project project = guard.requireRead(user, projectId);
         String cached = project.getLatestAnalysisJson();
         if (cached == null || cached.isBlank()) return null;
         try {
@@ -106,8 +109,8 @@ public class AnalysisService {
 
     @Transactional
     public AnalysisResponse analyze(User user, UUID projectId, AnalysisMode mode, UUID credentialId, String model) {
-        Project project = projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+        // EDITOR: analyze persists latestAnalysisJson + advances workflow.
+        Project project = guard.requireEdit(user, projectId);
         if (project.getStatus() != ProjectStatus.READY) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "project is not READY (current status: " + project.getStatus() + ")");
@@ -154,8 +157,9 @@ public class AnalysisService {
 
     @Transactional
     public AskResponse ask(User user, UUID projectId, String filePath, String question, UUID credentialId, String model) {
-        Project project = projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+        // VIEWER-OK: AI Q&A doesn't mutate the project (tokens charged
+        // to caller's BYOK credential, not the project owner's).
+        Project project = guard.requireRead(user, projectId);
         if (project.getStatus() != ProjectStatus.READY) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "project is not READY (current status: " + project.getStatus() + ")");
@@ -203,8 +207,8 @@ public class AnalysisService {
         Prep prep;
         try {
             prep = tx.execute(status -> {
-                Project project = projectRepo.findByIdAndUserId(projectId, user.getId())
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+                // VIEWER-OK: streaming Q&A is read-only over project data.
+                Project project = guard.requireRead(user, projectId);
                 if (project.getStatus() != ProjectStatus.READY) {
                     throw new ResponseStatusException(HttpStatus.CONFLICT,
                             "project is not READY (current status: " + project.getStatus() + ")");
@@ -299,8 +303,8 @@ public class AnalysisService {
         Prep prep;
         try {
             prep = tx.execute(status -> {
-                Project project = projectRepo.findByIdAndUserId(projectId, user.getId())
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+                // VIEWER-OK: ask-function reads cached worker JSON, no writes.
+                Project project = guard.requireRead(user, projectId);
                 if (project.getKind() != ProjectKind.BIN) {
                     throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                             "ask-function is BIN-only (project kind=" + project.getKind() + ")");
@@ -451,8 +455,8 @@ public class AnalysisService {
      */
     @Transactional
     public void rescanDigest(User user, UUID projectId) {
-        Project project = projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+        // EDITOR: rescan overwrites the project's cached digestJson.
+        Project project = guard.requireEdit(user, projectId);
         if (project.getStatus() != ProjectStatus.READY) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "project is not READY (current status: " + project.getStatus() + ")");

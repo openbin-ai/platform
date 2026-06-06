@@ -2,6 +2,7 @@ package ai.openapk.core.symbols;
 
 import ai.openapk.core.auth.User;
 import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.renames.RenameService;
@@ -102,6 +103,7 @@ public class SymbolService {
     private final ObjectMapper mapper;
     private final ProjectUsageRepository usageRepo;
     private final UsageIndexerService usageIndexer;
+    private final ProjectAccessGuard guard;
 
     public SymbolService(
             ProjectRepository projectRepo,
@@ -109,7 +111,8 @@ public class SymbolService {
             RenameService renameService,
             ObjectMapper mapper,
             ProjectUsageRepository usageRepo,
-            UsageIndexerService usageIndexer
+            UsageIndexerService usageIndexer,
+            ProjectAccessGuard guard
     ) {
         this.projectRepo = projectRepo;
         this.storage = storage;
@@ -117,6 +120,7 @@ public class SymbolService {
         this.mapper = mapper;
         this.usageRepo = usageRepo;
         this.usageIndexer = usageIndexer;
+        this.guard = guard;
     }
 
     /**
@@ -148,7 +152,8 @@ public class SymbolService {
     @Transactional
     public SymbolIndex rebuild(User user, UUID projectId) {
         Project p = loadProject(user, projectId);
-        Path root = storage.srcDir(user.getId(), projectId).normalize();
+        // Owner-keyed srcDir so collaborators rebuild over the project owner's workspace.
+        Path root = storage.srcDir(p.getUser().getId(), projectId).normalize();
         if (!Files.isDirectory(root)) {
             SymbolIndex empty = new SymbolIndex(Instant.now(), 0, List.of());
             persist(p, empty);
@@ -391,7 +396,7 @@ public class SymbolService {
             boolean includeSdks
     ) {
         if (name == null || name.isBlank()) return List.of();
-        loadProject(user, projectId);
+        Project project = loadProject(user, projectId);
 
         // ----- DB-backed fast path ------------------------------------------
         if (usageRepo.hasAnyRows(projectId)) {
@@ -401,10 +406,12 @@ public class SymbolService {
         // ----- legacy fallback: live grep + lazy build ----------------------
         // First request triggers an async re-index so the next one is fast.
         // The current request still uses the slow path so the user doesn't
-        // block on a 1-2 minute index build.
-        usageIndexer.rebuildAsync(user.getId(), projectId);
+        // block on a 1-2 minute index build. Owner-keyed so collaborator
+        // requests index the project owner's workspace.
+        UUID ownerId = project.getUser().getId();
+        usageIndexer.rebuildAsync(ownerId, projectId);
 
-        Path root = storage.srcDir(user.getId(), projectId).normalize();
+        Path root = storage.srcDir(ownerId, projectId).normalize();
         if (!Files.isDirectory(root)) return List.of();
 
         // Look up the declaration packages for this name. If we have any, we
@@ -548,8 +555,12 @@ public class SymbolService {
         return s;
     }
 
+    /**
+     * VIEWER-OK: symbol-index access. Lazy-cache writes in
+     * {@code getOrBuild}/{@code rebuild} are tolerated under viewer access
+     * because the cache belongs to the project, not the caller.
+     */
     private Project loadProject(User user, UUID projectId) {
-        return projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+        return guard.requireRead(user, projectId);
     }
 }

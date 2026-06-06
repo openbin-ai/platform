@@ -5,8 +5,9 @@ import ai.openapk.core.nativeanalysis.dto.FinalizeNativeIngestRequest;
 import ai.openapk.core.nativeanalysis.dto.InitiateNativeIngestRequest;
 import ai.openapk.core.nativeanalysis.dto.InitiateNativeIngestResponse;
 import ai.openapk.core.nativeanalysis.dto.NativeLibraryView;
+import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectKind;
-import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.analysis.AnalysisStorageService;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import org.slf4j.Logger;
@@ -72,22 +73,22 @@ public class NativeAnalysisIngestService {
     private static final Pattern LIB_PATH_RE = Pattern.compile(
             "^resources/lib/[^/]+/[^/]+\\.so$");
 
-    private final ProjectRepository projectRepo;
     private final NativeAnalysisRepository nativeRepo;
     private final ProjectStorage storage;
     /** Null when openapk.analysis-storage.bucket is unset (dev/local). */
     private final AnalysisStorageService analysisStorage;
+    private final ProjectAccessGuard guard;
 
     public NativeAnalysisIngestService(
-            ProjectRepository projectRepo,
             NativeAnalysisRepository nativeRepo,
             ProjectStorage storage,
-            @Autowired(required = false) AnalysisStorageService analysisStorage
+            @Autowired(required = false) AnalysisStorageService analysisStorage,
+            ProjectAccessGuard guard
     ) {
-        this.projectRepo = projectRepo;
         this.nativeRepo = nativeRepo;
         this.storage = storage;
         this.analysisStorage = analysisStorage;
+        this.guard = guard;
     }
 
     /**
@@ -114,14 +115,15 @@ public class NativeAnalysisIngestService {
                             + SUPPORTED_SCHEMAS + "). Please upgrade your CLI.");
         }
 
-        var project = projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+        // EDITOR: native ingest writes a native_analyses row + presigns S3 PUT.
+        Project project = guard.requireEdit(user, projectId);
         if (project.getKind() != ProjectKind.APK) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "native ingest is only valid for APK projects (project kind=" + project.getKind() + ")");
         }
 
-        String libPath = validateLibPath(req.libPath(), user.getId(), projectId);
+        // Owner-keyed: srcDir lives under the project owner's user folder.
+        String libPath = validateLibPath(req.libPath(), project.getUser().getId(), projectId);
         String arch = inferArch(libPath);
 
         // Upsert the row. PENDING/INGEST_PENDING from a prior attempt is
@@ -176,6 +178,11 @@ public class NativeAnalysisIngestService {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     "S3 ingest is not configured on this backend");
         }
+        // EDITOR: finalize flips the native_analyses row to READY. Guard
+        // upfront so a stranger can't probe for nativeAnalysisId existence,
+        // then assert the row belongs to this project (an editor on project
+        // A mustn't finalize project B's row by submitting a different id).
+        guard.requireEdit(user, projectId);
         UUID nativeId;
         try {
             nativeId = UUID.fromString(req.nativeAnalysisId());
@@ -189,12 +196,6 @@ public class NativeAnalysisIngestService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "nativeAnalysisId does not belong to this project");
         }
-        // Re-check ownership: row.projectId must match a project owned by the
-        // caller. Catches a forged nativeAnalysisId that happens to match
-        // a row in someone else's project.
-        projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN,
-                        "project does not belong to caller"));
         if (row.getStatus() != NativeAnalysisStatus.INGEST_PENDING) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "native row is in status " + row.getStatus() + ", expected INGEST_PENDING");

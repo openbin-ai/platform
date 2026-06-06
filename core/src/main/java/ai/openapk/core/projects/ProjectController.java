@@ -1,6 +1,8 @@
 package ai.openapk.core.projects;
 
 import ai.openapk.core.auth.CurrentUserService;
+import ai.openapk.core.projects.dto.AddCollaboratorRequest;
+import ai.openapk.core.projects.dto.CollaboratorResponse;
 import ai.openapk.core.projects.dto.FileContentResponse;
 import ai.openapk.core.projects.dto.FileNode;
 import ai.openapk.core.projects.dto.ProjectResponse;
@@ -30,10 +32,14 @@ import java.util.UUID;
 public class ProjectController {
 
     private final ProjectService service;
+    private final ProjectCollaboratorService collaboratorService;
     private final CurrentUserService currentUser;
 
-    public ProjectController(ProjectService service, CurrentUserService currentUser) {
+    public ProjectController(ProjectService service,
+                             ProjectCollaboratorService collaboratorService,
+                             CurrentUserService currentUser) {
         this.service = service;
+        this.collaboratorService = collaboratorService;
         this.currentUser = currentUser;
     }
 
@@ -104,6 +110,37 @@ public class ProjectController {
                 .contentLength(raw.sizeBytes())
                 .header("Content-Disposition", "attachment; filename=\"" + raw.filename() + "\"")
                 .body(new InputStreamResource(raw.body()));
+    }
+
+    /**
+     * Project collaborator roster — visible to the owner and to any
+     * collaborator (so they can see who else has access on a shared
+     * project). Mutating ops below are owner-only.
+     */
+    @GetMapping("/{id}/collaborators")
+    public List<CollaboratorResponse> listCollaborators(@PathVariable UUID id) {
+        return collaboratorService.list(currentUser.current(), id);
+    }
+
+    /**
+     * Add a collaborator to the project at VIEWER or EDITOR role.
+     * Owner-only. Email-based invite — the invitee must already have
+     * signed into the platform at least once.
+     */
+    @PostMapping("/{id}/collaborators")
+    @ResponseStatus(HttpStatus.CREATED)
+    public CollaboratorResponse addCollaborator(
+            @PathVariable UUID id,
+            @Valid @RequestBody AddCollaboratorRequest req
+    ) {
+        return collaboratorService.add(currentUser.current(), id, req);
+    }
+
+    /** Revoke a collaborator's access. Owner-only. */
+    @DeleteMapping("/{id}/collaborators/{userId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeCollaborator(@PathVariable UUID id, @PathVariable UUID userId) {
+        collaboratorService.remove(currentUser.current(), id, userId);
     }
 
     /**

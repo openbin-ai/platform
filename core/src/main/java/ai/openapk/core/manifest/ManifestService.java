@@ -4,7 +4,8 @@ import ai.openapk.core.auth.User;
 import ai.openapk.core.manifest.dto.AndroidManifestInfo;
 import ai.openapk.core.manifest.dto.IntentFilter;
 import ai.openapk.core.manifest.dto.ManifestComponent;
-import ai.openapk.core.projects.ProjectRepository;
+import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.symbols.SymbolService;
 import ai.openapk.core.symbols.dto.Symbol;
@@ -49,21 +50,21 @@ public class ManifestService {
     private static final Logger log = LoggerFactory.getLogger(ManifestService.class);
     private static final String ANDROID_NS = "http://schemas.android.com/apk/res/android";
 
-    private final ProjectRepository projectRepo;
+    private final ProjectAccessGuard guard;
     private final ProjectStorage storage;
     private final SymbolService symbolService;
 
-    public ManifestService(ProjectRepository projectRepo, ProjectStorage storage, SymbolService symbolService) {
-        this.projectRepo = projectRepo;
+    public ManifestService(ProjectAccessGuard guard, ProjectStorage storage, SymbolService symbolService) {
+        this.guard = guard;
         this.storage = storage;
         this.symbolService = symbolService;
     }
 
     @Transactional
     public AndroidManifestInfo load(User user, UUID projectId) {
-        projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
-        Path manifest = storage.srcDir(user.getId(), projectId).resolve("resources").resolve("AndroidManifest.xml");
+        // VIEWER-OK: read the AndroidManifest.xml.
+        Project project = guard.requireRead(user, projectId);
+        Path manifest = storage.srcDir(project.getUser().getId(), projectId).resolve("resources").resolve("AndroidManifest.xml");
         if (!Files.isRegularFile(manifest)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                     "AndroidManifest.xml not found — run an analysis first to (re-)decompile the APK.");

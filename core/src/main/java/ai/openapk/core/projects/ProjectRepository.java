@@ -13,16 +13,6 @@ public interface ProjectRepository extends JpaRepository<Project, UUID> {
     List<Project> findAllByUserIdOrderByCreatedAtDesc(UUID userId);
 
     /**
-     * @deprecated owner-only lookups bypass {@link ProjectCollaborator}.
-     *     Route project access checks through {@link ProjectAccessGuard}
-     *     so collaborators are recognized. Kept as a private API for the
-     *     guard's own ownership query and for the migration window of
-     *     services that haven't been flipped yet.
-     */
-    @Deprecated
-    Optional<Project> findByIdAndUserId(UUID id, UUID userId);
-
-    /**
      * Single-query access resolution used by {@link ProjectAccessGuard}:
      * returns the project + the caller's effective role (OWNER when
      * {@code projects.user_id} matches, otherwise the

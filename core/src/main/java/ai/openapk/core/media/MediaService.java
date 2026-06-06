@@ -4,6 +4,7 @@ import ai.openapk.core.auth.User;
 import ai.openapk.core.config.OpenApkProperties;
 import ai.openapk.core.media.dto.MediaItem;
 import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import org.slf4j.Logger;
@@ -31,11 +32,14 @@ public class MediaService {
 
     private final ProjectStorage storage;
     private final ProjectRepository projectRepo;
+    private final ProjectAccessGuard guard;
     private final Duration presignedTtl;
 
-    public MediaService(ProjectStorage storage, ProjectRepository projectRepo, OpenApkProperties props) {
+    public MediaService(ProjectStorage storage, ProjectRepository projectRepo,
+                        ProjectAccessGuard guard, OpenApkProperties props) {
         this.storage = storage;
         this.projectRepo = projectRepo;
+        this.guard = guard;
         Duration ttl = props.storage() != null ? props.storage().presignedUrlTtl() : null;
         this.presignedTtl = ttl != null ? ttl : Duration.ofMinutes(15);
     }
@@ -53,7 +57,8 @@ public class MediaService {
     }
 
     public Stored save(User user, UUID projectId, MultipartFile file) {
-        Project project = loadProject(user, projectId);
+        // EDITOR: uploads write into the project's media directory.
+        Project project = requireEditable(user, projectId);
         if (file == null || file.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "empty file");
         }
@@ -64,7 +69,9 @@ public class MediaService {
             throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "only image/png");
         }
 
-        Path dir = storage.mediaDir(user.getId(), project.getId());
+        // Owner-keyed storage path so editors write to the project owner's dir.
+        UUID ownerId = project.getUser().getId();
+        Path dir = storage.mediaDir(ownerId, project.getId());
         try {
             Files.createDirectories(dir);
         } catch (IOException e) {
@@ -83,7 +90,7 @@ public class MediaService {
         // it uploads to the bucket. Synchronous so the upload POST doesn't
         // return success until the bytes are safe.
         try {
-            storage.afterMediaWrite(user.getId(), project.getId(), filename);
+            storage.afterMediaWrite(ownerId, project.getId(), filename);
         } catch (IOException e) {
             // Roll back the local write so the user can retry cleanly.
             try { Files.deleteIfExists(target); } catch (IOException ignored) {}
@@ -96,9 +103,10 @@ public class MediaService {
     }
 
     public List<MediaItem> list(User user, UUID projectId) {
-        Project project = loadProject(user, projectId);
+        // VIEWER-OK: read-only listing of project media.
+        Project project = requireReadable(user, projectId);
         try {
-            return storage.listMedia(user.getId(), project.getId()).stream()
+            return storage.listMedia(project.getUser().getId(), project.getId()).stream()
                     .map(e -> new MediaItem(
                             e.filename(),
                             "/api/projects/" + projectId + "/media/" + e.filename(),
@@ -111,10 +119,11 @@ public class MediaService {
     }
 
     public void delete(User user, UUID projectId, String filename) {
-        Project project = loadProject(user, projectId);
+        // EDITOR: deletes media from project's media directory.
+        Project project = requireEditable(user, projectId);
         validateFilename(filename);
         try {
-            storage.deleteMedia(user.getId(), project.getId(), filename);
+            storage.deleteMedia(project.getUser().getId(), project.getId(), filename);
             log.info("Deleted media {} for project {}", filename, projectId);
         } catch (IOException e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "media delete failed: " + e.getMessage());
@@ -128,13 +137,15 @@ public class MediaService {
      * {@link Path} for the fs backend.
      */
     public Resolved resolveForServe(User user, UUID projectId, String filename) {
-        Project project = loadProject(user, projectId);
+        // VIEWER-OK: serving media is read-only.
+        Project project = requireReadable(user, projectId);
         validateFilename(filename);
-        URI presigned = storage.presignMedia(user.getId(), project.getId(), filename, presignedTtl);
+        UUID ownerId = project.getUser().getId();
+        URI presigned = storage.presignMedia(ownerId, project.getId(), filename, presignedTtl);
         if (presigned != null) {
             return new Resolved.Presigned(presigned);
         }
-        Path file = storage.mediaDir(user.getId(), project.getId()).resolve(filename);
+        Path file = storage.mediaDir(ownerId, project.getId()).resolve(filename);
         if (!Files.exists(file)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "media not found");
         }
@@ -171,8 +182,11 @@ public class MediaService {
         }
     }
 
-    private Project loadProject(User user, UUID projectId) {
-        return projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+    private Project requireReadable(User user, UUID projectId) {
+        return guard.requireRead(user, projectId);
+    }
+
+    private Project requireEditable(User user, UUID projectId) {
+        return guard.requireEdit(user, projectId);
     }
 }

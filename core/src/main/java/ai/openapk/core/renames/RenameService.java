@@ -5,6 +5,7 @@ import ai.openapk.core.auth.User;
 import ai.openapk.core.credentials.LlmCredential;
 import ai.openapk.core.credentials.LlmCredentialRepository;
 import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.ProjectStatus;
@@ -140,6 +141,7 @@ public class RenameService {
     private final LlmInvoker invoker;
     private final ObjectMapper mapper;
     private final BinaryAnalysisLoader analysisLoader;
+    private final ProjectAccessGuard guard;
 
     public RenameService(
             ProjectRepository projectRepo,
@@ -148,7 +150,8 @@ public class RenameService {
             ProjectStorage storage,
             LlmInvoker invoker,
             ObjectMapper mapper,
-            BinaryAnalysisLoader analysisLoader
+            BinaryAnalysisLoader analysisLoader,
+            ProjectAccessGuard guard
     ) {
         this.projectRepo = projectRepo;
         this.renameRepo = renameRepo;
@@ -157,6 +160,7 @@ public class RenameService {
         this.invoker = invoker;
         this.mapper = mapper;
         this.analysisLoader = analysisLoader;
+        this.guard = guard;
     }
 
     // -------------------------------------------------------------------
@@ -165,14 +169,15 @@ public class RenameService {
 
     @Transactional(readOnly = true)
     public List<RenameDto> list(User user, UUID projectId) {
-        loadProject(user, projectId);
+        // VIEWER-OK: reading the rename roster doesn't mutate.
+        guard.requireRead(user, projectId);
         return renameRepo.findByProjectIdOrderByCreatedAtDesc(projectId)
                 .stream().map(RenameDto::from).toList();
     }
 
     @Transactional
     public SuggestRenamesResponse suggest(User user, UUID projectId, SuggestRenamesRequest req) {
-        Project project = loadProjectReady(user, projectId);
+        Project project = loadEditableProjectReady(user, projectId);
         LlmCredential cred = loadCredential(user, req.credentialId());
 
         String content = readRawFile(user, projectId, req.filePath());
@@ -230,7 +235,7 @@ public class RenameService {
      */
     @Transactional
     public RenameDto manualRename(User user, UUID projectId, ManualRenameRequest req) {
-        Project project = loadProject(user, projectId);
+        Project project = loadEditableProject(user, projectId);
         ProjectRename row = renameRepo.findByProjectIdAndOriginal(projectId, req.original())
                 .orElseGet(() -> {
                     var fresh = new ProjectRename();
@@ -263,7 +268,7 @@ public class RenameService {
     public SuggestRenamesResponse suggestForFunction(
             User user, UUID projectId, SuggestFunctionRenamesRequest req
     ) {
-        Project project = loadProjectReady(user, projectId);
+        Project project = loadEditableProjectReady(user, projectId);
         if (project.getKind() != ProjectKind.BIN) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "suggest-function is only available for binary projects");
@@ -385,7 +390,7 @@ public class RenameService {
 
     @Transactional
     public List<RenameDto> apply(User user, UUID projectId, ApplyRenamesRequest req) {
-        Project project = loadProject(user, projectId);
+        Project project = loadEditableProject(user, projectId);
         List<RenameDto> applied = new ArrayList<>();
         for (String original : req.originals()) {
             ProjectRename row = renameRepo.findByProjectIdAndOriginal(projectId, original).orElse(null);
@@ -399,7 +404,7 @@ public class RenameService {
 
     @Transactional
     public void unapply(User user, UUID projectId, String original) {
-        Project project = loadProject(user, projectId);
+        Project project = loadEditableProject(user, projectId);
         renameRepo.findByProjectIdAndOriginal(projectId, original).ifPresent(row -> {
             renameRepo.delete(row);
             invalidateSymbolIndex(project);
@@ -672,13 +677,22 @@ public class RenameService {
         return null;
     }
 
-    private Project loadProject(User user, UUID projectId) {
-        return projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+    /**
+     * Owner OR EDITOR; rename mutations are edit-level. Wraps
+     * {@link ProjectAccessGuard#requireEdit} so the existing call
+     * sites stay structurally similar to the pre-collab code.
+     */
+    private Project loadEditableProject(User user, UUID projectId) {
+        return guard.requireEdit(user, projectId);
     }
 
-    private Project loadProjectReady(User user, UUID projectId) {
-        Project p = loadProject(user, projectId);
+    /**
+     * Same as {@link #loadEditableProject} but also asserts
+     * {@code status == READY}. Used by the AI-suggest paths where
+     * mid-decompile invocation has no useful project state to read.
+     */
+    private Project loadEditableProjectReady(User user, UUID projectId) {
+        Project p = loadEditableProject(user, projectId);
         if (p.getStatus() != ProjectStatus.READY) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "project is not READY (current status: " + p.getStatus() + ")");

@@ -4,6 +4,7 @@ import ai.openapk.core.analysis.AnalysisMode;
 import ai.openapk.core.auth.User;
 import ai.openapk.core.notifications.NotificationService;
 import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.ProjectStatus;
@@ -68,19 +69,22 @@ public class IngestService {
     // without S3). Initiate/finalize endpoints check for null and 503.
     private final AnalysisStorageService analysisStorage;
     private final AnalysisMetadataExtractor metadataExtractor;
+    private final ProjectAccessGuard guard;
 
     public IngestService(
             ProjectRepository repo,
             ObjectMapper mapper,
             NotificationService notifications,
             @Autowired(required = false) AnalysisStorageService analysisStorage,
-            @Autowired(required = false) AnalysisMetadataExtractor metadataExtractor
+            @Autowired(required = false) AnalysisMetadataExtractor metadataExtractor,
+            ProjectAccessGuard guard
     ) {
         this.repo = repo;
         this.mapper = mapper;
         this.notifications = notifications;
         this.analysisStorage = analysisStorage;
         this.metadataExtractor = metadataExtractor;
+        this.guard = guard;
     }
 
     /**
@@ -251,14 +255,10 @@ public class IngestService {
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "projectId is not a valid UUID");
         }
-        Project p = repo.findById(projectId).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
-        // Ownership check — a malicious caller mustn't finalize someone
-        // else's pending row. CurrentUserService already authenticated the
-        // request; we just compare ids.
-        if (!p.getUser().getId().equals(user.getId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "project does not belong to caller");
-        }
+        // requireEdit folds ownership + collaborator role check into one
+        // 404 (no existence leak) — used to be a manual getUser().equals()
+        // that grep-on-findByIdAndUserId would miss during refactor.
+        Project p = guard.requireEdit(user, projectId);
         if (p.getStatus() != ProjectStatus.INGEST_PENDING) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "project is in status " + p.getStatus() + ", expected INGEST_PENDING");

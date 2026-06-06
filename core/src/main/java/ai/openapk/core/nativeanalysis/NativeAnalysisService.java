@@ -4,7 +4,8 @@ import ai.openapk.core.auth.User;
 import ai.openapk.core.nativeanalysis.dto.NativeLibraryView;
 import ai.openapk.core.config.OpenApkProperties;
 import ai.openapk.core.projects.GhidraSunsetMessage;
-import ai.openapk.core.projects.ProjectRepository;
+import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.usage.WorkerQuotaService;
 import org.slf4j.Logger;
@@ -54,30 +55,30 @@ public class NativeAnalysisService {
      */
     private static final String NATIVE_LIB_ROOT = "resources/lib";
 
-    private final ProjectRepository projectRepo;
     private final NativeAnalysisRepository nativeRepo;
     private final ProjectStorage storage;
     private final NativeAnalysisRunner runner;
     private final WorkerQuotaService workerQuota;
     private final OpenApkProperties props;
     private final NativeAnalysisJsonLoader jsonLoader;
+    private final ProjectAccessGuard guard;
 
     public NativeAnalysisService(
-            ProjectRepository projectRepo,
             NativeAnalysisRepository nativeRepo,
             ProjectStorage storage,
             NativeAnalysisRunner runner,
             WorkerQuotaService workerQuota,
             OpenApkProperties props,
-            NativeAnalysisJsonLoader jsonLoader
+            NativeAnalysisJsonLoader jsonLoader,
+            ProjectAccessGuard guard
     ) {
-        this.projectRepo = projectRepo;
         this.nativeRepo = nativeRepo;
         this.storage = storage;
         this.runner = runner;
         this.workerQuota = workerQuota;
         this.props = props;
         this.jsonLoader = jsonLoader;
+        this.guard = guard;
     }
 
     /**
@@ -87,8 +88,11 @@ public class NativeAnalysisService {
      */
     @Transactional(readOnly = true)
     public List<NativeLibraryView> listLibraries(User user, UUID projectId) {
-        requireOwned(user, projectId);
-        Path root = storage.srcDir(user.getId(), projectId).normalize();
+        // VIEWER-OK: enumerating .so files + their analysis status is read-only.
+        Project project = guard.requireRead(user, projectId);
+        // Owner-keyed srcDir so collaborators see the project owner's workspace,
+        // not their own empty one.
+        Path root = storage.srcDir(project.getUser().getId(), projectId).normalize();
         Path libRoot = root.resolve(NATIVE_LIB_ROOT);
         if (!Files.isDirectory(libRoot)) return List.of();
 
@@ -143,8 +147,8 @@ public class NativeAnalysisService {
      */
     @Transactional(readOnly = true)
     public String getResultJson(User user, UUID projectId, String libPath) {
-        requireOwned(user, projectId);
-        validateLibPath(user, projectId, libPath);
+        Project project = guard.requireRead(user, projectId);
+        validateLibPath(project.getUser().getId(), projectId, libPath);
         NativeAnalysis row = nativeRepo.findByProjectIdAndLibPath(projectId, libPath).orElse(null);
         if (row == null || row.getStatus() != NativeAnalysisStatus.READY) return null;
         return jsonLoader.load(row);
@@ -165,8 +169,9 @@ public class NativeAnalysisService {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     GhidraSunsetMessage.TEXT);
         }
-        requireOwned(user, projectId);
-        Path absLib = validateLibPath(user, projectId, libPath);
+        // EDITOR: kicking off Ghidra writes a native_analyses row + spends quota.
+        Project project = guard.requireEdit(user, projectId);
+        Path absLib = validateLibPath(project.getUser().getId(), projectId, libPath);
         long size;
         try { size = Files.size(absLib); }
         catch (IOException e) { throw new ResponseStatusException(HttpStatus.NOT_FOUND, "lib not readable"); }
@@ -217,20 +222,18 @@ public class NativeAnalysisService {
         return s == NativeAnalysisStatus.PENDING || s == NativeAnalysisStatus.RUNNING;
     }
 
-    private void requireOwned(User user, UUID projectId) {
-        projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
-    }
-
     /**
      * Resolve {@code libPath} against the project's srcDir and make sure
      * the result stays inside it AND points to an .so under resources/lib.
+     * {@code ownerId} is the project owner's user id — pass it through
+     * from the {@link ProjectAccessGuard} result so collaborators resolve
+     * to the right workspace.
      */
-    private Path validateLibPath(User user, UUID projectId, String libPath) {
+    private Path validateLibPath(UUID ownerId, UUID projectId, String libPath) {
         if (libPath == null || libPath.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "libPath is required");
         }
-        Path root = storage.srcDir(user.getId(), projectId).normalize();
+        Path root = storage.srcDir(ownerId, projectId).normalize();
         Path resolved = root.resolve(libPath).normalize();
         if (!resolved.startsWith(root)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "libPath escapes project root");

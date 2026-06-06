@@ -77,6 +77,7 @@ public class ProjectService {
      * the otherwise-circular constructor dependency.
      */
     private final ProjectService self;
+    private final ProjectAccessGuard guard;
 
     public ProjectService(
             @Lazy ProjectService self,
@@ -91,7 +92,8 @@ public class ProjectService {
             WorkerQuotaService workerQuota,
             NotificationService notifications,
             @Autowired(required = false) AnalysisStorageService analysisStorage,
-            BinaryAnalysisLoader analysisLoader
+            BinaryAnalysisLoader analysisLoader,
+            ProjectAccessGuard guard
     ) {
         this.self = self;
         this.repo = repo;
@@ -106,6 +108,7 @@ public class ProjectService {
         this.notifications = notifications;
         this.analysisStorage = analysisStorage;
         this.analysisLoader = analysisLoader;
+        this.guard = guard;
     }
 
     /**
@@ -120,17 +123,29 @@ public class ProjectService {
 
     @Transactional(readOnly = true)
     public List<ProjectResponse> list(User user) {
-        return repo.findAllByUserIdOrderByCreatedAtDesc(user.getId())
-                .stream().map(ProjectResponse::from).toList();
+        // Returns owned projects PLUS projects shared with the caller via
+        // ProjectCollaborator, with each row's effective role attached so
+        // the frontend can hide edit affordances for VIEWERs and label
+        // shared projects in the dashboard.
+        return guard.listAccessible(user).stream()
+                .map(row -> ProjectResponse.from(
+                        row.getProject(),
+                        null,
+                        ProjectRole.valueOf(row.getRole())))
+                .toList();
     }
 
     @Transactional(readOnly = true)
     public ProjectResponse get(User user, UUID id) {
-        // Detail endpoint mints the signed analysis URL so the frontend can
-        // fetch the worker JSON directly from CloudFront. List endpoint
-        // intentionally skips signing — one signature per row at page
-        // render is wasteful, and the list view doesn't need the body.
-        return ProjectResponse.from(loadOwned(user, id), urlSigner());
+        // Detail endpoint mints the signed analysis URL so the frontend
+        // can fetch the worker JSON directly from CloudFront. List
+        // endpoint intentionally skips signing — one signature per row
+        // at page render is wasteful, and the list view doesn't need
+        // the body. The access query hands back project + role in one
+        // round trip (see ProjectRepository.findAccessibleByIdAndUserId).
+        var row = repo.findAccessibleByIdAndUserId(id, user.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+        return ProjectResponse.from(row.getProject(), urlSigner(), ProjectRole.valueOf(row.getRole()));
     }
 
     @Transactional
@@ -422,7 +437,7 @@ public class ProjectService {
 
     @Transactional
     public ProjectResponse update(User user, UUID id, UpdateProjectRequest req) {
-        var project = loadOwned(user, id);
+        var project = guard.requireEdit(user, id);
         if (req.name() != null) {
             String trimmed = req.name().trim();
             if (trimmed.isEmpty()) {
@@ -466,14 +481,17 @@ public class ProjectService {
 
     @Transactional
     public void delete(User user, UUID id) {
-        var project = loadOwned(user, id);
-        storage.deleteProject(user.getId(), project.getId());
+        // Owner-only: collaborators don't delete the project, even at
+        // EDITOR. Storage path uses the OWNER's user id, which always
+        // equals user.getId() here because requireOwner just enforced it.
+        var project = guard.requireOwner(user, id);
+        storage.deleteProject(project.getUser().getId(), project.getId());
         repo.delete(project);
     }
 
     @Transactional(readOnly = true)
     public FileNode fileTree(User user, UUID id) {
-        var project = loadOwned(user, id);
+        var project = guard.requireRead(user, id);
         requireReady(project);
         // Fast path: cached at decompile-time. For a WhatsApp-sized tree this
         // turns 5-15s of fs walk + serialize into a sub-100ms DB read.
@@ -485,7 +503,10 @@ public class ProjectService {
                 // fall through to live build
             }
         }
-        Path root = storage.srcDir(user.getId(), id).normalize();
+        // Storage paths are keyed on the OWNER, not the caller. A collaborator
+        // hitting this with their own user id would resolve to an empty
+        // directory; always pass the project owner's id through.
+        Path root = storage.srcDir(project.getUser().getId(), id).normalize();
         if (!Files.exists(root)) {
             return FileNode.dir("/", "", List.of());
         }
@@ -520,7 +541,7 @@ public class ProjectService {
      */
     @Transactional(readOnly = true)
     public String getBinaryAnalysisJson(User user, UUID id) {
-        var project = loadOwned(user, id);
+        var project = guard.requireRead(user, id);
         if (project.getKind() != ProjectKind.BIN) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "not a binary project (kind=" + project.getKind() + ")");
@@ -560,10 +581,11 @@ public class ProjectService {
      */
     @Transactional(readOnly = true)
     public RawFile readFileRaw(User user, UUID id, String relPath) {
-        var project = loadOwned(user, id);
+        var project = guard.requireRead(user, id);
         requireReady(project);
 
-        Path root = storage.srcDir(user.getId(), id).normalize();
+        // Owner-keyed storage path; see fileTree() comment.
+        Path root = storage.srcDir(project.getUser().getId(), id).normalize();
         Path resolved = root.resolve(relPath).normalize();
         if (!resolved.startsWith(root)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path escapes project root");
@@ -587,10 +609,11 @@ public class ProjectService {
 
     @Transactional(readOnly = true)
     public FileContentResponse readFile(User user, UUID id, String relPath) {
-        var project = loadOwned(user, id);
+        var project = guard.requireRead(user, id);
         requireReady(project);
 
-        Path root = storage.srcDir(user.getId(), id).normalize();
+        // Owner-keyed storage path; see fileTree() comment.
+        Path root = storage.srcDir(project.getUser().getId(), id).normalize();
         Path resolved = root.resolve(relPath).normalize();
         if (!resolved.startsWith(root)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path escapes project root");
@@ -667,11 +690,6 @@ public class ProjectService {
             if (b < 0x09 || (b > 0x0D && b < 0x20 && b != 0x1B)) suspicious++;
         }
         return suspicious * 100 / Math.max(1, len) < 5;
-    }
-
-    private Project loadOwned(User user, UUID id) {
-        return repo.findByIdAndUserId(id, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
     }
 
     private void requireReady(Project p) {

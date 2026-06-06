@@ -2,16 +2,14 @@ package ai.openapk.core.network;
 
 import ai.openapk.core.auth.User;
 import ai.openapk.core.network.dto.NetworkHit;
-import ai.openapk.core.projects.ProjectRepository;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.renames.RenameService;
 import ai.openapk.core.util.SdkPaths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.charset.MalformedInputException;
@@ -73,25 +71,25 @@ public class NetworkService {
             "\\.setRequestMethod\\s*\\(\\s*\"([A-Z]+)\"\\s*\\)"
     );
 
-    private final ProjectRepository projectRepo;
     private final ProjectStorage storage;
     private final RenameService renameService;
+    private final ProjectAccessGuard guard;
 
     public NetworkService(
-            ProjectRepository projectRepo,
             ProjectStorage storage,
-            RenameService renameService
+            RenameService renameService,
+            ProjectAccessGuard guard
     ) {
-        this.projectRepo = projectRepo;
         this.storage = storage;
         this.renameService = renameService;
+        this.guard = guard;
     }
 
     @Transactional(readOnly = true)
     public List<NetworkHit> scan(User user, UUID projectId, boolean includeSdks) {
-        projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
-        Path root = storage.srcDir(user.getId(), projectId).normalize();
+        // VIEWER-OK: read-only HTTP-call scan over source tree.
+        ai.openapk.core.projects.Project project = guard.requireRead(user, projectId);
+        Path root = storage.srcDir(project.getUser().getId(), projectId).normalize();
         if (!Files.isDirectory(root)) return List.of();
 
         List<NetworkHit> hits = new ArrayList<>();

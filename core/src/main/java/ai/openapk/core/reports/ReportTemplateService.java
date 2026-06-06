@@ -2,7 +2,7 @@ package ai.openapk.core.reports;
 
 import ai.openapk.core.auth.User;
 import ai.openapk.core.projects.Project;
-import ai.openapk.core.projects.ProjectRepository;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.reports.dto.ApplyTemplateRequest;
 import ai.openapk.core.reports.dto.CreateReportTemplateRequest;
 import ai.openapk.core.reports.dto.ReportResponse;
@@ -32,19 +32,19 @@ public class ReportTemplateService {
 
     private final ReportTemplateRepository repo;
     private final ProjectReportRepository reportRepo;
-    private final ProjectRepository projectRepo;
     private final ObjectMapper mapper;
+    private final ProjectAccessGuard guard;
 
     public ReportTemplateService(
             ReportTemplateRepository repo,
             ProjectReportRepository reportRepo,
-            ProjectRepository projectRepo,
-            ObjectMapper mapper
+            ObjectMapper mapper,
+            ProjectAccessGuard guard
     ) {
         this.repo = repo;
         this.reportRepo = reportRepo;
-        this.projectRepo = projectRepo;
         this.mapper = mapper;
+        this.guard = guard;
     }
 
     @Transactional(readOnly = true)
@@ -103,8 +103,8 @@ public class ReportTemplateService {
      */
     @Transactional
     public ReportResponse applyToProject(User user, UUID projectId, ApplyTemplateRequest req) {
-        Project project = projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+        // EDITOR: applying a template overwrites the project's report sections.
+        Project project = guard.requireEdit(user, projectId);
         ReportTemplate template = loadTemplate(user, req.templateId());
 
         ProjectReport report = reportRepo.findByProjectId(projectId).orElseGet(() -> {
@@ -129,8 +129,9 @@ public class ReportTemplateService {
      */
     @Transactional
     public ReportTemplateResponse saveFromProject(User user, UUID projectId, SaveAsTemplateRequest req) {
-        Project project = projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+        // VIEWER-OK: the new template is owned by the caller, not the project.
+        // The project's report is only being read for snapshot.
+        Project project = guard.requireRead(user, projectId);
         ProjectReport report = reportRepo.findByProjectId(project.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "No report exists for this project yet. Open the report tab first."));

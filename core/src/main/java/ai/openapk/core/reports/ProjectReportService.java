@@ -4,6 +4,7 @@ import ai.openapk.core.analysis.AnalysisMode;
 import ai.openapk.core.analysis.dto.AnalysisResponse;
 import ai.openapk.core.auth.User;
 import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.WorkflowStatus;
@@ -82,31 +83,37 @@ public class ProjectReportService {
     private final ObjectMapper mapper;
     private final ProjectStorage storage;
     private final ai.openapk.core.notifications.NotificationService notifications;
+    private final ProjectAccessGuard guard;
 
     public ProjectReportService(
             ProjectRepository projectRepo,
             ProjectReportRepository reportRepo,
             ObjectMapper mapper,
             ProjectStorage storage,
-            ai.openapk.core.notifications.NotificationService notifications
+            ai.openapk.core.notifications.NotificationService notifications,
+            ProjectAccessGuard guard
     ) {
         this.projectRepo = projectRepo;
         this.reportRepo = reportRepo;
         this.mapper = mapper;
         this.storage = storage;
         this.notifications = notifications;
+        this.guard = guard;
     }
 
     @Transactional
     public ReportResponse getOrCreate(User user, UUID projectId) {
-        Project project = loadProject(user, projectId);
+        // VIEWER-OK: any collaborator can see the report. The lazy
+        // createDefault is benign — initializes empty sections from the
+        // project's analysis mode, no user-driven content.
+        Project project = guard.requireRead(user, projectId);
         ProjectReport report = reportRepo.findByProjectId(projectId).orElseGet(() -> createDefault(project));
         return toResponse(report);
     }
 
     @Transactional
     public ReportResponse update(User user, UUID projectId, UpdateReportRequest req) {
-        Project project = loadProject(user, projectId);
+        Project project = guard.requireEdit(user, projectId);
         ProjectReport report = reportRepo.findByProjectId(projectId).orElseGet(() -> createDefault(project));
         requireNotPublished(report);
         report.setTitle(req.title());
@@ -117,7 +124,7 @@ public class ProjectReportService {
 
     @Transactional
     public ReportResponse populate(User user, UUID projectId, PopulateRequest req) {
-        Project project = loadProject(user, projectId);
+        Project project = guard.requireEdit(user, projectId);
         if (project.getLatestAnalysisJson() == null || project.getLatestAnalysisJson().isBlank()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "No analysis result cached yet. Run an analysis from the project view first.");
@@ -145,7 +152,9 @@ public class ProjectReportService {
 
     @Transactional
     public ReportResponse publish(User user, UUID projectId) {
-        Project project = loadProject(user, projectId);
+        // Locking the report (not the same as community publish) is an
+        // EDITOR-level workflow action. Community publish below is owner-only.
+        Project project = guard.requireEdit(user, projectId);
         ProjectReport report = reportRepo.findByProjectId(projectId).orElseGet(() -> createDefault(project));
         if (report.getPublishedAt() == null) {
             report.setPublishedAt(Instant.now());
@@ -157,7 +166,7 @@ public class ProjectReportService {
 
     @Transactional
     public ReportResponse unpublish(User user, UUID projectId) {
-        Project project = loadProject(user, projectId);
+        Project project = guard.requireEdit(user, projectId);
         ProjectReport report = reportRepo.findByProjectId(projectId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "report not found"));
         report.setPublishedAt(null);
@@ -178,7 +187,11 @@ public class ProjectReportService {
      */
     @Transactional
     public ReportResponse publishToCommunity(User user, UUID projectId, CommunityPublishRequest req) {
-        Project project = loadProject(user, projectId);
+        // OWNER-only: publishing to the anonymous community feed is
+        // irreversible-ish (the report URL gets crawled) so we keep this
+        // gate tighter than the rest of the report surface. Collaborators
+        // contribute to drafting but the owner decides what goes public.
+        Project project = guard.requireOwner(user, projectId);
         ProjectReport report = reportRepo.findByProjectId(projectId).orElseGet(() -> createDefault(project));
 
         // Validate malware_type against the STIX 2.1 vocab. Null is allowed
@@ -222,9 +235,9 @@ public class ProjectReportService {
      */
     @Transactional
     public ReportResponse unpublishFromCommunity(User user, UUID projectId) {
-        // loadProject asserts ownership — discard the returned project, we
-        // don't need it here.
-        loadProject(user, projectId);
+        // Symmetric with publishToCommunity: OWNER-only. An editor can't
+        // unilaterally take a public report offline.
+        guard.requireOwner(user, projectId);
         ProjectReport report = reportRepo.findByProjectId(projectId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "report not found"));
         report.setCommunityPublishedAt(null);
@@ -265,7 +278,7 @@ public class ProjectReportService {
 
     @Transactional(readOnly = true)
     public String exportMarkdown(User user, UUID projectId) {
-        Project project = loadProject(user, projectId);
+        Project project = guard.requireRead(user, projectId);
         ProjectReport report = reportRepo.findByProjectId(projectId).orElse(null);
         StringBuilder sb = new StringBuilder();
         String title = report == null ? "Malware Analysis Report" : report.getTitle();
@@ -620,11 +633,6 @@ public class ProjectReportService {
 
     private static String capitalize(String s) {
         return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
-    }
-
-    private Project loadProject(User user, UUID projectId) {
-        return projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
     }
 
     private ReportResponse toResponse(ProjectReport r) {

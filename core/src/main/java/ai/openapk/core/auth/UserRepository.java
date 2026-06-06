@@ -13,6 +13,14 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByKeycloakSub(String sub);
 
     /**
+     * Lookup by email — used by the project share modal so the owner can
+     * invite a collaborator by typing their email rather than a UUID.
+     * Case-insensitive (Postgres stores emails as-is; Spring Data's
+     * derived query uses LOWER on both sides via IgnoreCase).
+     */
+    Optional<User> findByEmailIgnoreCase(String email);
+
+    /**
      * Race-safe JIT provisioning. Concurrent first-load requests for the same
      * user used to both check-then-insert and the second one died on the
      * unique-key constraint, aborting the surrounding transaction. ON CONFLICT

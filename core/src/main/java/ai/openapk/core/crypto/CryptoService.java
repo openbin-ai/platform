@@ -13,8 +13,8 @@ import ai.openapk.core.crypto.dto.GenerateBinDecryptorResponse;
 import ai.openapk.core.crypto.dto.GenerateDecryptorRequest;
 import ai.openapk.core.crypto.dto.GenerateDecryptorResponse;
 import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectKind;
-import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.analysis.BinaryAnalysisLoader;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.renames.RenameService;
@@ -141,35 +141,36 @@ public class CryptoService {
             - Flag any uncertainty — "unknown IV", "key length ambiguous in source", etc.
             """;
 
-    private final ProjectRepository projectRepo;
     private final ProjectStorage storage;
     private final LlmCredentialRepository credRepo;
     private final LlmInvoker invoker;
     private final RenameService renameService;
     private final ObjectMapper mapper;
     private final BinaryAnalysisLoader analysisLoader;
+    private final ProjectAccessGuard guard;
 
     public CryptoService(
-            ProjectRepository projectRepo,
             ProjectStorage storage,
             LlmCredentialRepository credRepo,
             LlmInvoker invoker,
             RenameService renameService,
             ObjectMapper mapper,
-            BinaryAnalysisLoader analysisLoader
+            BinaryAnalysisLoader analysisLoader,
+            ProjectAccessGuard guard
     ) {
-        this.projectRepo = projectRepo;
         this.storage = storage;
         this.credRepo = credRepo;
         this.invoker = invoker;
         this.renameService = renameService;
         this.mapper = mapper;
         this.analysisLoader = analysisLoader;
+        this.guard = guard;
     }
 
     @Transactional(readOnly = true)
     public List<CryptoHit> listHits(User user, UUID projectId, boolean includeSdks) {
-        Project project = loadProject(user, projectId);
+        // VIEWER-OK: reads cached digestJson, no project mutation.
+        Project project = guard.requireRead(user, projectId);
         if (project.getDigestJson() == null || project.getDigestJson().isBlank()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "No static digest yet. Run an analysis from the Analysis tab first.");
@@ -208,7 +209,9 @@ public class CryptoService {
     public GenerateBinDecryptorResponse generateForFunction(
             User user, UUID projectId, GenerateBinDecryptorRequest req
     ) {
-        Project project = loadProject(user, projectId);
+        // VIEWER-OK: BIN decryptor gen reads worker JSON; tokens charged
+        // to caller's BYOK credential.
+        Project project = guard.requireRead(user, projectId);
         if (project.getKind() != ProjectKind.BIN) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "generate-bin is only available for binary projects");
@@ -278,10 +281,13 @@ public class CryptoService {
 
     @Transactional
     public GenerateDecryptorResponse generate(User user, UUID projectId, GenerateDecryptorRequest req) {
-        Project project = loadProject(user, projectId);
+        // VIEWER-OK: decryptor gen is read-only; tokens charged to caller.
+        Project project = guard.requireRead(user, projectId);
         LlmCredential cred = loadCredential(user, req.credentialId());
 
-        String context = extractContext(user, projectId, req.file(), req.line());
+        // srcDir uses the project OWNER's id so collaborators resolve to
+        // the right workspace, not their own empty one.
+        String context = extractContext(project.getUser().getId(), projectId, req.file(), req.line());
         // Apply project renames so the AI sees human-readable identifiers if the user already
         // accepted any. Cleaner reasoning, better generated scripts.
         context = renameService.applyMapToContent(projectId, context);
@@ -313,12 +319,12 @@ public class CryptoService {
         // Regex-extract method declarations from the actual source — the AI sometimes
         // hallucinates "human-readable" names instead of returning the literal `a`/`b`
         // identifiers. Union ensures the harvest regex actually matches call-sites.
-        entryMethods.addAll(extractMethodNamesFromSource(user, projectId, req.file()));
+        entryMethods.addAll(extractMethodNamesFromSource(project.getUser().getId(), projectId, req.file()));
 
         String className = simpleClassName(req.file());
         List<String> ciphertexts = entryMethods.isEmpty()
                 ? List.of()
-                : harvestCiphertexts(user, projectId, className, new ArrayList<>(entryMethods));
+                : harvestCiphertexts(project.getUser().getId(), projectId, className, new ArrayList<>(entryMethods));
 
         String finalScript = appendHarvestedBlock(script, decryptFn, ciphertexts);
         List<CyberChefOp> recipe = root == null ? null : parseCyberChefRecipe(root.path("cyberchefRecipe"));
@@ -347,8 +353,8 @@ public class CryptoService {
      * <p>Captures public, package-private, protected, or static methods whose name is
      * a bare identifier. Skips constructors (name == class name).
      */
-    private List<String> extractMethodNamesFromSource(User user, UUID projectId, String relPath) {
-        Path root = storage.srcDir(user.getId(), projectId).normalize();
+    private List<String> extractMethodNamesFromSource(UUID ownerId, UUID projectId, String relPath) {
+        Path root = storage.srcDir(ownerId, projectId).normalize();
         Path resolved = root.resolve(relPath).normalize();
         if (!resolved.startsWith(root) || !Files.isRegularFile(resolved)) return List.of();
         String content;
@@ -428,8 +434,8 @@ public class CryptoService {
      * base64-ish strings to suppress false positives (e.g. another unrelated
      * class also named {@code c}).
      */
-    private List<String> harvestCiphertexts(User user, UUID projectId, String className, List<String> entryMethods) {
-        Path root = storage.srcDir(user.getId(), projectId).normalize();
+    private List<String> harvestCiphertexts(UUID ownerId, UUID projectId, String className, List<String> entryMethods) {
+        Path root = storage.srcDir(ownerId, projectId).normalize();
         if (!Files.isDirectory(root)) return List.of();
 
         String methodAlt = String.join("|", entryMethods.stream().map(Pattern::quote).toList());
@@ -523,8 +529,8 @@ public class CryptoService {
         return sb.toString();
     }
 
-    private String extractContext(User user, UUID projectId, String relPath, int line) {
-        Path root = storage.srcDir(user.getId(), projectId).normalize();
+    private String extractContext(UUID ownerId, UUID projectId, String relPath, int line) {
+        Path root = storage.srcDir(ownerId, projectId).normalize();
         Path resolved = root.resolve(relPath).normalize();
         if (!resolved.startsWith(root)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path escapes project root");
@@ -562,11 +568,6 @@ public class CryptoService {
             }
         }
         return null;
-    }
-
-    private Project loadProject(User user, UUID projectId) {
-        return projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
     }
 
     private LlmCredential loadCredential(User user, UUID credentialId) {

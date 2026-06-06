@@ -12,8 +12,8 @@ import ai.openapk.core.callchain.dto.NarrateBinChainResponse;
 import ai.openapk.core.credentials.LlmCredential;
 import ai.openapk.core.credentials.LlmCredentialRepository;
 import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectKind;
-import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.analysis.BinaryAnalysisLoader;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.renames.RenameService;
@@ -88,9 +88,9 @@ public class CallChainService {
     private final RenameService renameService;
     private final LlmInvoker invoker;
     private final LlmCredentialRepository credRepo;
-    private final ProjectRepository projectRepo;
     private final ObjectMapper mapper;
     private final BinaryAnalysisLoader analysisLoader;
+    private final ProjectAccessGuard guard;
 
     public CallChainService(
             SymbolService symbolService,
@@ -98,27 +98,30 @@ public class CallChainService {
             RenameService renameService,
             LlmInvoker invoker,
             LlmCredentialRepository credRepo,
-            ProjectRepository projectRepo,
             ObjectMapper mapper,
-            BinaryAnalysisLoader analysisLoader
+            BinaryAnalysisLoader analysisLoader,
+            ProjectAccessGuard guard
     ) {
         this.symbolService = symbolService;
         this.storage = storage;
         this.renameService = renameService;
         this.invoker = invoker;
         this.credRepo = credRepo;
-        this.projectRepo = projectRepo;
         this.mapper = mapper;
+        this.guard = guard;
         this.analysisLoader = analysisLoader;
     }
 
     @Transactional
     public CallChain build(User user, UUID projectId, String startFile, int startLine, int depth, boolean includeSdks) {
+        // VIEWER-OK: building a call chain reads symbol index + source files.
+        // Owner-keyed srcDir so collaborators resolve to the right workspace.
+        Project project = guard.requireRead(user, projectId);
         // Build the lookup index once at the top of the request. Every
         // recursive level reuses it — O(1) name lookups + O(log n) enclosing
         // method lookups instead of the old O(N) linear scans.
         ai.openapk.core.symbols.LookupIndex lookup = symbolService.getOrBuildLookup(user, projectId);
-        Path root = storage.srcDir(user.getId(), projectId).normalize();
+        Path root = storage.srcDir(project.getUser().getId(), projectId).normalize();
 
         Symbol startMethod = findEnclosingMethod(lookup, startFile, startLine, root);
         if (startMethod == null) {
@@ -343,9 +346,11 @@ public class CallChainService {
      */
     @Transactional(readOnly = true)
     public CallChain narrate(User user, UUID projectId, CallChain chain, UUID credentialId, String model) {
+        // VIEWER-OK: narration is read-only; LLM tokens charged to caller.
+        Project project = guard.requireRead(user, projectId);
         LlmCredential cred = credRepo.findByIdAndUserId(credentialId, user.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "credential not found"));
-        Path root = storage.srcDir(user.getId(), projectId).normalize();
+        Path root = storage.srcDir(project.getUser().getId(), projectId).normalize();
 
         // Collect every distinct method in the chain (root + walk both trees).
         LinkedHashMap<String, MethodRef> order = new LinkedHashMap<>();
@@ -409,8 +414,8 @@ public class CallChainService {
     public NarrateBinChainResponse narrateBin(
             User user, UUID projectId, List<String> functionNames, UUID credentialId, String model
     ) {
-        Project project = projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+        // VIEWER-OK: BIN chain narration reads worker JSON, no mutation.
+        Project project = guard.requireRead(user, projectId);
         if (project.getKind() != ProjectKind.BIN) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "narrate-bin is only available for binary projects");

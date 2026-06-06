@@ -4,16 +4,15 @@ import ai.openapk.core.auth.User;
 import ai.openapk.core.dbschema.dto.DbSchema;
 import ai.openapk.core.dbschema.dto.TableColumn;
 import ai.openapk.core.dbschema.dto.TableSchema;
-import ai.openapk.core.projects.ProjectRepository;
+import ai.openapk.core.projects.Project;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.renames.RenameService;
 import ai.openapk.core.util.SdkPaths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.charset.MalformedInputException;
@@ -75,25 +74,25 @@ public class DbSchemaService {
             Pattern.MULTILINE
     );
 
-    private final ProjectRepository projectRepo;
+    private final ProjectAccessGuard guard;
     private final ProjectStorage storage;
     private final RenameService renameService;
 
     public DbSchemaService(
-            ProjectRepository projectRepo,
+            ProjectAccessGuard guard,
             ProjectStorage storage,
             RenameService renameService
     ) {
-        this.projectRepo = projectRepo;
+        this.guard = guard;
         this.storage = storage;
         this.renameService = renameService;
     }
 
     @Transactional(readOnly = true)
     public List<DbSchema> scan(User user, UUID projectId, boolean includeSdks) {
-        projectRepo.findByIdAndUserId(projectId, user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
-        Path root = storage.srcDir(user.getId(), projectId).normalize();
+        // VIEWER-OK: schema scan is read-only.
+        Project project = guard.requireRead(user, projectId);
+        Path root = storage.srcDir(project.getUser().getId(), projectId).normalize();
         if (!Files.isDirectory(root)) return List.of();
 
         List<DbSchema> out = new ArrayList<>();
