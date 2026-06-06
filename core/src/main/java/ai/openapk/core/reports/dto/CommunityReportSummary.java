@@ -9,6 +9,10 @@ import java.util.UUID;
  * the full sections JSON (paid only on the detail endpoint). Author fields
  * are nullable because old reports may pre-date the display_name field;
  * the frontend falls back to "anonymous researcher" when null.
+ *
+ * <p>{@code voteCount} is the public upvote aggregate. {@code votedByMe}
+ * is true only when the request carried a Bearer for a user who upvoted
+ * this report; anonymous viewers always see false.
  */
 public record CommunityReportSummary(
         UUID reportId,
@@ -19,9 +23,12 @@ public record CommunityReportSummary(
         List<String> tags,
         String sha256,
         Instant communityPublishedAt,
+        UUID authorId,
         String authorDisplayName,
         String authorEmailMd5,
         // Snippet of the first non-empty section; capped at ~240 chars. Used
         // for the feed-card preview line.
-        String preview
+        String preview,
+        long voteCount,
+        boolean votedByMe
 ) {}

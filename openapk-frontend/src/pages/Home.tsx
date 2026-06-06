@@ -4,6 +4,7 @@ import { useAuth } from 'react-oidc-context'
 import { useApi } from '../api/client'
 import { Gravatar } from '@shared/components/Gravatar'
 import type { CommunityReportSummary } from '@shared/api/community'
+import { personalFeedPath } from '@shared/api/social'
 import iconUrl from '../assets/icon.png'
 import type { Project } from './Projects'
 
@@ -247,16 +248,24 @@ function UsageCard() {
  */
 function CommunityHero() {
   const api = useApi()
+  const auth = useAuth()
+  const [tab, setTab] = useState<'foryou' | 'latest'>(auth.isAuthenticated ? 'foryou' : 'latest')
   const [reports, setReports] = useState<CommunityReportSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    api<CommunityReportSummary[]>('/api/community/apk/reports?size=3')
+    setReports(null)
+    setError(null)
+    // "For you" hits the auth'd personal feed; "latest" is the chrono
+    // public feed. Anonymous viewers don't see the For You tab at all so
+    // there's no need to fall back here.
+    const path = tab === 'foryou' ? personalFeedPath('apk', 0, 3) : '/api/community/apk/reports?size=3'
+    api<CommunityReportSummary[]>(path)
       .then((rows) => { if (!cancelled) setReports(rows.slice(0, 3)) })
       .catch((e: Error) => { if (!cancelled) setError(e.message) })
     return () => { cancelled = true }
-  }, [api])
+  }, [api, tab])
 
   return (
     <section className="overflow-hidden rounded-xl border border-amber-500/30 bg-linear-to-br from-amber-950/30 via-zinc-950 to-zinc-950 p-6 shadow-[0_8px_40px_rgba(251,191,36,0.08)] sm:p-7">
@@ -285,17 +294,49 @@ function CommunityHero() {
         </Link>
       </div>
 
+      {/* Tab toggle: For You vs Latest. Only renders for signed-in viewers
+          since anonymous users have nobody to follow yet. */}
+      {auth.isAuthenticated && (
+        <div className="mt-5 inline-flex rounded-md border border-zinc-800 bg-zinc-950/40 p-0.5 text-xs">
+          <button
+            onClick={() => setTab('foryou')}
+            className={`rounded px-3 py-1 ${tab === 'foryou' ? 'bg-amber-500 text-black' : 'text-zinc-400 hover:text-zinc-200'}`}
+          >
+            For you
+          </button>
+          <button
+            onClick={() => setTab('latest')}
+            className={`rounded px-3 py-1 ${tab === 'latest' ? 'bg-amber-500 text-black' : 'text-zinc-400 hover:text-zinc-200'}`}
+          >
+            Latest
+          </button>
+        </div>
+      )}
+
       {error && <p className="mt-5 text-sm text-red-400">{error}</p>}
       {!error && reports === null && <SkeletonRows count={3} />}
       {!error && reports !== null && reports.length === 0 && (
         <div className="mt-5 rounded-md border border-zinc-800 bg-zinc-950/40 px-4 py-6 text-center">
-          <p className="text-sm text-zinc-300">
-            No community reports yet —{' '}
-            <Link to="/projects" className="font-medium text-amber-300 underline-offset-4 hover:underline">
-              be the first to publish
-            </Link>
-            .
-          </p>
+          {tab === 'foryou' ? (
+            <p className="text-sm text-zinc-300">
+              Your feed is empty.{' '}
+              <button
+                onClick={() => setTab('latest')}
+                className="font-medium text-amber-300 underline-offset-4 hover:underline"
+              >
+                Browse the latest reports
+              </button>{' '}
+              and follow researchers whose work you want to see.
+            </p>
+          ) : (
+            <p className="text-sm text-zinc-300">
+              No community reports yet —{' '}
+              <Link to="/projects" className="font-medium text-amber-300 underline-offset-4 hover:underline">
+                be the first to publish
+              </Link>
+              .
+            </p>
+          )}
         </div>
       )}
       {reports !== null && reports.length > 0 && (

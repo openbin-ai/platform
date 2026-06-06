@@ -10,6 +10,7 @@ import {
   type CommunityReportSummary,
 } from '@shared/api/community'
 import { Gravatar } from '@shared/components/Gravatar'
+import { UpvoteButton } from '@shared/components/UpvoteButton'
 
 // Anonymous /community feed for openbin-frontend — BIN reports only.
 // Mirror of openapk-frontend's Community page; the only behavioral
@@ -25,6 +26,7 @@ export function Community() {
   const malwareType = search.get('malware_type') ?? ''
   const sha256 = search.get('sha256') ?? ''
   const tags = useMemo(() => search.getAll('tag'), [search])
+  const sort = (search.get('sort') === 'trending' ? 'trending' : 'new') as 'new' | 'trending'
   const page = Number(search.get('page') ?? '0') || 0
 
   const [items, setItems] = useState<CommunityReportSummary[]>([])
@@ -37,6 +39,7 @@ export function Community() {
       malwareType: malwareType || undefined,
       sha256: sha256 || undefined,
       tags: tags.length > 0 ? tags : undefined,
+      sort,
       page,
       size: 20,
     }
@@ -51,7 +54,7 @@ export function Community() {
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [api, q, malwareType, sha256, page, tags])
+  }, [api, q, malwareType, sha256, sort, page, tags])
 
   const [queryDraft, setQueryDraft] = useState(q || sha256)
   useEffect(() => { setQueryDraft(q || sha256) }, [q, sha256])
@@ -121,6 +124,14 @@ export function Community() {
         </form>
 
         <div className="mb-6 flex flex-wrap items-center gap-2">
+          <select
+            value={sort}
+            onChange={(e) => setFilter({ sort: e.target.value === 'trending' ? 'trending' : null })}
+            className="rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200 focus:border-amber-500 focus:outline-none"
+          >
+            <option value="new">Newest</option>
+            <option value="trending">Trending (most upvoted)</option>
+          </select>
           <select
             value={malwareType}
             onChange={(e) => setFilter({ malware_type: e.target.value || null })}
@@ -214,19 +225,39 @@ export function Community() {
         onClick={() => navigate(`/community/reports/${report.reportId}`)}
       >
         <div className="flex items-start gap-3">
-          <Gravatar emailMd5={report.authorEmailMd5} size={36} />
+          <Link
+            to={`/u/${report.authorId}`}
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0"
+          >
+            <Gravatar emailMd5={report.authorEmailMd5} size={36} />
+          </Link>
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between gap-3">
               <h2 className="truncate text-base font-medium text-zinc-100">{report.title}</h2>
-              <time
-                className="shrink-0 text-[11px] text-zinc-500"
-                title={new Date(report.communityPublishedAt).toLocaleString()}
-              >
-                {formatRelative(report.communityPublishedAt)}
-              </time>
+              <div className="flex shrink-0 items-center gap-2">
+                <UpvoteButton
+                  reportId={report.reportId}
+                  initialCount={report.voteCount}
+                  initialVoted={report.votedByMe}
+                  accentClass="border-amber-600 bg-amber-950/40 text-amber-200 hover:bg-amber-900/50"
+                />
+                <time
+                  className="text-[11px] text-zinc-500"
+                  title={new Date(report.communityPublishedAt).toLocaleString()}
+                >
+                  {formatRelative(report.communityPublishedAt)}
+                </time>
+              </div>
             </div>
             <div className="mt-0.5 flex items-center gap-2 text-xs text-zinc-500">
-              <span>{report.authorDisplayName}</span>
+              <Link
+                to={`/u/${report.authorId}`}
+                onClick={(e) => e.stopPropagation()}
+                className="hover:text-zinc-200 hover:underline"
+              >
+                {report.authorDisplayName}
+              </Link>
               <span>·</span>
               <span className="truncate font-mono">{report.projectName}</span>
             </div>

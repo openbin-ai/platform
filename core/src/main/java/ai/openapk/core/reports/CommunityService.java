@@ -1,5 +1,7 @@
 package ai.openapk.core.reports;
 
+import ai.openapk.core.auth.CurrentUserService;
+import ai.openapk.core.auth.User;
 import ai.openapk.core.media.MediaService;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectKind;
@@ -7,6 +9,8 @@ import ai.openapk.core.reports.dto.AbuseReportRequest;
 import ai.openapk.core.reports.dto.CommunityReportDetail;
 import ai.openapk.core.reports.dto.CommunityReportSummary;
 import ai.openapk.core.reports.dto.ReportSection;
+import ai.openapk.core.social.FollowRepository;
+import ai.openapk.core.social.ReportVoteRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.slf4j.Logger;
@@ -62,15 +66,23 @@ public class CommunityService {
     private final EmailService email;
     private final MediaService mediaService;
     private final ai.openapk.core.notifications.NotificationService notifications;
+    private final CurrentUserService currentUser;
+    private final FollowRepository followRepo;
+    private final ReportVoteRepository voteRepo;
 
     public CommunityService(ProjectReportRepository reportRepo, ObjectMapper mapper,
                             EmailService email, MediaService mediaService,
-                            ai.openapk.core.notifications.NotificationService notifications) {
+                            ai.openapk.core.notifications.NotificationService notifications,
+                            CurrentUserService currentUser, FollowRepository followRepo,
+                            ReportVoteRepository voteRepo) {
         this.reportRepo = reportRepo;
         this.mapper = mapper;
         this.email = email;
         this.mediaService = mediaService;
         this.notifications = notifications;
+        this.currentUser = currentUser;
+        this.followRepo = followRepo;
+        this.voteRepo = voteRepo;
     }
 
     /**
@@ -89,7 +101,7 @@ public class CommunityService {
     @Transactional(readOnly = true)
     public List<CommunityReportSummary> feed(
             ProjectKind kind, String q, String malwareType, List<String> tags,
-            String sha256, int page, int size
+            String sha256, String sort, int page, int size
     ) {
         int limit = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
         int offset = Math.max(0, page) * limit;
@@ -102,11 +114,19 @@ public class CommunityService {
         final String hashLookup = (sha256 != null && SHA256_HEX.matcher(sha256).matches()) ? sha256 : null;
         boolean isHashLookup = hashLookup != null;
 
+        // Opportunistic auth: if a Bearer was sent, personalize the
+        // votedByMe column. Anonymous viewers get false for every row.
+        User viewer = currentUser.currentOrNull();
+        UUID viewerId = viewer != null ? viewer.getId() : null;
+
         StringBuilder sql = new StringBuilder("""
                 SELECT r.id, r.project_id, r.title, r.malware_type, r.tags, r.sections_jsonb,
                        r.community_published_at,
                        p.name AS project_name, p.sha256,
-                       u.display_name, u.email
+                       u.id AS author_id, u.display_name, u.email,
+                       (SELECT COUNT(*) FROM report_votes v WHERE v.report_id = r.id) AS vote_count,
+                       (:viewerKnown AND EXISTS (SELECT 1 FROM report_votes v2
+                               WHERE v2.report_id = r.id AND v2.user_id = :viewer)) AS voted_by_me
                 FROM project_reports r
                 JOIN projects p ON r.project_id = p.id
                 JOIN users u ON p.user_id = u.id
@@ -127,12 +147,27 @@ public class CommunityService {
                 sql.append("  AND r.tags && CAST(:tags AS text[])\n");
             }
         }
-        sql.append("ORDER BY r.community_published_at DESC LIMIT :limit OFFSET :offset");
+        // sort=trending = upvotes DESC with recency as tiebreaker so a
+        // brand-new 0-vote report isn't pinned to the bottom forever. sort
+        // defaults to "new" = chronological. Whitelist-checked here so the
+        // user-controlled param never reaches the ORDER BY clause raw.
+        boolean trending = "trending".equalsIgnoreCase(sort);
+        if (trending) {
+            sql.append("ORDER BY vote_count DESC, r.community_published_at DESC ");
+        } else {
+            sql.append("ORDER BY r.community_published_at DESC ");
+        }
+        sql.append("LIMIT :limit OFFSET :offset");
 
         var nq = em.createNativeQuery(sql.toString());
         nq.setParameter("kind", kind.name());
         nq.setParameter("limit", limit);
         nq.setParameter("offset", offset);
+        nq.setParameter("viewerKnown", viewerId != null);
+        // Postgres requires every named param to be bound even when the
+        // EXISTS short-circuit makes the value unused — pass the all-zeros
+        // UUID as a stand-in when anonymous.
+        nq.setParameter("viewer", viewerId != null ? viewerId : new UUID(0L, 0L));
         if (hashLookup != null) {
             nq.setParameter("sha256", hashLookup.toLowerCase(Locale.ROOT));
         } else {
@@ -158,15 +193,21 @@ public class CommunityService {
             Instant published = toInstant(r[6]);
             String projectName = (String) r[7];
             String sha = (String) r[8];
-            String displayName = (String) r[9];
-            String emailAddr = (String) r[10];
+            UUID authorId = (UUID) r[9];
+            String displayName = (String) r[10];
+            String emailAddr = (String) r[11];
+            long voteCount = ((Number) r[12]).longValue();
+            boolean votedByMe = (Boolean) r[13];
 
             out.add(new CommunityReportSummary(
                     reportId, projectId, title, projectName, mt, rowTags, sha,
                     published,
+                    authorId,
                     displayNameOrFallback(displayName, emailAddr),
                     md5Hex(emailAddr),
-                    extractPreview(sectionsJson)
+                    extractPreview(sectionsJson),
+                    voteCount,
+                    votedByMe
             ));
         }
         return out;
@@ -193,6 +234,17 @@ public class CommunityService {
         // screenshots without an Authorization header.
         List<ReportSection> sections = deserializeSections(report.getSectionsJson());
         sections = rewriteMediaUrls(sections, report.getId(), p.getId());
+
+        User viewer = currentUser.currentOrNull();
+        long voteCount = voteRepo.countByReportId(report.getId());
+        boolean votedByMe = viewer != null && voteRepo.existsByUserIdAndReportId(viewer.getId(), report.getId());
+        UUID authorId = p.getUser().getId();
+        // amFollowingAuthor is meaningful only when the viewer is signed in
+        // and the author isn't themselves — otherwise the follow button is
+        // hidden anyway, so false is the right default.
+        boolean amFollowingAuthor = viewer != null && !viewer.getId().equals(authorId)
+                && followRepo.existsByFollowerIdAndFolloweeId(viewer.getId(), authorId);
+
         return new CommunityReportDetail(
                 report.getId(),
                 p.getId(),
@@ -209,8 +261,12 @@ public class CommunityService {
                 p.getArch(),
                 p.getPackageName(),
                 report.getCommunityPublishedAt(),
+                authorId,
                 displayNameOrFallback(p.getUser().getDisplayName(), p.getUser().getEmail()),
-                md5Hex(p.getUser().getEmail())
+                md5Hex(p.getUser().getEmail()),
+                voteCount,
+                votedByMe,
+                amFollowingAuthor
         );
     }
 
@@ -319,6 +375,15 @@ public class CommunityService {
             log.warn("community: section deserialization failed: {}", e.toString());
             return List.of();
         }
+    }
+
+    /**
+     * Public alias for {@link #extractPreview(String)} — exposed so
+     * {@code SocialService} can reuse the same trimming logic on its
+     * personal-feed query rows without duplicating the regex pipeline.
+     */
+    public String previewFromSections(String sectionsJson) {
+        return extractPreview(sectionsJson);
     }
 
     /**

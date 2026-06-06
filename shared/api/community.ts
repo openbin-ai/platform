@@ -16,9 +16,12 @@ export type CommunityReportSummary = {
   tags: string[]
   sha256: string
   communityPublishedAt: string // ISO instant
+  authorId: string
   authorDisplayName: string
   authorEmailMd5: string
   preview: string
+  voteCount: number
+  votedByMe: boolean
 }
 
 export type CommunityReportDetail = {
@@ -37,8 +40,12 @@ export type CommunityReportDetail = {
   arch: string | null
   packageName: string | null
   communityPublishedAt: string
+  authorId: string
   authorDisplayName: string
   authorEmailMd5: string
+  voteCount: number
+  votedByMe: boolean
+  amFollowingAuthor: boolean
 }
 
 export type CommunityFeedParams = {
@@ -46,6 +53,8 @@ export type CommunityFeedParams = {
   malwareType?: string
   tags?: string[]
   sha256?: string
+  // 'trending' = upvotes desc, recency tiebreaker. Default chronological.
+  sort?: 'new' | 'trending'
   page?: number
   size?: number
 }
@@ -90,6 +99,7 @@ export function buildFeedQuery(params: CommunityFeedParams): string {
   if (params.malwareType) usp.set('malware_type', params.malwareType)
   if (params.sha256) usp.set('sha256', params.sha256)
   if (params.tags) for (const t of params.tags) if (t.trim()) usp.append('tag', t.trim())
+  if (params.sort && params.sort !== 'new') usp.set('sort', params.sort)
   if (params.page != null) usp.set('page', String(params.page))
   if (params.size != null) usp.set('size', String(params.size))
   const q = usp.toString()

@@ -22,6 +22,20 @@ public class CurrentUserService {
         this.users = users;
     }
 
+    /**
+     * Same as {@link #current()} but returns {@code null} for anonymous
+     * callers instead of throwing. Used on endpoints that are permitted
+     * unauthenticated (e.g. {@code /api/community/**}) but want to
+     * opportunistically personalize the response when a Bearer is
+     * present — like showing "did you upvote this" on the public feed.
+     */
+    @Transactional
+    public User currentOrNull() {
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        if (!(auth instanceof JwtAuthenticationToken)) return null;
+        return current();
+    }
+
     @Transactional
     public User current() {
         var auth = SecurityContextHolder.getContext().getAuthentication();

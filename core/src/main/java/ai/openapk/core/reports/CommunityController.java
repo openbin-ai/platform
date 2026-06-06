@@ -1,10 +1,13 @@
 package ai.openapk.core.reports;
 
+import ai.openapk.core.auth.CurrentUserService;
 import ai.openapk.core.media.MediaService;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.reports.dto.AbuseReportRequest;
 import ai.openapk.core.reports.dto.CommunityReportDetail;
 import ai.openapk.core.reports.dto.CommunityReportSummary;
+import ai.openapk.core.social.SocialService;
+import ai.openapk.core.social.dto.ProfileResponse;
 import jakarta.validation.Valid;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpHeaders;
@@ -40,16 +43,22 @@ import java.util.UUID;
 public class CommunityController {
 
     private final CommunityService service;
+    private final SocialService social;
+    private final CurrentUserService currentUser;
 
-    public CommunityController(CommunityService service) {
+    public CommunityController(CommunityService service, SocialService social,
+                               CurrentUserService currentUser) {
         this.service = service;
+        this.social = social;
+        this.currentUser = currentUser;
     }
 
     /**
      * APK reports feed. Returns the latest published APK community
      * reports for openapk.ai. Filters are all optional; combine them
      * freely. {@code sha256} short-circuits everything else when present
-     * (a binary hash is an exact identity).
+     * (a binary hash is an exact identity). {@code sort=trending} ranks
+     * by upvotes desc (recency as tiebreaker); default is chronological.
      */
     @GetMapping("/apk/reports")
     public List<CommunityReportSummary> apkFeed(
@@ -57,10 +66,11 @@ public class CommunityController {
             @RequestParam(value = "malware_type", required = false) String malwareType,
             @RequestParam(value = "tag", required = false) List<String> tags,
             @RequestParam(value = "sha256", required = false) String sha256,
+            @RequestParam(value = "sort", required = false) String sort,
             @RequestParam(value = "page", defaultValue = "0") int page,
             @RequestParam(value = "size", defaultValue = "20") int size
     ) {
-        return service.feed(ProjectKind.APK, q, malwareType, tags, sha256, page, size);
+        return service.feed(ProjectKind.APK, q, malwareType, tags, sha256, sort, page, size);
     }
 
     /** BIN reports feed — same as apkFeed but for openbin.ai. */
@@ -70,10 +80,28 @@ public class CommunityController {
             @RequestParam(value = "malware_type", required = false) String malwareType,
             @RequestParam(value = "tag", required = false) List<String> tags,
             @RequestParam(value = "sha256", required = false) String sha256,
+            @RequestParam(value = "sort", required = false) String sort,
             @RequestParam(value = "page", defaultValue = "0") int page,
             @RequestParam(value = "size", defaultValue = "20") int size
     ) {
-        return service.feed(ProjectKind.BIN, q, malwareType, tags, sha256, page, size);
+        return service.feed(ProjectKind.BIN, q, malwareType, tags, sha256, sort, page, size);
+    }
+
+    /**
+     * Public author profile + that user's community-published reports for
+     * the requested product kind. Anonymous-readable; the response's
+     * {@code amFollowing} field is always false for unauthenticated
+     * callers. Kept under {@code /api/community} (anonymous-permitted)
+     * rather than {@code /api/social} so signed-out visitors can land on
+     * a researcher's page from a shared link.
+     */
+    @GetMapping("/users/{userId}/profile/{kind}")
+    public ProfileResponse profile(
+            @PathVariable("userId") UUID userId,
+            @PathVariable("kind") String kindStr
+    ) {
+        ProjectKind kind = ProjectKind.valueOf(kindStr.toUpperCase(java.util.Locale.ROOT));
+        return social.profile(userId, currentUser.currentOrNull(), kind);
     }
 
     /**

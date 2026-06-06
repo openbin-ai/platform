@@ -5,6 +5,8 @@ import ReactMarkdown from 'react-markdown'
 import { API_BASE, useApi } from '@shared/api/client'
 import type { CommunityReportDetail } from '@shared/api/community'
 import { Gravatar } from '@shared/components/Gravatar'
+import { UpvoteButton } from '@shared/components/UpvoteButton'
+import { FollowButton } from '@shared/components/FollowButton'
 import iconUrl from '../assets/icon.png'
 
 // Anonymous, read-only view of a single community report. Same shape as
@@ -80,15 +82,31 @@ export function CommunityReport() {
 
         <article className="min-w-0">
           <header className="mb-6 border-b border-zinc-800 pb-4">
-            <h1 className="wrap-break-word text-xl font-semibold text-zinc-100 sm:text-2xl">{report.title}</h1>
+            <div className="flex items-start justify-between gap-3">
+              <h1 className="wrap-break-word text-xl font-semibold text-zinc-100 sm:text-2xl">{report.title}</h1>
+              <UpvoteButton
+                reportId={report.reportId}
+                initialCount={report.voteCount}
+                initialVoted={report.votedByMe}
+              />
+            </div>
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-              <Gravatar emailMd5={report.authorEmailMd5} size={32} />
+              <Link to={`/u/${report.authorId}`} className="shrink-0">
+                <Gravatar emailMd5={report.authorEmailMd5} size={32} />
+              </Link>
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm text-zinc-200">{report.authorDisplayName}</div>
+                <Link to={`/u/${report.authorId}`} className="block truncate text-sm text-zinc-200 hover:underline">
+                  {report.authorDisplayName}
+                </Link>
                 <div className="text-xs text-zinc-500">
                   Published {new Date(report.communityPublishedAt).toLocaleString()}
                 </div>
               </div>
+              {/* Follow shows for authed viewers viewing someone else's report;
+                  the backend's amFollowingAuthor is always false otherwise. */}
+              {auth.isAuthenticated && report.authorId && (
+                <FollowButton userId={report.authorId} initialFollowing={report.amFollowingAuthor} />
+              )}
               <button
                 onClick={() => setShowAbuse(true)}
                 className="shrink-0 text-xs text-zinc-500 hover:text-red-400"

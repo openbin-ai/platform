@@ -1,0 +1,31 @@
+// Types + helpers for the /api/social and /api/community/users endpoints.
+// The split: /api/social/** is auth-required (mutations + personal feed);
+// /api/community/users/{id}/profile/{kind} is anonymous-readable so a
+// shared profile link works for signed-out visitors.
+
+import type { CommunityReportSummary } from './community'
+
+export type ToggleResponse = {
+  active: boolean // true after a follow/upvote; false after the inverse
+  count: number   // new aggregate (follower count or vote count)
+}
+
+export type ProfileResponse = {
+  userId: string
+  displayName: string
+  emailMd5: string
+  joinedAt: string // ISO instant
+  followerCount: number
+  followingCount: number
+  amFollowing: boolean // always false for anonymous viewers
+  reports: CommunityReportSummary[]
+}
+
+export type ProjectKindParam = 'apk' | 'bin'
+
+export const followPath = (userId: string) => `/api/social/follows/${userId}`
+export const votePath = (reportId: string) => `/api/social/votes/${reportId}`
+export const personalFeedPath = (kind: ProjectKindParam, page = 0, size = 20) =>
+  `/api/social/feed/${kind}?page=${page}&size=${size}`
+export const profilePath = (userId: string, kind: ProjectKindParam) =>
+  `/api/community/users/${userId}/profile/${kind}`

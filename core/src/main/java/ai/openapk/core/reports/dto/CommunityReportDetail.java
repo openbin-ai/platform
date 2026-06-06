@@ -27,6 +27,10 @@ public record CommunityReportDetail(
         String arch,
         String packageName,
         Instant communityPublishedAt,
+        UUID authorId,
         String authorDisplayName,
-        String authorEmailMd5
+        String authorEmailMd5,
+        long voteCount,
+        boolean votedByMe,
+        boolean amFollowingAuthor
 ) {}

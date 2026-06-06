@@ -15,6 +15,7 @@ import { ReportTemplates } from './pages/ReportTemplates'
 import { Usage } from './pages/Usage'
 import { Community } from './pages/Community'
 import { CommunityReport } from './pages/CommunityReport'
+import { AuthorProfilePage } from './pages/AuthorProfilePage'
 import { Terms } from './pages/Terms'
 import { Privacy } from './pages/Privacy'
 import { Profile } from './pages/Profile'
@@ -31,6 +32,9 @@ export default function App() {
               signed-out visitors can read published research. */}
           <Route path="/community" element={<Community />} />
           <Route path="/community/reports/:id" element={<CommunityReport />} />
+          {/* Public researcher profile. Mirrors /community in that it's
+              accessible anonymously and shareable as a link. */}
+          <Route path="/u/:id" element={<AuthorProfilePage />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
 
