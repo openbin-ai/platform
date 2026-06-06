@@ -60,6 +60,7 @@ public class NativeAnalysisService {
     private final NativeAnalysisRunner runner;
     private final WorkerQuotaService workerQuota;
     private final OpenApkProperties props;
+    private final NativeAnalysisJsonLoader jsonLoader;
 
     public NativeAnalysisService(
             ProjectRepository projectRepo,
@@ -67,7 +68,8 @@ public class NativeAnalysisService {
             ProjectStorage storage,
             NativeAnalysisRunner runner,
             WorkerQuotaService workerQuota,
-            OpenApkProperties props
+            OpenApkProperties props,
+            NativeAnalysisJsonLoader jsonLoader
     ) {
         this.projectRepo = projectRepo;
         this.nativeRepo = nativeRepo;
@@ -75,6 +77,7 @@ public class NativeAnalysisService {
         this.runner = runner;
         this.workerQuota = workerQuota;
         this.props = props;
+        this.jsonLoader = jsonLoader;
     }
 
     /**
@@ -129,15 +132,22 @@ public class NativeAnalysisService {
     /**
      * Get the persisted full result blob for one (project, libPath).
      * Returns null when status is not yet {@code READY}.
+     *
+     * <p>Dual-read: new rows (CLI ingest) carry the body in S3 under
+     * {@link NativeAnalysis#getAnalysisS3Key()}; legacy rows (cloud Ghidra
+     * sunset) keep it inline in {@code result_jsonb}. Prefer the inline
+     * value when present so a stray S3 fetch doesn't burn a round-trip on
+     * pre-S3 data. The S3 read gunzips into memory — fine for individual
+     * .so analyses (typically &lt;5 MB gzipped) but consider streaming if
+     * we ever raise the cap.
      */
     @Transactional(readOnly = true)
     public String getResultJson(User user, UUID projectId, String libPath) {
         requireOwned(user, projectId);
         validateLibPath(user, projectId, libPath);
-        return nativeRepo.findByProjectIdAndLibPath(projectId, libPath)
-                .filter(na -> na.getStatus() == NativeAnalysisStatus.READY)
-                .map(NativeAnalysis::getResultJson)
-                .orElse(null);
+        NativeAnalysis row = nativeRepo.findByProjectIdAndLibPath(projectId, libPath).orElse(null);
+        if (row == null || row.getStatus() != NativeAnalysisStatus.READY) return null;
+        return jsonLoader.load(row);
     }
 
     /**

@@ -6,6 +6,7 @@ import ai.openapk.core.projects.dto.FileNode;
 import ai.openapk.core.projects.dto.ProjectResponse;
 import ai.openapk.core.projects.dto.UpdateProjectRequest;
 import jakarta.validation.Valid;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -79,6 +80,30 @@ public class ProjectController {
     @GetMapping("/{id}/file")
     public FileContentResponse file(@PathVariable UUID id, @RequestParam("path") String path) {
         return service.readFile(currentUser.current(), id, path);
+    }
+
+    /**
+     * Stream a single file from the project workspace as raw bytes
+     * ({@code application/octet-stream}). Mirrors {@link #file} but
+     * skips UTF-8 decode + rename rewrite — used by the openapk
+     * frontend's "Download .so" UX so the user can run Ghidra locally
+     * on the original binary.
+     *
+     * <p>Force-download via {@code Content-Disposition: attachment} so
+     * a browser-side click reliably saves to disk instead of trying to
+     * render the body inline.
+     */
+    @GetMapping("/{id}/file/raw")
+    public ResponseEntity<InputStreamResource> fileRaw(
+            @PathVariable UUID id,
+            @RequestParam("path") String path
+    ) {
+        ProjectService.RawFile raw = service.readFileRaw(currentUser.current(), id, path);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .contentLength(raw.sizeBytes())
+                .header("Content-Disposition", "attachment; filename=\"" + raw.filename() + "\"")
+                .body(new InputStreamResource(raw.body()));
     }
 
     /**

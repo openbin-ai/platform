@@ -6,6 +6,7 @@ import ai.openapk.core.jnibridge.dto.LibraryRef;
 import ai.openapk.core.jnibridge.dto.LoaderCall;
 import ai.openapk.core.jnibridge.dto.NativeMethodDecl;
 import ai.openapk.core.nativeanalysis.NativeAnalysis;
+import ai.openapk.core.nativeanalysis.NativeAnalysisJsonLoader;
 import ai.openapk.core.nativeanalysis.NativeAnalysisRepository;
 import ai.openapk.core.nativeanalysis.NativeAnalysisStatus;
 import ai.openapk.core.projects.Project;
@@ -110,17 +111,20 @@ public class JniBridgeScanService {
 
     private final ProjectRepository projectRepo;
     private final NativeAnalysisRepository nativeRepo;
+    private final NativeAnalysisJsonLoader nativeJsonLoader;
     private final ProjectStorage storage;
     private final ObjectMapper objectMapper;
 
     public JniBridgeScanService(
             ProjectRepository projectRepo,
             NativeAnalysisRepository nativeRepo,
+            NativeAnalysisJsonLoader nativeJsonLoader,
             ProjectStorage storage,
             ObjectMapper objectMapper
     ) {
         this.projectRepo = projectRepo;
         this.nativeRepo = nativeRepo;
+        this.nativeJsonLoader = nativeJsonLoader;
         this.storage = storage;
         this.objectMapper = objectMapper;
     }
@@ -340,7 +344,7 @@ public class JniBridgeScanService {
         Map<String, String[]> out = new HashMap<>();
         for (NativeAnalysis na : nativeRepo.findAllByProjectId(projectId)) {
             if (na.getStatus() != NativeAnalysisStatus.READY) continue;
-            String json = na.getResultJson();
+            String json = nativeJsonLoader.load(na);
             if (json == null || json.isBlank()) continue;
             try {
                 JsonNode root = objectMapper.readTree(json);

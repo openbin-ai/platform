@@ -2,6 +2,9 @@ package ai.openapk.core.nativeanalysis;
 
 import ai.openapk.core.auth.CurrentUserService;
 import ai.openapk.core.nativeanalysis.dto.AnalyzeRequest;
+import ai.openapk.core.nativeanalysis.dto.FinalizeNativeIngestRequest;
+import ai.openapk.core.nativeanalysis.dto.InitiateNativeIngestRequest;
+import ai.openapk.core.nativeanalysis.dto.InitiateNativeIngestResponse;
 import ai.openapk.core.nativeanalysis.dto.NativeLibraryView;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -23,10 +26,14 @@ import java.util.UUID;
 public class NativeAnalysisController {
 
     private final NativeAnalysisService service;
+    private final NativeAnalysisIngestService ingestService;
     private final CurrentUserService currentUser;
 
-    public NativeAnalysisController(NativeAnalysisService service, CurrentUserService currentUser) {
+    public NativeAnalysisController(NativeAnalysisService service,
+                                    NativeAnalysisIngestService ingestService,
+                                    CurrentUserService currentUser) {
         this.service = service;
+        this.ingestService = ingestService;
         this.currentUser = currentUser;
     }
 
@@ -60,5 +67,33 @@ public class NativeAnalysisController {
         String json = service.getResultJson(currentUser.current(), id, libPath);
         if (json == null) return ResponseEntity.noContent().build();
         return ResponseEntity.ok(json);
+    }
+
+    /**
+     * CLI flow step 1: mint a presigned S3 PUT URL the CLI uploads the
+     * gzipped worker JSON to. Pre-creates (or resets) the native_analyses
+     * row in {@code INGEST_PENDING} so a CLI crash mid-flight leaves a
+     * recoverable orphan (cleaned up by the lifecycle rule after 24h).
+     */
+    @PostMapping("/ingest/initiate")
+    public ResponseEntity<InitiateNativeIngestResponse> initiateIngest(
+            @PathVariable("id") UUID id,
+            @Valid @RequestBody InitiateNativeIngestRequest req
+    ) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(ingestService.initiate(currentUser.current(), id, req));
+    }
+
+    /**
+     * CLI flow step 2: the CLI's PUT to S3 has completed; HEAD the object
+     * to capture size + ETag and flip the row to READY. Returns the updated
+     * {@link NativeLibraryView} so the CLI / frontend can render immediately.
+     */
+    @PostMapping("/ingest/finalize")
+    public ResponseEntity<NativeLibraryView> finalizeIngest(
+            @PathVariable("id") UUID id,
+            @Valid @RequestBody FinalizeNativeIngestRequest req
+    ) {
+        return ResponseEntity.ok(ingestService.finalize(currentUser.current(), id, req));
     }
 }

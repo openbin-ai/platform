@@ -153,6 +153,112 @@ func ingestProjectV2(cfg config, tokenLookup func() (string, error),
 	return &resp, nil
 }
 
+// --- v2.0 native-lib ingest -----------------------------------------------
+//
+// Mirrors ingestProjectV2 but targets the per-(APK project, .so) endpoints
+// on the NativeAnalysisController instead of the top-level BIN ingest path.
+// The CLI flow is identical from S3's perspective: gzip → presigned PUT →
+// finalize. Differences:
+//   - Initiate URL: /api/projects/{apkId}/native/ingest/initiate
+//   - Finalize URL: /api/projects/{apkId}/native/ingest/finalize
+//   - Initiate body carries libPath + sha256 (no name/originalFilename)
+//   - Finalize body carries nativeAnalysisId, NOT projectId
+
+type initiateNativeRequest struct {
+	SchemaVersion   string `json:"schemaVersion"`
+	LibPath         string `json:"libPath"`
+	Sha256          string `json:"sha256"`
+	UploadSizeBytes int64  `json:"uploadSizeBytes"`
+	ArchHint        string `json:"archHint,omitempty"`
+}
+
+type initiateNativeResponse struct {
+	NativeAnalysisID string            `json:"nativeAnalysisId"`
+	UploadURL        string            `json:"uploadUrl"`
+	S3Key            string            `json:"s3Key"`
+	ExpiresInSeconds int               `json:"expiresInSeconds"`
+	RequiredHeaders  map[string]string `json:"requiredHeaders"`
+}
+
+type finalizeNativeRequest struct {
+	NativeAnalysisID string `json:"nativeAnalysisId"`
+}
+
+// ingestNativeLib uploads a Ghidra worker JSON for a single .so to an
+// existing APK project. Returns the native analysis id on success so the
+// caller can print a URL the user can click back to the OpenAPK Native tab.
+func ingestNativeLib(cfg config, tokenLookup func() (string, error),
+	apkProjectID, libPath, archHint, sha256Hex string, sizeBytes int64,
+	workerJSON []byte) (string, error) {
+
+	tmpFile, err := os.CreateTemp("", "openbin-native-*.json.gz")
+	if err != nil {
+		return "", fmt.Errorf("create temp gz: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	gzWriter := gzip.NewWriter(tmpFile)
+	if _, err := gzWriter.Write(workerJSON); err != nil {
+		tmpFile.Close()
+		return "", fmt.Errorf("gzip worker json: %w", err)
+	}
+	if err := gzWriter.Close(); err != nil {
+		tmpFile.Close()
+		return "", fmt.Errorf("flush gzip: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return "", fmt.Errorf("close gz tmpfile: %w", err)
+	}
+	gzInfo, err := os.Stat(tmpPath)
+	if err != nil {
+		return "", fmt.Errorf("stat gz tmpfile: %w", err)
+	}
+	gzSize := gzInfo.Size()
+	fmt.Fprintf(os.Stderr, "Compressed: %.2f MB → %.2f MB (%.0f%% of original)\n",
+		float64(len(workerJSON))/(1024*1024),
+		float64(gzSize)/(1024*1024),
+		float64(gzSize)*100/float64(len(workerJSON)))
+	_ = sizeBytes // currently unused — backend infers .so size from the workspace
+	_ = sha256Hex // sha256 is currently informational on the native ingest side
+
+	token, err := tokenLookup()
+	if err != nil {
+		return "", fmt.Errorf("pre-initiate auth: %w", err)
+	}
+	initReq := initiateNativeRequest{
+		SchemaVersion:   ingestSchemaVersion,
+		LibPath:         libPath,
+		Sha256:          sha256Hex,
+		UploadSizeBytes: gzSize,
+		ArchHint:        archHint,
+	}
+	initURL := cfg.apiBase + "/api/projects/" + apkProjectID + "/native/ingest/initiate"
+	initBody, err := postJSONRetry(initURL, token, initReq)
+	if err != nil {
+		return "", fmt.Errorf("initiate: %w", err)
+	}
+	var ir initiateNativeResponse
+	if err := json.Unmarshal(initBody, &ir); err != nil {
+		return "", fmt.Errorf("parse initiate response: %w", err)
+	}
+
+	if err := putToS3Retry(ir.UploadURL, tmpPath, gzSize, ir.RequiredHeaders); err != nil {
+		return "", fmt.Errorf("s3 upload: %w", err)
+	}
+
+	token, err = tokenLookup()
+	if err != nil {
+		return "", fmt.Errorf("pre-finalize auth: %w", err)
+	}
+	finURL := cfg.apiBase + "/api/projects/" + apkProjectID + "/native/ingest/finalize"
+	if _, err := postJSONRetry(finURL, token,
+		finalizeNativeRequest{NativeAnalysisID: ir.NativeAnalysisID}); err != nil {
+		return "", fmt.Errorf("finalize: %w", err)
+	}
+	return ir.NativeAnalysisID, nil
+}
+
 // postJSONRetry POSTs a JSON body with a Bearer token, retrying on 5xx /
 // network errors. Returns the response body on the first 2xx. 4xx responses
 // are not retried — those are caller errors that won't get better.

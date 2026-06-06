@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useApi } from '../api/client'
+import { useAuth } from 'react-oidc-context'
+import { API_BASE, useApi } from '../api/client'
 import { highlight } from '../syntax/highlight'
 
 // =========================================================================
 // Types — must mirror NativeLibraryView + extract.py's JSON shape
 // =========================================================================
 
-type NativeStatus = 'PENDING' | 'RUNNING' | 'READY' | 'FAILED'
+type NativeStatus = 'PENDING' | 'RUNNING' | 'INGEST_PENDING' | 'READY' | 'FAILED'
 
 type NativeLibrary = {
   libPath: string
@@ -140,6 +141,7 @@ export function NativeViewer({ projectId, libPath }: { projectId: string; libPat
   // when rename ships later the navigation code stays untouched.
   const [history, setHistory] = useState<NavHistory>({ back: [], current: null, forward: [] })
   const [functionFilter, setFunctionFilter] = useState('')
+  const [cliModalOpen, setCliModalOpen] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const navigate = useCallback((addr: string | null) => {
@@ -201,9 +203,15 @@ export function NativeViewer({ projectId, libPath }: { projectId: string; libPat
     void loadLib().finally(() => setLoading(false))
   }, [loadLib])
 
-  // Poll while in-flight, stop the moment we settle.
+  // Poll while in-flight, stop the moment we settle. INGEST_PENDING is
+  // included because the CLI flow leaves the row in that state until
+  // /finalize lands — the OpenAPK UI needs to notice the flip to READY
+  // even though the user (not the backend) is the one driving the work.
   useEffect(() => {
-    const inFlight = lib?.status === 'PENDING' || lib?.status === 'RUNNING'
+    const inFlight =
+      lib?.status === 'PENDING' ||
+      lib?.status === 'RUNNING' ||
+      lib?.status === 'INGEST_PENDING'
     if (!inFlight) {
       if (pollRef.current) {
         clearInterval(pollRef.current)
@@ -275,6 +283,7 @@ export function NativeViewer({ projectId, libPath }: { projectId: string; libPat
 
   const filename = libPath.substring(libPath.lastIndexOf('/') + 1)
   const inFlight = lib.status === 'PENDING' || lib.status === 'RUNNING'
+  const cliPending = lib.status === 'INGEST_PENDING'
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -302,20 +311,19 @@ export function NativeViewer({ projectId, libPath }: { projectId: string; libPat
               </>
             )}
           </p>
-          {/* Sunset CTA: cloud Ghidra worker is scaled to 0 (see
-              GhidraSunsetMessage.java backend-side). Re-analyze stays
-              available for projects that already have a cached result —
-              re-analyzing also goes through the worker, so the button is
-              disabled either way until cloud Ghidra is funded back on. */}
-          <a
-            href="https://github.com/openbin-ai/platform/releases/latest"
-            target="_blank"
-            rel="noopener noreferrer"
+          {/* Cloud Ghidra worker is scaled to 0. The "Decompile via CLI"
+              button opens a modal that walks the user through downloading
+              the .so + pasting the openbin attach-native command. Re-shown
+              even after READY so the user can re-run on a fresh Ghidra
+              version (initiate resets the row). */}
+          <button
+            type="button"
+            onClick={() => setCliModalOpen(true)}
             className="shrink-0 rounded bg-amber-400 px-3 py-1 text-[11px] font-semibold text-black shadow-[0_2px_12px_rgba(251,191,36,0.3)] hover:bg-amber-300"
-            title="Cloud Ghidra is temporarily disabled — download the CLI to decompile locally"
+            title="Run Ghidra locally via the openbin CLI and upload the result here"
           >
-            Download CLI →
-          </a>
+            {lib.status === 'READY' ? 'Re-decompile via CLI' : 'Decompile via CLI'}
+          </button>
         </div>
         <GhidraSunsetBanner />
         {/* `kickoff` retained for the future when cloud Ghidra comes back —
@@ -351,6 +359,11 @@ export function NativeViewer({ projectId, libPath }: { projectId: string; libPat
             title="Ghidra is analyzing"
             body="This takes 30 seconds to several minutes per binary. Page updates automatically when finished."
           />
+        ) : lib.status === 'INGEST_PENDING' ? (
+          <PromptPanel
+            title="Waiting for your CLI run"
+            body='Decompile this lib locally with `openbin attach-native` and the result will appear here automatically. Reopen "Decompile via CLI" above for the exact command.'
+          />
         ) : lib.status === 'FAILED' ? (
           <PromptPanel
             title="Analysis failed"
@@ -377,7 +390,217 @@ export function NativeViewer({ projectId, libPath }: { projectId: string; libPat
           />
         )}
       </div>
+      {cliModalOpen && (
+        <CliDecompileModal
+          projectId={projectId}
+          libPath={libPath}
+          filename={filename}
+          status={lib.status}
+          onClose={() => setCliModalOpen(false)}
+        />
+      )}
     </div>
+  )
+}
+
+// =========================================================================
+// CLI decompile modal
+// =========================================================================
+
+/**
+ * Walks the user through the local-Ghidra flow:
+ *   1. Download the .so from the project workspace
+ *   2. Run {@code openbin attach-native} with the pre-filled command
+ *   3. Wait for the row to flip to READY (parent polls /libraries)
+ *
+ * Self-closes when {@code status} flips to READY — the parent's polling
+ * useEffect drives the prop change, this just listens for it.
+ */
+function CliDecompileModal({
+  projectId,
+  libPath,
+  filename,
+  status,
+  onClose,
+}: {
+  projectId: string
+  libPath: string
+  filename: string
+  status: NativeStatus | null
+  onClose: () => void
+}) {
+  const auth = useAuth()
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  // Auto-close on READY. Done via effect rather than wrapping setLib so
+  // a manual close still works and a re-decompile (which puts the row
+  // back into INGEST_PENDING) keeps the modal open.
+  useEffect(() => {
+    if (status === 'READY') {
+      const t = setTimeout(() => onClose(), 600) // brief "done" flash
+      return () => clearTimeout(t)
+    }
+  }, [status, onClose])
+
+  // The CLI command. project= UUID + lib-path stay verbatim so a paste-in
+  // shell exec lands on the right project/lib without further editing.
+  const command =
+    `openbin attach-native \\\n` +
+    `  --project=${projectId} \\\n` +
+    `  --lib-path=${libPath} \\\n` +
+    `  ./${filename}`
+
+  const onCopy = useCallback(() => {
+    void navigator.clipboard.writeText(command).then(() => {
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    })
+  }, [command])
+
+  // Fetch the raw .so with a Bearer token. useApi() JSON-parses responses
+  // by content-type and would mangle the binary, so we go around it with
+  // a plain fetch — mirrors the pattern called out in shared/api/client.ts
+  // for "report download / print views" that need raw responses.
+  const onDownload = useCallback(async () => {
+    const token = auth.user?.access_token
+    if (!token) {
+      setDownloadError('Not signed in — refresh the page and try again.')
+      return
+    }
+    setDownloading(true)
+    setDownloadError(null)
+    try {
+      const resp = await fetch(
+        `${API_BASE}/api/projects/${projectId}/file/raw?path=${encodeURIComponent(libPath)}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (!resp.ok) throw new Error(`status=${resp.status}`)
+      const blob = await resp.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      // Free the blob URL on the next tick — too-eager revoke can cancel
+      // the in-progress download in some browsers.
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (e) {
+      setDownloadError((e as Error).message)
+    } finally {
+      setDownloading(false)
+    }
+  }, [auth, projectId, libPath, filename])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="w-full max-w-xl rounded-lg border border-zinc-700 bg-zinc-950 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+          <h2 className="font-mono text-sm text-zinc-100">Decompile via CLI</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="space-y-4 p-4 text-[13px] text-zinc-300">
+          <p className="text-xs text-zinc-500">
+            Cloud Ghidra is disabled. Run it locally with the openbin CLI —
+            decompile finishes on your machine, the JSON gets streamed
+            straight to S3, this view updates automatically.
+          </p>
+
+          {/* Step 1: download */}
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">1</span>
+              <span className="text-zinc-300">Download the .so to your machine</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void onDownload()}
+              disabled={downloading}
+              className="w-full rounded bg-zinc-800 px-3 py-2 text-left font-mono text-[12px] text-zinc-100 hover:bg-zinc-700 disabled:opacity-50"
+            >
+              {downloading ? 'Downloading…' : `↓ ${filename}`}
+            </button>
+            {downloadError && (
+              <p className="mt-1 font-mono text-[11px] text-red-400">{downloadError}</p>
+            )}
+          </div>
+
+          {/* Step 2: command */}
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">2</span>
+                <span className="text-zinc-300">
+                  Run from the directory you saved <code className="text-amber-300">{filename}</code> in
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={onCopy}
+                className="rounded bg-amber-400 px-2 py-0.5 font-mono text-[11px] font-semibold text-black hover:bg-amber-300"
+              >
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+            <pre className="overflow-x-auto rounded border border-zinc-800 bg-black/60 p-3 font-mono text-[12px] leading-relaxed text-zinc-200">
+{command}
+            </pre>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              Don&apos;t have the CLI yet?{' '}
+              <a
+                href="https://github.com/openbin-ai/platform/releases/latest"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-amber-300 underline-offset-4 hover:underline"
+              >
+                Download here
+              </a>
+              .
+            </p>
+          </div>
+
+          {/* Step 3: status */}
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">3</span>
+              <span className="text-zinc-300">Wait for the result</span>
+            </div>
+            <CliStatusLine status={status} />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CliStatusLine({ status }: { status: NativeStatus | null }) {
+  const label =
+    status === 'READY' ? 'Done — closing this window'
+    : status === 'INGEST_PENDING' ? 'Waiting for your CLI run to finish (polling every 5s)…'
+    : status === 'FAILED' ? 'The last run failed — re-run the command to retry'
+    : 'Run the command above; this view updates automatically.'
+  const tone =
+    status === 'READY' ? 'text-emerald-300'
+    : status === 'FAILED' ? 'text-red-300'
+    : 'text-zinc-400'
+  return (
+    <p className={`font-mono text-[12px] ${tone}`}>{label}</p>
   )
 }
 

@@ -547,6 +547,44 @@ public class ProjectService {
         return renameService.applyMapToBinaryAnalysisJson(id, json);
     }
 
+    /**
+     * Stream the raw bytes of a file inside the project's workspace,
+     * without applying the textual {@link #readFile} path's rename rewrite
+     * or UTF-8 decode. Used by the openapk-frontend's "Download .so" UX
+     * — the user needs the original binary to feed into local Ghidra.
+     *
+     * <p>Path-traversal-protected exactly like {@link #readFile}. No size
+     * cap because native libraries are routinely &gt;{@code maxFileResponseBytes}
+     * (which is sized for source files) and the body is streamed, not
+     * buffered.
+     */
+    @Transactional(readOnly = true)
+    public RawFile readFileRaw(User user, UUID id, String relPath) {
+        var project = loadOwned(user, id);
+        requireReady(project);
+
+        Path root = storage.srcDir(user.getId(), id).normalize();
+        Path resolved = root.resolve(relPath).normalize();
+        if (!resolved.startsWith(root)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path escapes project root");
+        }
+        if (!Files.isRegularFile(resolved)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "not a regular file");
+        }
+        try {
+            long size = Files.size(resolved);
+            String filename = resolved.getFileName().toString();
+            // Caller closes the stream. Spring's InputStreamResource handles
+            // this when used as a ResponseEntity body.
+            InputStream stream = Files.newInputStream(resolved);
+            return new RawFile(filename, size, stream);
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "read failed: " + e.getMessage());
+        }
+    }
+
+    public record RawFile(String filename, long sizeBytes, InputStream body) {}
+
     @Transactional(readOnly = true)
     public FileContentResponse readFile(User user, UUID id, String relPath) {
         var project = loadOwned(user, id);
