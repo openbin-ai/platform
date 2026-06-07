@@ -15,6 +15,7 @@ public record OpenApkProperties(
         AnalysisStorage analysisStorage,
         Ghidra ghidra,
         Jadx jadx,
+        ScriptAnalyzer scriptAnalyzer,
         Workers workers,
         Email email,
         Tos tos
@@ -116,6 +117,35 @@ public record OpenApkProperties(
      * previous in-JVM JADX integration — see jadx-worker/ at the repo root.
      */
     public record Jadx(String workerUrl, Duration workerTimeout) {}
+
+    /**
+     * Configuration for the script-worker Lambda — the malicious-NPM
+     * analyzer. The Lambda is the one non-ECS compute in the stack;
+     * scale-to-zero economics for a sporadic, bounded workload.
+     *
+     * <ul>
+     *   <li>{@code enabled} — defaults to false in dev so a missing
+     *       function name doesn't break boot; flip to true in prod once
+     *       the function exists.</li>
+     *   <li>{@code lambdaFunctionName} — the Lambda function ARN or
+     *       short name. Resolved by the AWS SDK against the current
+     *       region.</li>
+     *   <li>{@code region} — region the Lambda lives in.</li>
+     *   <li>{@code maxUploadBytes} — Spring side enforcement of the
+     *       tarball size cap. Lambda also enforces its own per-file +
+     *       per-package limits.</li>
+     *   <li>{@code invokeTimeout} — wall-clock cap on a single sync
+     *       invoke. Must exceed the Lambda's own timeout (60s default)
+     *       so we don't disconnect a still-working analysis.</li>
+     * </ul>
+     */
+    public record ScriptAnalyzer(
+            Boolean enabled,
+            String lambdaFunctionName,
+            String region,
+            Long maxUploadBytes,
+            Duration invokeTimeout
+    ) {}
 
     /**
      * Quota controls for cloud worker dispatches (Ghidra + JADX). Phase 0

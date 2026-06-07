@@ -17,6 +17,8 @@ import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.ProjectStatus;
 import ai.openapk.core.projects.analysis.BinaryAnalysisLoader;
 import ai.openapk.core.renames.RenameService;
+import ai.openapk.core.script.ScriptAnalysisRepository;
+import ai.openapk.core.script.dto.ScriptAnalysisFindings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -60,6 +62,8 @@ public class AnalysisService {
     private final TransactionTemplate tx;
     private final BinaryAnalysisLoader analysisLoader;
     private final ProjectAccessGuard guard;
+    /** Optional — only present when openapk.script-analyzer.enabled=true. */
+    private final ScriptAnalysisRepository scriptAnalyses;
 
     public AnalysisService(
             ProjectRepository projectRepo,
@@ -73,7 +77,8 @@ public class AnalysisService {
             ObjectMapper mapper,
             TransactionTemplate tx,
             BinaryAnalysisLoader analysisLoader,
-            ProjectAccessGuard guard
+            ProjectAccessGuard guard,
+            org.springframework.beans.factory.ObjectProvider<ScriptAnalysisRepository> scriptAnalysesProvider
     ) {
         this.projectRepo = projectRepo;
         this.credRepo = credRepo;
@@ -87,6 +92,10 @@ public class AnalysisService {
         this.tx = tx;
         this.analysisLoader = analysisLoader;
         this.guard = guard;
+        // ObjectProvider so a dev profile with the script analyzer
+        // disabled still wires AnalysisService — the repo bean only
+        // exists when the script-analyzer config is on.
+        this.scriptAnalyses = scriptAnalysesProvider.getIfAvailable();
     }
 
     /**
@@ -129,6 +138,19 @@ public class AnalysisService {
             systemPrompt = prompts.binarySystemPrompt(mode);
             userPrompt = prompts.userPrompt(digest);
             iocs = digest.iocs();
+        } else if (project.getKind() == ProjectKind.SCRIPT) {
+            // SCRIPT: the worker's findings.json IS the digest. No second
+            // pass needed — we re-parse the stored JSONB into the DTO and
+            // hand it to the prompt builder. IoCs come from the URL-bearing
+            // rules (known-c2 + net-exfil) via PromptBuilder helper.
+            if (scriptAnalyses == null) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                        "script analyzer is not enabled on this backend");
+            }
+            ScriptAnalysisFindings findings = loadScriptFindings(projectId);
+            systemPrompt = prompts.scriptSystemPrompt(mode);
+            userPrompt = prompts.userPrompt(findings);
+            iocs = prompts.iocsFromFindings(findings);
         } else {
             StaticDigest digest = loadOrComputeDigest(user, project);
             systemPrompt = prompts.systemPrompt(mode);
@@ -476,6 +498,23 @@ public class AnalysisService {
             projectRepo.save(project);
         } catch (IOException e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "digest scan failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Pull the persisted {@code findings_jsonb} for a SCRIPT project and
+     * deserialize it back into the worker DTO. The worker has already done
+     * the analysis; we just rehydrate.
+     */
+    private ScriptAnalysisFindings loadScriptFindings(UUID projectId) {
+        var row = scriptAnalyses.findById(projectId).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.CONFLICT,
+                        "no script analysis row for project " + projectId));
+        try {
+            return mapper.readValue(row.getFindingsJson(), ScriptAnalysisFindings.class);
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "stored findings JSON could not be parsed: " + e.getMessage());
         }
     }
 

@@ -1,0 +1,10 @@
+{
+  "name": "malicious-pkg",
+  "version": "1.0.0",
+  "description": "Synthetic test fixture composed of patterns seen in real NPM supply-chain attacks. NOT real malware — defanged + obvious. Should trigger CRITICAL, HIGH, and INFO findings across the 8 rules.",
+  "main": "lib/index.js",
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "license": "MIT"
+}

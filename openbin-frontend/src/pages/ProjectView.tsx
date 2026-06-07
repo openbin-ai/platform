@@ -228,7 +228,7 @@ type BinaryAnalysis = {
 
 type ProjectSummary = {
   id: string
-  kind: 'APK' | 'BIN'
+  kind: 'APK' | 'BIN' | 'SCRIPT'
   name: string
   status: string
   arch: string | null

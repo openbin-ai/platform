@@ -1,0 +1,23 @@
+{
+  "name": "openapk-script-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lambda worker that statically analyzes NPM tarballs for malicious supply-chain patterns",
+  "main": "src/handler.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "smoke": "node test/smoke.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.633.0",
+    "@babel/parser": "^7.25.0",
+    "@babel/traverse": "^7.25.0",
+    "@babel/types": "^7.25.0",
+    "js-deobfuscator": "^1.1.7",
+    "tar": "^7.4.3"
+  }
+}

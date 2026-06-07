@@ -6,7 +6,7 @@ import { oidcConfig } from './auth/oidcConfig'
 import { Layout } from './components/Layout'
 import { Home } from './pages/Home'
 import { Projects } from './pages/Projects'
-import { ProjectView } from './pages/ProjectView'
+import { ProjectViewRoute } from './pages/ProjectViewRoute'
 import { ApiKeys } from './pages/ApiKeys'
 import { Report } from './pages/Report'
 import { ReportPrint } from './pages/ReportPrint'
@@ -81,7 +81,7 @@ export default function App() {
             <Route index element={<Home />} />
             <Route path="dashboard" element={<Home />} />
             <Route path="projects" element={<Projects />} />
-            <Route path="projects/:id" element={<ProjectView />} />
+            <Route path="projects/:id" element={<ProjectViewRoute />} />
             <Route path="projects/:id/report" element={<Report />} />
             <Route path="settings/api-keys" element={<ApiKeys />} />
             <Route path="settings/report-templates" element={<ReportTemplates />} />

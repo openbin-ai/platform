@@ -1,0 +1,10 @@
+{
+  "name": "benign-pkg",
+  "version": "1.0.0",
+  "description": "A perfectly normal utility package — fixture for the analyzer regression suite.",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "dependencies": {
+    "lodash": "^4.17.21"
+  }
+}

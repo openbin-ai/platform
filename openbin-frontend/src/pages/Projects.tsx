@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ApiError, API_BASE, useApi } from '@shared/api/client'
 import { canEdit, isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { useAuth } from 'react-oidc-context'
+import { ScriptUploadCard } from '../components/ScriptUploadCard'
 
 /**
  * Upload progress state for the dropzone. {@code null} means no upload in
@@ -16,7 +17,7 @@ type WorkflowStatus = 'NEW' | 'TRIAGING' | 'ANALYZING' | 'DRAFTING_REPORT' | 'PU
 
 type Project = {
   id: string
-  kind: 'APK' | 'BIN'
+  kind: 'APK' | 'BIN' | 'SCRIPT'
   name: string
   originalFilename: string
   sizeBytes: number
@@ -85,10 +86,10 @@ export function Projects() {
   const refresh = useCallback(async () => {
     try {
       const all = await api<Project[]>('/api/projects')
-      // Shared backend hands back both APK and BIN; openbin only renders the
-      // BIN ones. Backend doesn't yet support `?kind=` filtering — once it
-      // does we can drop this client-side pass.
-      setProjects(all.filter((p) => p.kind === 'BIN'))
+      // Shared backend hands back APK / BIN / SCRIPT; openbin renders BIN
+      // (native binaries via CLI) AND SCRIPT (malicious NPM analyzer). APK
+      // is the openapk.ai surface and lives there.
+      setProjects(all.filter((p) => p.kind === 'BIN' || p.kind === 'SCRIPT'))
       setError(null)
     } catch (e) {
       setError((e as Error).message)
@@ -99,6 +100,24 @@ export function Projects() {
 
   useEffect(() => {
     void refresh()
+  }, [refresh])
+
+  // The ScriptUploadCard lives a couple layers down. Rather than thread
+  // a refresh prop through ProjectsTab, it dispatches a window event the
+  // parent listens for. Same channel for the error string — keeps the
+  // child stateless.
+  useEffect(() => {
+    const onRefresh = () => { void refresh() }
+    const onError = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail
+      if (detail) setError(detail)
+    }
+    window.addEventListener('openbin:projects:refresh', onRefresh)
+    window.addEventListener('openbin:projects:error', onError as EventListener)
+    return () => {
+      window.removeEventListener('openbin:projects:refresh', onRefresh)
+      window.removeEventListener('openbin:projects:error', onError as EventListener)
+    }
   }, [refresh])
 
   // Poll while any project is still in flight so the UI flips to READY
@@ -171,7 +190,7 @@ export function Projects() {
       <div>
         <h1 className="text-2xl font-semibold text-zinc-100">OpenBin Projects</h1>
         <p className="mt-1 text-zinc-400">
-          Drop an ELF / PE / Mach-O binary to analyze it with Ghidra.
+          Native binaries (via CLI) and NPM packages (uploaded here).
         </p>
       </div>
 
@@ -245,14 +264,31 @@ function ProjectsTab({
   // void-reference the setters so TS's unused-locals check stays happy
   // without having to thread the prop list back through the caller.
   void [setDragActive, setArch, fileInputRef, onFiles, upload, dragActive, arch]
+
+  // Local refresh button for the SCRIPT path — the upload card needs a
+  // way to bubble completion back up so the projects list re-fetches.
+  // We piggyback on onPatch's host (which already triggers a refresh via
+  // setProjects) but that path mutates a known id; for "list changed",
+  // dispatch a generic refresh via the API again. Simpler: reload the
+  // page via the same hook the parent already uses, exposed via a custom
+  // event the parent listens for (avoids prop-drilling refresh).
+  function notifyListChanged() {
+    window.dispatchEvent(new CustomEvent('openbin:projects:refresh'))
+  }
+
   return (
     <div className="space-y-6">
-      {/* Cloud decompile is sunset — Fargate compute outpaced what an OSS
-          project can self-fund. Users get pointed at the local CLI instead.
-          To re-enable: flip `openapk.ghidra.worker-disabled=false` in the
-          backend AND restore the original arch-hint + drop zone (still in
-          git history before this commit). */}
-      <GhidraSunsetCard />
+      {/* Two upload entry points side-by-side. Native binaries point at the
+          CLI (Ghidra cloud is sunset); NPM packages are cheap to analyze
+          in Lambda, so we accept them as web uploads. Both cards share the
+          same vertical rhythm so neither feels "secondary." */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <GhidraSunsetCard />
+        <ScriptUploadCard
+          onUploaded={notifyListChanged}
+          onError={(msg) => window.dispatchEvent(new CustomEvent('openbin:projects:error', { detail: msg }))}
+        />
+      </div>
 
       {loading ? (
         <p className="text-zinc-500">Loading…</p>
@@ -333,13 +369,24 @@ function ProjectRow({
           <DecompilePill status={project.status} />
         </div>
         <div className="mt-1 text-xs text-zinc-500">
-          {project.executableFormat ?? '—'}
-          {' · '}
-          {project.arch ?? 'arch unknown'}
-          {' · '}
-          {formatBytes(project.sizeBytes)}
-          {' · sha256 '}{project.sha256.substring(0, 12)}…
-          {' · added '}{new Date(project.createdAt).toLocaleString()}
+          {project.kind === 'SCRIPT' ? (
+            <>
+              NPM tarball
+              {' · '}
+              {formatBytes(project.sizeBytes)}
+              {' · added '}{new Date(project.createdAt).toLocaleString()}
+            </>
+          ) : (
+            <>
+              {project.executableFormat ?? '—'}
+              {' · '}
+              {project.arch ?? 'arch unknown'}
+              {' · '}
+              {formatBytes(project.sizeBytes)}
+              {' · sha256 '}{project.sha256.substring(0, 12)}…
+              {' · added '}{new Date(project.createdAt).toLocaleString()}
+            </>
+          )}
           {project.name !== project.originalFilename && (
             <>
               {' · '}<span className="font-mono">{project.originalFilename}</span>

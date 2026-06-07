@@ -195,6 +195,15 @@
 			<artifactId>secretsmanager</artifactId>
 		</dependency>
 
+		<!-- Lambda invoke client — script-worker is the one Lambda function
+		     in the stack (the malicious-NPM analyzer). Synchronous invoke
+		     from ScriptAnalysisService after uploading the tarball to S3.
+		     Same AWS SDK BOM as sesv2/s3/cloudfront for version alignment. -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>lambda</artifactId>
+		</dependency>
+
 	</dependencies>
 
 	<dependencyManagement>

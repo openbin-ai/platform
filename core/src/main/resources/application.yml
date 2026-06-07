@@ -147,6 +147,21 @@ openapk:
     # JADX_TIMEOUT_SEC (default 15m). Big games take 5+ minutes; we give 5m
     # of headroom so legitimate decompiles don't get killed at the edge.
     worker-timeout: PT20M
+  script-analyzer:
+    # Lambda-backed malicious-NPM analyzer. Scale-to-zero compute for a
+    # sporadic, bounded workload — the only Lambda in the stack (everything
+    # else runs on ECS Express). Off by default in dev so missing function
+    # config doesn't break boot; flip to true in prod after the function +
+    # IAM role + ECR repo exist (see memory/js_script_analyzer_plan.md).
+    enabled: ${OPENAPK_SCRIPT_ANALYZER_ENABLED:false}
+    lambda-function-name: ${OPENAPK_SCRIPT_ANALYZER_FUNCTION:openapk-script-worker-js}
+    region: ${OPENAPK_SCRIPT_ANALYZER_REGION:us-east-1}
+    # Hard cap on the uploaded NPM tarball. Real packages are usually <2MB;
+    # anything over 10MB is either vendored binaries or DoS attempt.
+    max-upload-bytes: ${OPENAPK_SCRIPT_ANALYZER_MAX_UPLOAD:10485760}
+    # Wall-clock cap on a sync Lambda invoke. Must exceed the Lambda's own
+    # timeout (60s default) so we don't disconnect a still-working run.
+    invoke-timeout: ${OPENAPK_SCRIPT_ANALYZER_TIMEOUT:PT90S}
   workers:
     # Phase 0 emergency quota: per-user daily cap on cloud worker dispatches
     # (Ghidra + JADX combined). Stops the AWS bill from running away while
