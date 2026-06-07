@@ -59,14 +59,14 @@ export function AuthorProfilePage() {
                   Joined {new Date(profile.joinedAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
                 </p>
                 <div className="mt-3 flex gap-4 text-sm">
-                  <span className="text-zinc-300">
+                  <Link to={`/u/${profile.userId}/followers`} className="text-zinc-300 hover:text-zinc-100">
                     <span className="font-mono text-base text-zinc-100">{followerCount ?? profile.followerCount}</span>{' '}
                     <span className="text-zinc-500">followers</span>
-                  </span>
-                  <span className="text-zinc-300">
+                  </Link>
+                  <Link to={`/u/${profile.userId}/following`} className="text-zinc-300 hover:text-zinc-100">
                     <span className="font-mono text-base text-zinc-100">{profile.followingCount}</span>{' '}
                     <span className="text-zinc-500">following</span>
-                  </span>
+                  </Link>
                 </div>
               </div>
               <FollowButton

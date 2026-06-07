@@ -29,3 +29,18 @@ export const personalFeedPath = (kind: ProjectKindParam, page = 0, size = 20) =>
   `/api/social/feed/${kind}?page=${page}&size=${size}`
 export const profilePath = (userId: string, kind: ProjectKindParam) =>
   `/api/community/users/${userId}/profile/${kind}`
+
+// One row in a follower / following list. Not kind-scoped — follow is a
+// user-level relationship that exists across both products.
+export type SocialUserSummary = {
+  userId: string
+  displayName: string
+  emailMd5: string
+  followedAt: string // ISO instant; when the follow row was created
+  amFollowing: boolean // viewer follows this row's user? false when anon
+}
+
+export const followersPath = (userId: string, page = 0, size = 40) =>
+  `/api/community/users/${userId}/followers?page=${page}&size=${size}`
+export const followingPath = (userId: string, page = 0, size = 40) =>
+  `/api/community/users/${userId}/following?page=${page}&size=${size}`

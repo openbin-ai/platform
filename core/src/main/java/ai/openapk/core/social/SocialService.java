@@ -9,6 +9,7 @@ import ai.openapk.core.reports.ProjectReport;
 import ai.openapk.core.reports.ProjectReportRepository;
 import ai.openapk.core.reports.dto.CommunityReportSummary;
 import ai.openapk.core.social.dto.ProfileResponse;
+import ai.openapk.core.social.dto.SocialUserSummary;
 import ai.openapk.core.social.dto.ToggleResponse;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -192,6 +193,97 @@ public class SocialService {
         var out = new ArrayList<CommunityReportSummary>(rows.size());
         for (Object[] r : rows) {
             out.add(mapRow(r));
+        }
+        return out;
+    }
+
+    // ─── follower / following lists ─────────────────────────────────────
+
+    /**
+     * People following this user, newest follow first. Paginated; anonymous
+     * read is supported (the per-row {@code amFollowing} flag is always
+     * false when {@code viewerOrNull} is null). Used to render the
+     * "followers" sub-page off the public profile.
+     */
+    @Transactional(readOnly = true)
+    public List<SocialUserSummary> followersOf(UUID userId, User viewerOrNull, int page, int size) {
+        return listUsers(userId, viewerOrNull, page, size, /*direction=*/"followers");
+    }
+
+    /**
+     * People this user follows, newest follow first. Same contract as
+     * {@link #followersOf} but joins in the other direction.
+     */
+    @Transactional(readOnly = true)
+    public List<SocialUserSummary> followingOf(UUID userId, User viewerOrNull, int page, int size) {
+        return listUsers(userId, viewerOrNull, page, size, /*direction=*/"following");
+    }
+
+    /**
+     * Backs both list endpoints. The {@code direction} switch is
+     * whitelisted at this call site so the user-controlled path segment
+     * never reaches the SQL — the join clause is constant per branch.
+     */
+    private List<SocialUserSummary> listUsers(UUID userId, User viewerOrNull, int page, int size, String direction) {
+        // Existence check up front so anon callers get a clean 404 instead
+        // of an empty list (which would leak "user doesn't exist" by
+        // omission anyway).
+        userRepo.findById(userId).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "user not found"));
+
+        int limit = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
+        int offset = Math.max(0, page) * limit;
+
+        // followers-of(X): join users on f.follower_id = u.id where f.followee_id = X
+        // following-of(X): join users on f.followee_id = u.id where f.follower_id = X
+        String join;
+        String filterCol;
+        if ("followers".equals(direction)) {
+            join = "JOIN users u ON u.id = f.follower_id";
+            filterCol = "f.followee_id";
+        } else {
+            join = "JOIN users u ON u.id = f.followee_id";
+            filterCol = "f.follower_id";
+        }
+
+        UUID viewerId = viewerOrNull == null ? null : viewerOrNull.getId();
+
+        var nq = em.createNativeQuery("""
+                SELECT u.id, u.display_name, u.email, f.created_at,
+                       (:viewerKnown AND EXISTS (
+                           SELECT 1 FROM follows me
+                           WHERE me.follower_id = :viewer AND me.followee_id = u.id
+                       )) AS am_following
+                FROM follows f
+                """ + join + """
+
+                WHERE """ + filterCol + """
+                 = :anchor
+                ORDER BY f.created_at DESC
+                LIMIT :limit OFFSET :offset
+                """);
+        nq.setParameter("anchor", userId);
+        nq.setParameter("limit", limit);
+        nq.setParameter("offset", offset);
+        nq.setParameter("viewerKnown", viewerId != null);
+        nq.setParameter("viewer", viewerId != null ? viewerId : new UUID(0L, 0L));
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = nq.getResultList();
+        var out = new ArrayList<SocialUserSummary>(rows.size());
+        for (Object[] r : rows) {
+            UUID uid = (UUID) r[0];
+            String displayName = (String) r[1];
+            String email = (String) r[2];
+            Instant followedAt = toInstant(r[3]);
+            boolean amFollowing = (Boolean) r[4];
+            out.add(new SocialUserSummary(
+                    uid,
+                    displayNameOrFallback(displayName, email),
+                    CommunityService.md5Hex(email),
+                    followedAt,
+                    amFollowing
+            ));
         }
         return out;
     }

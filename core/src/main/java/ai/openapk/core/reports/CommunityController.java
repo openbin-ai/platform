@@ -10,6 +10,7 @@ import ai.openapk.core.social.CommentsService;
 import ai.openapk.core.social.SocialService;
 import ai.openapk.core.social.dto.CommentResponse;
 import ai.openapk.core.social.dto.ProfileResponse;
+import ai.openapk.core.social.dto.SocialUserSummary;
 import jakarta.validation.Valid;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpHeaders;
@@ -106,6 +107,31 @@ public class CommunityController {
     ) {
         ProjectKind kind = ProjectKind.valueOf(kindStr.toUpperCase(java.util.Locale.ROOT));
         return social.profile(userId, currentUser.currentOrNull(), kind);
+    }
+
+    /**
+     * People who follow {@code userId}, newest follow first. Anonymous-
+     * readable; per-row {@code amFollowing} reflects whether the *viewer*
+     * follows that row's user (always false when unauthenticated). Not
+     * kind-scoped — follow is a user-level relationship, not per-product.
+     */
+    @GetMapping("/users/{userId}/followers")
+    public List<SocialUserSummary> followers(
+            @PathVariable("userId") UUID userId,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "40") int size
+    ) {
+        return social.followersOf(userId, currentUser.currentOrNull(), page, size);
+    }
+
+    /** People {@code userId} follows; mirror of {@link #followers}. */
+    @GetMapping("/users/{userId}/following")
+    public List<SocialUserSummary> following(
+            @PathVariable("userId") UUID userId,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "40") int size
+    ) {
+        return social.followingOf(userId, currentUser.currentOrNull(), page, size);
     }
 
     /**

@@ -16,6 +16,7 @@ import { CallGraph } from './pages/CallGraph'
 import { Community } from './pages/Community'
 import { CommunityReport } from './pages/CommunityReport'
 import { AuthorProfilePage } from './pages/AuthorProfilePage'
+import { FollowListPage } from './pages/FollowListPage'
 import { Terms } from './pages/Terms'
 import { Privacy } from './pages/Privacy'
 import { Profile } from './pages/Profile'
@@ -45,6 +46,8 @@ export default function App() {
           <Route path="community/reports/:id" element={<CommunityReport />} />
           {/* Public researcher profile — anonymous-readable, shareable. */}
           <Route path="u/:id" element={<AuthorProfilePage />} />
+          <Route path="u/:id/followers" element={<FollowListPage mode="followers" />} />
+          <Route path="u/:id/following" element={<FollowListPage mode="following" />} />
           <Route path="terms" element={<Terms />} />
           <Route path="privacy" element={<Privacy />} />
 
