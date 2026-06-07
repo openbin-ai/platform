@@ -6,6 +6,7 @@ import ai.openapk.core.notifications.dto.UpdateEmailPrefsRequest;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.projects.ProjectRole;
+import ai.openapk.core.reports.CommunityService;
 import ai.openapk.core.reports.EmailService;
 import ai.openapk.core.reports.ProjectReport;
 import org.slf4j.Logger;
@@ -13,7 +14,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -38,10 +42,15 @@ public class NotificationService {
 
     private final UserEmailPrefsRepository prefsRepo;
     private final EmailService email;
+    private final NotificationRepository notifRepo;
+    private final ObjectMapper mapper;
 
-    public NotificationService(UserEmailPrefsRepository prefsRepo, EmailService email) {
+    public NotificationService(UserEmailPrefsRepository prefsRepo, EmailService email,
+                               NotificationRepository notifRepo, ObjectMapper mapper) {
         this.prefsRepo = prefsRepo;
         this.email = email;
+        this.notifRepo = notifRepo;
+        this.mapper = mapper;
     }
 
     // ----------------------------------------------------------------------
@@ -87,12 +96,19 @@ public class NotificationService {
     public void notifyNewFollower(User followee, User follower) {
         if (followee == null || follower == null) return;
         if (followee.getId().equals(follower.getId())) return;
-        if (!hasEmail(followee)) return;
+        // In-app gating skips the hasEmail check — a user can receive bell
+        // notifications even if their email is missing/blank. The pref
+        // toggle still gates both channels.
         if (!getOrDefault(followee.getId()).isNotifyNewFollower()) return;
-        safeSend("new-follower", () ->
-                email.sendNewFollower(followee.getEmail(),
-                        displayNameFor(follower),
-                        follower.getId()));
+        if (hasEmail(followee)) {
+            safeSend("new-follower", () ->
+                    email.sendNewFollower(followee.getEmail(),
+                            displayNameFor(follower),
+                            follower.getId()));
+        }
+        createInApp(followee, "NEW_FOLLOWER",
+                actorPayload(follower),
+                "/u/" + follower.getId());
     }
 
     /**
@@ -104,13 +120,20 @@ public class NotificationService {
     public void notifyCommentOnMyReport(User reportAuthor, User commenter, ProjectReport report) {
         if (reportAuthor == null || commenter == null || report == null) return;
         if (reportAuthor.getId().equals(commenter.getId())) return;
-        if (!hasEmail(reportAuthor)) return;
         if (!getOrDefault(reportAuthor.getId()).isNotifyCommentOnMyReport()) return;
-        safeSend("comment-on-my-report", () ->
-                email.sendCommentOnMyReport(reportAuthor.getEmail(),
-                        displayNameFor(commenter),
-                        report.getTitle(),
-                        report.getId()));
+        if (hasEmail(reportAuthor)) {
+            safeSend("comment-on-my-report", () ->
+                    email.sendCommentOnMyReport(reportAuthor.getEmail(),
+                            displayNameFor(commenter),
+                            report.getTitle(),
+                            report.getId()));
+        }
+        var payload = actorPayload(commenter);
+        payload.put("reportId", report.getId().toString());
+        payload.put("reportTitle", report.getTitle());
+        createInApp(reportAuthor, "COMMENT_ON_MY_REPORT",
+                payload,
+                "/community/reports/" + report.getId());
     }
 
     /**
@@ -122,13 +145,20 @@ public class NotificationService {
     public void notifyReplyToMyComment(User parentAuthor, User replier, ProjectReport report) {
         if (parentAuthor == null || replier == null || report == null) return;
         if (parentAuthor.getId().equals(replier.getId())) return;
-        if (!hasEmail(parentAuthor)) return;
         if (!getOrDefault(parentAuthor.getId()).isNotifyReplyToMyComment()) return;
-        safeSend("reply-to-my-comment", () ->
-                email.sendReplyToMyComment(parentAuthor.getEmail(),
-                        displayNameFor(replier),
-                        report.getTitle(),
-                        report.getId()));
+        if (hasEmail(parentAuthor)) {
+            safeSend("reply-to-my-comment", () ->
+                    email.sendReplyToMyComment(parentAuthor.getEmail(),
+                            displayNameFor(replier),
+                            report.getTitle(),
+                            report.getId()));
+        }
+        var payload = actorPayload(replier);
+        payload.put("reportId", report.getId().toString());
+        payload.put("reportTitle", report.getTitle());
+        createInApp(parentAuthor, "REPLY_TO_MY_COMMENT",
+                payload,
+                "/community/reports/" + report.getId());
     }
 
     /**
@@ -140,15 +170,24 @@ public class NotificationService {
     public void notifyCollaboratorInvite(User invitee, User inviter, Project project, ProjectRole role) {
         if (invitee == null || inviter == null || project == null || role == null) return;
         if (invitee.getId().equals(inviter.getId())) return;
-        if (!hasEmail(invitee)) return;
         if (!getOrDefault(invitee.getId()).isNotifyCollaboratorInvite()) return;
-        safeSend("collaborator-invite", () ->
-                email.sendCollaboratorInvite(invitee.getEmail(),
-                        displayNameFor(inviter),
-                        project.getName(),
-                        project.getKind(),
-                        project.getId(),
-                        role.name()));
+        if (hasEmail(invitee)) {
+            safeSend("collaborator-invite", () ->
+                    email.sendCollaboratorInvite(invitee.getEmail(),
+                            displayNameFor(inviter),
+                            project.getName(),
+                            project.getKind(),
+                            project.getId(),
+                            role.name()));
+        }
+        var payload = actorPayload(inviter);
+        payload.put("projectId", project.getId().toString());
+        payload.put("projectName", project.getName());
+        payload.put("projectKind", project.getKind().name());
+        payload.put("role", role.name());
+        createInApp(invitee, "COLLABORATOR_INVITE",
+                payload,
+                "/projects/" + project.getId());
     }
 
     // ----------------------------------------------------------------------
@@ -213,6 +252,40 @@ public class NotificationService {
         String e = u.getEmail();
         if (e != null && e.contains("@")) return e.substring(0, e.indexOf('@'));
         return "Someone";
+    }
+
+    /**
+     * Common header on every in-app payload — the bell-dropdown row
+     * needs the actor's avatar + label without a follow-up user lookup.
+     * Returned as a mutable map so callers can stir in kind-specific
+     * fields (reportTitle, projectName, etc.) without an extra builder.
+     */
+    private static Map<String, String> actorPayload(User actor) {
+        var p = new LinkedHashMap<String, String>();
+        p.put("actorId", actor == null ? "" : actor.getId().toString());
+        p.put("actorDisplayName", displayNameFor(actor));
+        p.put("actorEmailMd5", CommunityService.md5Hex(actor == null ? null : actor.getEmail()));
+        return p;
+    }
+
+    /**
+     * Persist one bell-dropdown row. JSON-serialization is best-effort —
+     * a payload that can't be encoded is logged and swallowed so the
+     * outer notify call still completes the email send.
+     */
+    private void createInApp(User recipient, String kind, Map<String, String> payload, String link) {
+        if (recipient == null) return;
+        try {
+            String json = mapper.writeValueAsString(payload);
+            Notification n = new Notification();
+            n.setUser(recipient);
+            n.setKind(kind);
+            n.setPayload(json);
+            n.setLink(link);
+            notifRepo.save(n);
+        } catch (RuntimeException e) {
+            log.warn("[notify] in-app dispatch failed kind={}: {}", kind, e.toString());
+        }
     }
 
     private void safeSend(String label, Runnable r) {

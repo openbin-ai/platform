@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from 'react-oidc-context'
+import { NotificationsBell } from '@shared/components/NotificationsBell'
 import iconUrl from '../assets/icon.png'
 
 // Top-bar chrome shared across every page that isn't the immersive
@@ -50,6 +51,7 @@ export function Layout() {
               Community
             </NavLink>
             <SettingsMenu />
+            <NotificationsBell accent="amber" />
             <div className="flex items-center gap-3 border-l border-zinc-800 pl-6">
               <span className="text-zinc-400">{name}</span>
               <button
