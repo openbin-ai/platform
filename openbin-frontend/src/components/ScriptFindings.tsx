@@ -25,7 +25,15 @@ const SEVERITY_STYLES: Record<Severity, { pill: string; border: string; dot: str
   },
 }
 
-export function ScriptFindings({ data }: { data: ScriptFindingsResponse }) {
+export function ScriptFindings({
+  data,
+  onJump,
+}: {
+  data: ScriptFindingsResponse
+  /** Optional callback fired when a finding row is clicked. The parent can
+   * use this to scroll a code viewer to the finding's file:line. */
+  onJump?: (f: ScriptFinding) => void
+}) {
   const grouped = useMemo(() => {
     const out: Record<Severity, ScriptFinding[]> = {
       CRITICAL: [], HIGH: [], MEDIUM: [], INFO: [],
@@ -90,14 +98,22 @@ export function ScriptFindings({ data }: { data: ScriptFindingsResponse }) {
         const list = grouped[s]
         if (!list || list.length === 0) return null
         return (
-          <SeverityGroup key={s} severity={s} findings={list} />
+          <SeverityGroup key={s} severity={s} findings={list} onJump={onJump} />
         )
       })}
     </div>
   )
 }
 
-function SeverityGroup({ severity, findings }: { severity: Severity; findings: ScriptFinding[] }) {
+function SeverityGroup({
+  severity,
+  findings,
+  onJump,
+}: {
+  severity: Severity
+  findings: ScriptFinding[]
+  onJump?: (f: ScriptFinding) => void
+}) {
   const [open, setOpen] = useState(severity === 'CRITICAL' || severity === 'HIGH')
   const style = SEVERITY_STYLES[severity]
   return (
@@ -116,35 +132,48 @@ function SeverityGroup({ severity, findings }: { severity: Severity; findings: S
       </button>
       {open && (
         <ul className="divide-y divide-zinc-800 border-t border-zinc-800">
-          {findings.map((f) => <FindingRow key={f.id} f={f} />)}
+          {findings.map((f) => <FindingRow key={f.id} f={f} onJump={onJump} />)}
         </ul>
       )}
     </div>
   )
 }
 
-function FindingRow({ f }: { f: ScriptFinding }) {
+function FindingRow({ f, onJump }: { f: ScriptFinding; onJump?: (f: ScriptFinding) => void }) {
   const [expanded, setExpanded] = useState(false)
   return (
     <li className="px-4 py-3">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full flex-col gap-1 text-left"
-      >
+      <div className="flex w-full flex-col gap-1 text-left">
         <div className="flex items-baseline justify-between gap-3">
           <span className="font-mono text-xs text-purple-300">{f.rule}</span>
-          <span className="font-mono text-[11px] text-zinc-500">
-            {f.file}{f.line > 0 ? `:${f.line}` : ''}
-          </span>
+          {onJump && f.line > 0 ? (
+            <button
+              type="button"
+              onClick={() => onJump(f)}
+              className="font-mono text-[11px] text-zinc-400 underline-offset-2 hover:text-purple-300 hover:underline"
+              title="Jump to this line in the source viewer"
+            >
+              {f.file}:{f.line}
+            </button>
+          ) : (
+            <span className="font-mono text-[11px] text-zinc-500">
+              {f.file}{f.line > 0 ? `:${f.line}` : ''}
+            </span>
+          )}
         </div>
-        <div className="text-sm text-zinc-200">{f.message}</div>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-left text-sm text-zinc-200 hover:text-zinc-100"
+        >
+          {f.message}
+        </button>
         {f.snippet && (
           <pre className="overflow-x-auto rounded border border-zinc-800 bg-black/40 px-2 py-1 font-mono text-[11px] text-zinc-300">
             {f.snippet}
           </pre>
         )}
-      </button>
+      </div>
       {expanded && (
         <div className="mt-2 space-y-2 border-t border-zinc-800 pt-2 text-xs text-zinc-400">
           {f.remediation && (

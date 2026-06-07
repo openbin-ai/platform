@@ -122,7 +122,9 @@ exports.handler = async (event, context) => {
     };
 
     await s3io.uploadJson(s3Bucket, findingsKey, findingsJson);
-    await packBundle(extractDir, deobfDir, deobfFiles, bundlePath);
+    // Bundle from the package root (when we found one) so the source
+    // browser sees `index.js` directly instead of `tmp/tmpXXX/.../package/index.js`.
+    await packBundle(analysisRoot, deobfDir, deobfFiles, bundlePath);
     await s3io.uploadFile(s3Bucket, bundleKey, bundlePath, 'application/gzip');
 
     return {

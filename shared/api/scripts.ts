@@ -60,4 +60,5 @@ export type ScriptFinding = {
 export const SCRIPT_PATHS = {
   upload: '/api/projects/script',
   findings: (projectId: string) => `/api/projects/script/${projectId}/findings`,
+  bundleUrl: (projectId: string) => `/api/projects/script/${projectId}/bundle-url`,
 } as const

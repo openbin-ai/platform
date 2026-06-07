@@ -1,6 +1,7 @@
 package ai.openapk.core.script;
 
 import ai.openapk.core.auth.CurrentUserService;
+import ai.openapk.core.projects.analysis.AnalysisStorageService;
 import ai.openapk.core.projects.dto.ProjectResponse;
 import ai.openapk.core.script.dto.ScriptAnalysisFindings;
 import tools.jackson.databind.ObjectMapper;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -33,17 +35,20 @@ public class ScriptAnalysisController {
     private final ScriptAnalysisRepository analyses;
     private final CurrentUserService currentUser;
     private final ObjectMapper mapper;
+    private final AnalysisStorageService storage;
 
     public ScriptAnalysisController(
             ScriptAnalysisService service,
             ScriptAnalysisRepository analyses,
             CurrentUserService currentUser,
-            ObjectMapper mapper
+            ObjectMapper mapper,
+            AnalysisStorageService storage
     ) {
         this.service = service;
         this.analyses = analyses;
         this.currentUser = currentUser;
         this.mapper = mapper;
+        this.storage = storage;
     }
 
     @PostMapping
@@ -59,6 +64,30 @@ public class ScriptAnalysisController {
      * owner + collaborators see it; public access is denied until the
      * project is published to the community feed (separate endpoint).
      */
+    /**
+     * Returns a short-TTL CloudFront-signed URL to download the deobfuscated
+     * source bundle (.tar.gz) for a SCRIPT project. The frontend extracts
+     * the tarball in-browser and renders a file tree + code viewer next to
+     * the findings — analysts can't review what they can't see, so this
+     * endpoint is the missing half of the workflow.
+     *
+     * <p>Owner-only same as {@link #findings}.
+     */
+    @GetMapping("/{projectId}/bundle-url")
+    public Map<String, String> bundleUrl(@PathVariable UUID projectId) {
+        var user = currentUser.current();
+        ScriptAnalysis row = analyses.findById(projectId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project"));
+        if (!service.callerCanRead(user.getId(), projectId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project");
+        }
+        if (row.getBundleS3Key() == null || row.getBundleS3Key().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no source bundle available");
+        }
+        String url = storage.signDownloadUrl(row.getBundleS3Key());
+        return Map.of("url", url);
+    }
+
     @GetMapping("/{projectId}/findings")
     public ScriptAnalysisFindings findings(@PathVariable UUID projectId) {
         var user = currentUser.current();
