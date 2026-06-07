@@ -145,7 +145,31 @@ public class ScriptAnalysisService {
                     "projectId", projectId.toString()
             );
             log.info("invoking script-worker for project={}", projectId);
-            byte[] respBytes = invoker.invoke(event);
+            byte[] respBytes;
+            try {
+                respBytes = invoker.invoke(event);
+            } catch (LambdaInvoker.LambdaInvocationException e) {
+                // Map common worker errors to actionable HTTP statuses
+                // rather than the generic 500 the unhandled stack would
+                // produce. The most common one in practice is the user
+                // uploading a Datadog-shipped encrypted zip without
+                // extracting it first.
+                String msg = e.getMessage() == null ? "" : e.getMessage();
+                if (msg.contains("Entry encrypted") || msg.contains("entry encrypted")) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "This zip is encrypted. The Datadog malicious-packages dataset uses the password " +
+                            "'infected' — unzip locally with `unzip -P infected <file>.zip`, then upload the " +
+                            "extracted folder (the analyzer will repack it on the fly).");
+                }
+                if (msg.contains("event missing")) {
+                    throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                            "internal error: malformed worker event");
+                }
+                // Anything else: bubble up as 502 so the user sees the
+                // worker message without a stack trace.
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                        "analyzer failed: " + msg);
+            }
             WorkerResponse resp;
             try {
                 resp = mapper.readValue(respBytes, WorkerResponse.class);
