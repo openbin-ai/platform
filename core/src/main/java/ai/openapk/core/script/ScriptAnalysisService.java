@@ -10,7 +10,7 @@ import ai.openapk.core.projects.ProjectStatus;
 import ai.openapk.core.projects.WorkflowStatus;
 import ai.openapk.core.projects.dto.ProjectResponse;
 import ai.openapk.core.script.dto.ScriptAnalysisFindings;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -143,7 +143,7 @@ public class ScriptAnalysisService {
             WorkerResponse resp;
             try {
                 resp = mapper.readValue(respBytes, WorkerResponse.class);
-            } catch (IOException e) {
+            } catch (Exception e) {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                         "script-worker returned malformed response: " + e.getMessage());
             }
@@ -165,7 +165,7 @@ public class ScriptAnalysisService {
             ScriptAnalysisFindings findings;
             try {
                 findings = mapper.readValue(findingsJsonBytes, ScriptAnalysisFindings.class);
-            } catch (IOException e) {
+            } catch (Exception e) {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                         "could not parse findings JSON: " + e.getMessage());
             }

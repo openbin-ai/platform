@@ -1,8 +1,7 @@
 package ai.openapk.core.script;
 
 import ai.openapk.core.config.OpenApkProperties;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -65,7 +64,7 @@ public class LambdaInvoker {
         byte[] payload;
         try {
             payload = mapper.writeValueAsBytes(event);
-        } catch (JsonProcessingException e) {
+        } catch (Exception e) {
             throw new LambdaInvocationException(
                     "failed to serialize script-worker event", e);
         }

@@ -3,7 +3,7 @@ package ai.openapk.core.script;
 import ai.openapk.core.auth.CurrentUserService;
 import ai.openapk.core.projects.dto.ProjectResponse;
 import ai.openapk.core.script.dto.ScriptAnalysisFindings;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.io.IOException;
 import java.util.UUID;
 
 /**
@@ -79,7 +78,7 @@ public class ScriptAnalysisController {
         }
         try {
             return mapper.readValue(row.getFindingsJson(), ScriptAnalysisFindings.class);
-        } catch (IOException e) {
+        } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
                     "stored findings JSON could not be parsed");
         }
