@@ -8,8 +8,13 @@ const path = require('node:path');
 const INSTALL_HOOK_KEYS = ['preinstall', 'install', 'postinstall'];
 
 function parse(extractRoot) {
-  const pkgPath = path.join(extractRoot, 'package.json');
-  if (!fs.existsSync(pkgPath)) {
+  // Find the package.json closest to the root. Datadog samples wrap the
+  // tarball under tmp/tmpXXX/@scope-name/package/, GitHub "download as
+  // zip" wraps under <repo>-<branch>/, and `npm pack` produces
+  // package/. The shallowest one wins so we don't pick up a vendored
+  // dep's package.json by accident.
+  const pkgPath = findShallowestPackageJson(extractRoot);
+  if (!pkgPath) {
     return { found: false };
   }
   let json;
@@ -24,6 +29,10 @@ function parse(extractRoot) {
     .map((k) => ({ key: k, script: scripts[k] }));
   return {
     found: true,
+    // Directory containing the chosen package.json — callers use this as
+    // the analysis root so the file walker doesn't dredge through wrapping
+    // dirs (Datadog's tmp/tmpXXX/..., GitHub's <repo>-<branch>/, etc).
+    packageRoot: path.dirname(pkgPath),
     name: json.name || null,
     version: json.version || null,
     description: json.description || null,
@@ -35,6 +44,31 @@ function parse(extractRoot) {
     hooks: hookHits,
     hasInstallHook: hookHits.length > 0,
   };
+}
+
+// BFS over the extracted tree, returning the package.json with the
+// shortest path. Skips node_modules so a vendored dep's manifest doesn't
+// outrank the real one.
+function findShallowestPackageJson(root) {
+  const queue = [root];
+  while (queue.length > 0) {
+    const dir = queue.shift();
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch (_) { continue; }
+    // Check files first so we return as soon as we find one at this depth.
+    for (const e of entries) {
+      if (e.isFile() && e.name === 'package.json') {
+        return path.join(dir, e.name);
+      }
+    }
+    for (const e of entries) {
+      if (e.isDirectory() && e.name !== 'node_modules' && e.name !== '.git') {
+        queue.push(path.join(dir, e.name));
+      }
+    }
+  }
+  return null;
 }
 
 // Produces install-hook findings. Targets-obfuscated escalation happens

@@ -22,8 +22,17 @@ const pkgParser = require('./package-json-parser');
 const { tryDeobfuscate } = require('./deobfuscator');
 const { analyzeSource } = require('./analyzer');
 
-const MAX_FILE_BYTES = Number(process.env.MAX_FILE_BYTES || 2 * 1024 * 1024); // 2MB per file
-const MAX_FILES = Number(process.env.MAX_FILES || 2000);                     // package cap
+// 10 MB per file. Real malicious payloads run huge — the Red Hat
+// preinstall droppers are 4 MB single-line `eval(...)` calls with a
+// 60k-element decode array. A cap below that silently hides the worst
+// findings, which is worse than burning a few extra CPU seconds.
+const MAX_FILE_BYTES = Number(process.env.MAX_FILE_BYTES || 10 * 1024 * 1024);
+const MAX_FILES = Number(process.env.MAX_FILES || 2000);
+// AST analysis itself has a separate, lower ceiling — Babel's parser is
+// O(n²) on adversarially-large single-line files. Above this we fall back
+// to a regex pre-scan that still catches the obvious smells (eval,
+// new Function, known-c2 hosts) without burning the full Lambda timeout.
+const MAX_AST_BYTES = Number(process.env.MAX_AST_BYTES || 512 * 1024);
 const ANALYZED_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.ts']);
 
 exports.handler = async (event, context) => {
@@ -49,13 +58,24 @@ exports.handler = async (event, context) => {
     const pkgInfo = pkgParser.parse(extractDir);
     const findings = pkgParser.installHookFindings(pkgInfo);
 
-    const jsFiles = walkAnalyzable(extractDir);
+    // Walk from the package root (if we found one) so file paths in
+    // findings are relative to the package, not the extraction wrapper.
+    // Falls back to the extract dir when there's no package.json
+    // (single-.js upload, or unparseable manifest).
+    const analysisRoot = pkgInfo.packageRoot || extractDir;
+    const jsFiles = walkAnalyzable(analysisRoot);
     const deobfFiles = []; // track for the bundle manifest
 
     for (const file of jsFiles.slice(0, MAX_FILES)) {
-      const rel = path.relative(extractDir, file);
+      const rel = path.relative(analysisRoot, file);
       const stat = await fsp.stat(file);
-      if (stat.size > MAX_FILE_BYTES) continue;
+      if (stat.size > MAX_FILE_BYTES) {
+        // Don't fail silently — a hostile 50 MB single-line file is a
+        // strong negative signal on its own. Emit a finding so the user
+        // sees something rather than a clean bill of health.
+        findings.push(skipFinding(rel, stat.size));
+        continue;
+      }
       const raw = await fsp.readFile(file, 'utf8');
       const { source: deobfSource, used: deobfUsed } = await tryDeobfuscate(raw);
       if (deobfUsed) {
@@ -64,8 +84,15 @@ exports.handler = async (event, context) => {
         await fsp.writeFile(outPath, deobfSource, 'utf8');
         deobfFiles.push(rel);
       }
-      const fileFindings = analyzeSource(deobfSource, rel, deobfUsed);
-      findings.push(...fileFindings);
+      // Babel struggles with adversarially-large single-line files (the
+      // Red Hat preinstall droppers are 4 MB on a single line). For those
+      // we still want SOMETHING — a regex pre-scan catches the obvious
+      // dangerous primitives even without a full AST.
+      if (deobfSource.length > MAX_AST_BYTES) {
+        findings.push(...regexScan(deobfSource, rel, deobfUsed));
+      } else {
+        findings.push(...analyzeSource(deobfSource, rel, deobfUsed));
+      }
     }
 
     // Escalate install-hook severity when the hook targets a file that was
@@ -110,6 +137,90 @@ exports.handler = async (event, context) => {
 };
 
 // -----------------------------------------------------------------------
+
+// Emitted when a file is too large to open for analysis. The size
+// threshold is conservative; legitimate libraries don't ship multi-MB
+// single-line JS, so passing it is itself suspicious.
+function skipFinding(file, sizeBytes) {
+  return {
+    rule: 'oversized-file',
+    severity: 'HIGH',
+    file,
+    line: 0,
+    column: 0,
+    message: `File ${file} is ${(sizeBytes / 1024 / 1024).toFixed(1)} MB — too large to analyze in full. ` +
+             `Real-world malicious droppers often hide encoded payloads in oversized single-line files; manual review required.`,
+    snippet: '',
+    remediation: 'Open the file by hand and look for eval(), new Function(), or numeric-array decoders that reconstruct a hidden payload.',
+    evidence: { sizeBytes },
+    deobfuscated: false,
+  };
+}
+
+// Regex pre-scan used when Babel can't (or shouldn't) parse the source —
+// adversarially-large files, syntax errors that errorRecovery can't
+// salvage. Covers the most decisive subset of rules: eval-surface,
+// secret-theft (env reads of credential names), known-c2 string hits,
+// child_process invocations. Less precise than the AST pass but never
+// returns silence on a hostile input.
+const RX_EVAL = /\beval\s*\(/g;
+const RX_NEW_FUNCTION = /\bnew\s+Function\s*\(/g;
+const RX_PROCESS_ENV = /\bprocess\s*\.\s*env\s*\.\s*([A-Z][A-Z0-9_]*)/g;
+const RX_CHILD_PROC = /\b(child_process\.)?(spawn|execSync|exec|execFile|fork)\s*\(/g;
+const RX_REQUIRE_CP = /\brequire\s*\(\s*['"]child_process['"]\s*\)/g;
+const RX_FETCH = /\bfetch\s*\(\s*['"`]([^'"`]+)['"`]/g;
+
+const SENSITIVE_ENV = /^(AWS_|NPM_TOKEN|GH_TOKEN|GITHUB_TOKEN|DOCKER_|NODE_AUTH_TOKEN|GCP_|AZURE_|VAULT_|SLACK_TOKEN|STRIPE_|TWILIO_|SENDGRID_)/;
+const KNOWN_C2 = /(discord\.com\/api\/webhooks|webhook\.site|requestbin\.(net|com)|pastebin\.com\/raw|transfer\.sh|t\.me\/[A-Za-z0-9_]+|ipinfo\.io|npmjs\.help|workers\.dev\/[a-z0-9-]+\/(api|exfil|drop))/i;
+
+function regexScan(source, file, deobfFlag) {
+  const findings = [];
+  const lineOffsets = [0];
+  for (let i = 0; i < source.length; i++) if (source[i] === '\n') lineOffsets.push(i + 1);
+  const lineOf = (idx) => {
+    let lo = 0, hi = lineOffsets.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (lineOffsets[mid] <= idx) lo = mid + 1; else hi = mid - 1;
+    }
+    return hi + 1;
+  };
+  const snippetAt = (idx, len) => source.slice(idx, idx + len).replace(/\s+/g, ' ').slice(0, 160);
+  const push = (rule, severity, idx, message, evidence) => findings.push({
+    rule, severity, file, line: lineOf(idx), column: 0, message,
+    snippet: snippetAt(idx, 80), remediation: '', evidence: evidence || {}, deobfuscated: deobfFlag,
+  });
+
+  let m;
+  RX_EVAL.lastIndex = 0;
+  if ((m = RX_EVAL.exec(source))) push('eval-surface', 'HIGH', m.index, 'Direct eval() call detected via regex pre-scan (file too large for full AST analysis)', { kind: 'eval' });
+  RX_NEW_FUNCTION.lastIndex = 0;
+  if ((m = RX_NEW_FUNCTION.exec(source))) push('eval-surface', 'HIGH', m.index, 'new Function(...) detected via regex pre-scan', { kind: 'new-function' });
+  RX_REQUIRE_CP.lastIndex = 0;
+  if ((m = RX_REQUIRE_CP.exec(source))) push('spawn', 'HIGH', m.index, 'require("child_process") detected via regex pre-scan', { kind: 'require-child-process' });
+  RX_CHILD_PROC.lastIndex = 0;
+  if ((m = RX_CHILD_PROC.exec(source))) push('spawn', 'HIGH', m.index, `${m[0]} detected via regex pre-scan`, { call: m[0].trim() });
+
+  RX_PROCESS_ENV.lastIndex = 0;
+  const seenEnv = new Set();
+  while ((m = RX_PROCESS_ENV.exec(source)) && seenEnv.size < 10) {
+    if (!SENSITIVE_ENV.test(m[1])) continue;
+    if (seenEnv.has(m[1])) continue;
+    seenEnv.add(m[1]);
+    push('secret-theft', 'CRITICAL', m.index, `Reads sensitive env var ${m[1]} (regex pre-scan)`, { envVar: m[1] });
+  }
+
+  RX_FETCH.lastIndex = 0;
+  while ((m = RX_FETCH.exec(source))) {
+    const url = m[1];
+    push('net-exfil', 'HIGH', m.index, `fetch() to ${url} (regex pre-scan)`, { call: 'fetch', target: url });
+    if (KNOWN_C2.test(url)) {
+      push('known-c2', 'CRITICAL', m.index, `URL ${url} matches a known-bad indicator`, { indicator: url });
+    }
+  }
+
+  return findings;
+}
 
 function walkAnalyzable(root) {
   const out = [];
@@ -157,24 +268,29 @@ function packageSummary(pkgInfo) {
 }
 
 function upgradeInstallHookSeverity(findings, deobfFiles) {
-  const hookTargets = findings
-    .filter((f) => f.rule === 'install-hook')
-    .map((f) => f.evidence?.script || '');
-  if (hookTargets.length === 0) return;
-  // crude: if any deobfuscated file's relative path appears in any hook
-  // script string, OR the hook script itself contains long base64-ish junk,
-  // bump severity to HIGH.
-  const entropyFiles = new Set(
-    findings.filter((f) => f.rule === 'entropy-blob').map((f) => f.file));
+  const hookFindings = findings.filter((f) => f.rule === 'install-hook');
+  if (hookFindings.length === 0) return;
+
+  // Build the "high-signal" file set: anything that carries a CRITICAL or
+  // HIGH finding, plus anything the deobfuscator touched. Install-hook
+  // pointed at any of these means the malicious code chain is wired up
+  // through the install path — the canonical supply-chain attack shape.
+  const dangerousFiles = new Set(deobfFiles);
   for (const f of findings) {
-    if (f.rule !== 'install-hook') continue;
-    const script = f.evidence?.script || '';
-    const targetsObfuscated =
-      deobfFiles.some((df) => script.includes(df)) ||
-      [...entropyFiles].some((ef) => script.includes(ef));
-    if (targetsObfuscated) {
-      f.severity = 'HIGH';
-      f.message += ' — target file is obfuscated or carries encoded payload';
+    if (f.rule === 'install-hook') continue;
+    if (f.severity === 'CRITICAL' || f.severity === 'HIGH') {
+      dangerousFiles.add(f.file);
+    }
+  }
+
+  for (const h of hookFindings) {
+    const script = h.evidence?.script || '';
+    const targets = [...dangerousFiles].filter((df) => script.includes(path.basename(df)) || script.includes(df));
+    if (targets.length > 0) {
+      // Hook targets a file that already raised flags — this combination
+      // is the textbook supply-chain attack shape, bump to CRITICAL.
+      h.severity = 'CRITICAL';
+      h.message += ` — target file ${targets[0]} carries high-severity findings`;
     }
   }
 }
