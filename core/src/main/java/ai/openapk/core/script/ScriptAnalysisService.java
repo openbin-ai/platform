@@ -88,16 +88,19 @@ public class ScriptAnalysisService {
         if (file.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "uploaded file is empty");
         }
-        long maxBytes = cfg.maxUploadBytes() != null ? cfg.maxUploadBytes() : 10L * 1024 * 1024;
+        long maxBytes = cfg.maxUploadBytes() != null ? cfg.maxUploadBytes() : 25L * 1024 * 1024;
         if (file.getSize() > maxBytes) {
             throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,
-                    "tarball exceeds " + maxBytes + "-byte cap");
+                    "upload exceeds " + maxBytes + "-byte cap");
         }
         if (s3Config == null || s3Config.bucket() == null || s3Config.bucket().isBlank()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     "analysis storage is not configured");
         }
         String filename = sanitizeFilename(file.getOriginalFilename());
+        // S3 content-type is best-effort here; the Lambda sniffs magic bytes
+        // anyway so a wrong header isn't load-bearing.
+        String contentType = guessContentType(filename);
 
         // Persist the project row first so the user sees it immediately + we
         // have a UUID to namespace the S3 keys under.
@@ -114,6 +117,9 @@ public class ScriptAnalysisService {
         project = projects.saveAndFlush(project);
 
         UUID projectId = project.getId();
+        // Key stays {projectId}/input.tgz regardless of actual format —
+        // Lambda sniffs the magic bytes inside. Keeping the extension stable
+        // means the lifecycle policy + reanalyze paths don't need to fork.
         String inputKey = "scripts/" + projectId + "/input.tgz";
 
         try {
@@ -123,14 +129,14 @@ public class ScriptAnalysisService {
                         PutObjectRequest.builder()
                                 .bucket(s3Config.bucket())
                                 .key(inputKey)
-                                .contentType("application/gzip")
+                                .contentType(contentType)
                                 .contentLength(file.getSize())
                                 .build(),
                         RequestBody.fromInputStream(file.getInputStream(), file.getSize())
                 );
             } catch (IOException e) {
                 throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
-                        "failed to upload tarball to S3: " + e.getMessage());
+                        "failed to upload to S3: " + e.getMessage());
             }
 
             Map<String, Object> event = Map.of(
@@ -255,6 +261,20 @@ public class ScriptAnalysisService {
         String name = raw.toLowerCase(Locale.ROOT)
                 .replaceAll("[^a-z0-9._@+-]+", "-");
         return name.length() > 200 ? name.substring(0, 200) : name;
+    }
+
+    /**
+     * Best-effort MIME for the S3 PutObject. Lambda sniffs magic bytes
+     * itself, so a mislabel here doesn't break analysis — it just affects
+     * downstream tooling that reads S3 metadata.
+     */
+    private static String guessContentType(String filename) {
+        if (filename == null) return "application/octet-stream";
+        String lower = filename.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".zip")) return "application/zip";
+        if (lower.endsWith(".tgz") || lower.endsWith(".tar.gz")) return "application/gzip";
+        if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".cjs")) return "application/javascript";
+        return "application/octet-stream";
     }
 
     /** Tiny inner record matching the worker's return shape. */

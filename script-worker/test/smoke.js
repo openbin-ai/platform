@@ -11,7 +11,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 
-const tarball = require('../src/tar-extract');
+const archive = require('../src/extract');
 const pkgParser = require('../src/package-json-parser');
 const { tryDeobfuscate } = require('../src/deobfuscator');
 const { analyzeSource } = require('../src/analyzer');
@@ -27,7 +27,7 @@ async function main() {
   const work = await fsp.mkdtemp(path.join(os.tmpdir(), 'smoke-'));
   const extractDir = path.join(work, 'extract');
 
-  await tarball.extract(tarballPath, extractDir);
+  await archive.extract(tarballPath, extractDir);
   const pkgInfo = pkgParser.parse(extractDir);
   const findings = pkgParser.installHookFindings(pkgInfo);
 

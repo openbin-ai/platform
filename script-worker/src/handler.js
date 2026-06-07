@@ -17,7 +17,7 @@ const os = require('node:os');
 const tar = require('tar');
 
 const s3io = require('./s3-io');
-const tarball = require('./tar-extract');
+const archive = require('./extract');
 const pkgParser = require('./package-json-parser');
 const { tryDeobfuscate } = require('./deobfuscator');
 const { analyzeSource } = require('./analyzer');
@@ -43,7 +43,8 @@ exports.handler = async (event, context) => {
 
   try {
     await s3io.downloadToFile(s3Bucket, s3InputKey, tarballPath);
-    const { entryCount } = await tarball.extract(tarballPath, extractDir);
+    const { entryCount, format } = await archive.extract(tarballPath, extractDir);
+    console.log(`extracted format=${format} entries=${entryCount}`);
 
     const pkgInfo = pkgParser.parse(extractDir);
     const findings = pkgParser.installHookFindings(pkgInfo);

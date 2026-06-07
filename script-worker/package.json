@@ -18,6 +18,7 @@
     "@babel/traverse": "^7.25.0",
     "@babel/types": "^7.25.0",
     "js-deobfuscator": "^1.1.7",
+    "node-stream-zip": "^1.15.0",
     "tar": "^7.4.3"
   }
 }

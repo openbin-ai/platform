@@ -1,14 +1,20 @@
 import { useCallback, useRef, useState } from 'react'
 import { useAuth } from 'react-oidc-context'
+import JSZip from 'jszip'
 import { ApiError, API_BASE } from '@shared/api/client'
 import { SCRIPT_PATHS } from '@shared/api/scripts'
 
-// 10MB hard cap — matches the backend `openapk.script-analyzer.max-upload-bytes`
-// default. Real NPM packages are usually <2MB; anything bigger is vendored
-// binaries or DoS attempt.
-const MAX_BYTES = 10 * 1024 * 1024
+// 25 MB hard cap — matches openapk.script-analyzer.max-upload-bytes. Real
+// malicious packages are <2 MB; the rest of the headroom is for unpacked
+// monorepos or audit drops with bundled test fixtures.
+const MAX_BYTES = 25 * 1024 * 1024
 
 type Progress = { sent: number; total: number; filename: string } | null
+
+// Accept any of: NPM tarball, zip archive, single JS file, or a folder
+// (browser packs it into a zip client-side before POST). The Lambda
+// sniffs magic bytes server-side and dispatches accordingly.
+const ACCEPT_FILES = '.tgz,.tar.gz,.zip,.js,.mjs,.cjs,application/gzip,application/zip,application/javascript,text/javascript'
 
 export function ScriptUploadCard({
   onUploaded,
@@ -19,20 +25,17 @@ export function ScriptUploadCard({
 }) {
   const auth = useAuth()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
   const [progress, setProgress] = useState<Progress>(null)
   const [dragActive, setDragActive] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
+  const [packing, setPacking] = useState(false)
 
-  const handleFiles = useCallback(
-    async (files: FileList | null) => {
-      if (!files || files.length === 0) return
-      const file = files[0]
-      if (!file.name.match(/\.(tgz|tar\.gz)$/i)) {
-        onError('Expected an NPM tarball (.tgz or .tar.gz)')
-        return
-      }
+  const handleSingleFile = useCallback(
+    async (rawFile: File, displayName?: string) => {
+      const file = displayName ? new File([rawFile], displayName, { type: rawFile.type }) : rawFile
       if (file.size > MAX_BYTES) {
-        onError(`Tarball exceeds 10MB cap (got ${(file.size / 1024 / 1024).toFixed(1)}MB)`)
+        onError(`Upload exceeds 25 MB cap (got ${(file.size / 1024 / 1024).toFixed(1)} MB)`)
         return
       }
       setProgress({ sent: 0, total: file.size, filename: file.name })
@@ -42,7 +45,7 @@ export function ScriptUploadCard({
           file,
           auth.user?.access_token,
           (sent) => setProgress({ sent, total: file.size, filename: file.name }),
-          () => setAnalyzing(true),  // server-side analyze starts after upload completes
+          () => setAnalyzing(true),
         )
         onUploaded()
       } catch (e) {
@@ -51,13 +54,52 @@ export function ScriptUploadCard({
         setProgress(null)
         setAnalyzing(false)
         if (fileInputRef.current) fileInputRef.current.value = ''
+        if (folderInputRef.current) folderInputRef.current.value = ''
       }
     },
     [auth.user?.access_token, onUploaded, onError],
   )
 
+  const handleFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0) return
+      // Multiple files at once = treat as a folder upload and zip them.
+      // Single file with no folder shape = upload as-is.
+      if (files.length === 1 && !(files[0] as File & { webkitRelativePath?: string }).webkitRelativePath) {
+        await handleSingleFile(files[0])
+        return
+      }
+      // Folder mode: bundle into a single .zip client-side so the existing
+      // upload endpoint sees one file. We don't need to honor `.gitignore`
+      // — the analyzer skips node_modules + .git already.
+      setPacking(true)
+      try {
+        const zip = new JSZip()
+        let rootName = ''
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i] as File & { webkitRelativePath?: string }
+          const rel = f.webkitRelativePath || f.name
+          if (!rootName) rootName = rel.split('/')[0] || 'upload'
+          zip.file(rel, await f.arrayBuffer())
+        }
+        const blob = await zip.generateAsync({
+          type: 'blob',
+          compression: 'DEFLATE',
+          compressionOptions: { level: 6 },
+        })
+        const packedFile = new File([blob], `${rootName}.zip`, { type: 'application/zip' })
+        setPacking(false)
+        await handleSingleFile(packedFile)
+      } catch (e) {
+        setPacking(false)
+        onError(`Failed to package folder: ${(e as Error).message}`)
+      }
+    },
+    [handleSingleFile, onError],
+  )
+
   const pct = progress ? Math.min(100, Math.round((progress.sent / progress.total) * 100)) : 0
-  const busy = progress !== null
+  const busy = progress !== null || packing
 
   return (
     <div
@@ -66,7 +108,16 @@ export function ScriptUploadCard({
       onDrop={(e) => {
         e.preventDefault()
         setDragActive(false)
-        if (!busy) void handleFiles(e.dataTransfer.files)
+        if (busy) return
+        // Drag-and-drop can include directories via DataTransferItem.
+        const items = e.dataTransfer.items
+        const hasDir = items && Array.from(items).some(
+          (it) => it.kind === 'file' && (it as DataTransferItem).webkitGetAsEntry()?.isDirectory)
+        if (hasDir) {
+          void handleDroppedDirs(items, handleFiles, onError)
+        } else {
+          void handleFiles(e.dataTransfer.files)
+        }
       }}
       className={`overflow-hidden rounded-lg border bg-linear-to-br p-6 shadow-[0_8px_40px_rgba(168,85,247,0.08)] transition ${
         dragActive
@@ -80,25 +131,28 @@ export function ScriptUploadCard({
         </span>
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold text-zinc-50">
-            Analyze an NPM package
+            Analyze an NPM package or loose script
           </h2>
           <p className="mt-1 text-sm leading-relaxed text-zinc-300">
-            Drop a <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.tgz</code>{' '}
-            tarball — install hooks, secret-theft patterns, exfil endpoints, and
-            obfuscator.io payloads are flagged statically. Findings come back in
-            under a minute.
+            Drop a <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.tgz</code>,{' '}
+            <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.zip</code>,{' '}
+            single <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.js</code>,{' '}
+            or a folder — install hooks, secret-theft patterns, exfil endpoints, and
+            obfuscator.io payloads are flagged statically. Results back in under a minute.
           </p>
 
           {busy ? (
             <div className="mt-4 space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="truncate font-mono text-purple-200">{progress?.filename}</span>
+                <span className="truncate font-mono text-purple-200">
+                  {packing ? 'Zipping folder…' : progress?.filename}
+                </span>
                 <span className="text-zinc-400">
-                  {analyzing ? 'Analyzing in Lambda…' : `${pct}%`}
+                  {packing ? '…' : analyzing ? 'Analyzing in Lambda…' : `${pct}%`}
                 </span>
               </div>
               <div className="h-1.5 overflow-hidden rounded bg-zinc-800/80">
-                {analyzing ? (
+                {packing || analyzing ? (
                   <div className="script-bar h-full w-1/3 bg-linear-to-r from-purple-500/40 via-purple-400 to-purple-500/40" />
                 ) : (
                   <div
@@ -109,15 +163,21 @@ export function ScriptUploadCard({
               </div>
             </div>
           ) : (
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="inline-flex items-center justify-center rounded-md bg-purple-500 px-4 py-2 text-sm font-semibold text-white shadow-[0_4px_20px_rgba(168,85,247,0.4)] transition hover:bg-purple-400"
               >
-                Pick .tgz file
+                Pick file
+              </button>
+              <button
+                onClick={() => folderInputRef.current?.click()}
+                className="inline-flex items-center justify-center rounded-md border border-purple-500/60 bg-purple-950/40 px-4 py-2 text-sm font-semibold text-purple-200 transition hover:bg-purple-900/60"
+              >
+                Pick folder
               </button>
               <span className="text-xs text-zinc-500">
-                or drop a tarball anywhere on this card · max 10 MB
+                or drop anywhere on this card · max 25 MB
               </span>
             </div>
           )}
@@ -125,15 +185,39 @@ export function ScriptUploadCard({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".tgz,.tar.gz,application/gzip"
+            accept={ACCEPT_FILES}
+            className="hidden"
+            onChange={(e) => void handleFiles(e.target.files)}
+          />
+          <input
+            ref={folderInputRef}
+            type="file"
+            // webkitdirectory is a non-standard but widely-supported attribute
+            // that switches the OS picker to folder mode. Files come back
+            // with .webkitRelativePath set, which JSZip uses to rebuild the
+            // tree before compressing.
+            // @ts-expect-error — webkitdirectory not in lib.dom yet
+            webkitdirectory=""
+            // @ts-expect-error — directory is the Firefox-specific spelling
+            directory=""
+            multiple
             className="hidden"
             onChange={(e) => void handleFiles(e.target.files)}
           />
 
           <p className="mt-4 border-t border-purple-900/40 pt-3 text-xs text-zinc-400">
-            Looking for a real-world sample? Run{' '}
-            <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">npm pack &lt;package&gt;</code>{' '}
-            to grab a tarball you can upload.
+            Looking for a real-world sample? Datadog publishes 877 confirmed-malicious
+            packages at{' '}
+            <a
+              href="https://github.com/DataDog/malicious-software-packages-dataset"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-purple-300 underline-offset-2 hover:underline"
+            >
+              datadog/malicious-software-packages-dataset
+            </a>
+            {' '}— zip password is{' '}
+            <code className="rounded bg-black/40 px-1 font-mono text-[11px] text-purple-200">infected</code>.
           </p>
         </div>
       </div>
@@ -151,9 +235,65 @@ export function ScriptUploadCard({
   )
 }
 
-// XHR-based multipart upload. Same pattern as the binary uploader above —
-// fetch can't report upload progress, so we keep XHR for the dropzone path
-// and let everything else use the shared fetch helper.
+// Drag-and-drop a directory: the OS gives us a DataTransferItemList of
+// FileSystemEntries (not a flat FileList), so we walk the tree ourselves
+// and synthesize a FileList for `handleFiles`. webkitGetAsEntry is the
+// pre-standard but universally-supported API.
+async function handleDroppedDirs(
+  items: DataTransferItemList,
+  onFiles: (fl: FileList | null) => void | Promise<void>,
+  onError: (msg: string) => void,
+) {
+  try {
+    const all: File[] = []
+    for (let i = 0; i < items.length; i++) {
+      const entry = items[i].webkitGetAsEntry()
+      if (!entry) continue
+      await walkEntry(entry, '', all)
+    }
+    if (all.length === 0) {
+      onError('Dropped folder was empty')
+      return
+    }
+    // Synthesize a FileList-shaped object — DataTransfer is constructable in
+    // modern browsers and lets us hand the same shape `handleFiles` expects.
+    const dt = new DataTransfer()
+    for (const f of all) dt.items.add(f)
+    await onFiles(dt.files)
+  } catch (e) {
+    onError(`Folder read failed: ${(e as Error).message}`)
+  }
+}
+
+type FsEntry = FileSystemEntry & {
+  file?: (cb: (f: File) => void, err?: (e: unknown) => void) => void
+  createReader?: () => { readEntries: (cb: (entries: FsEntry[]) => void) => void }
+}
+
+async function walkEntry(entry: FsEntry, prefix: string, out: File[]): Promise<void> {
+  if (entry.isFile && entry.file) {
+    const file = await new Promise<File>((res, rej) => entry.file!(res, rej))
+    // Attach the relative path the same way <input webkitdirectory> would,
+    // so the zipping step sees a consistent shape regardless of input mode.
+    Object.defineProperty(file, 'webkitRelativePath', {
+      value: prefix + file.name,
+      configurable: true,
+    })
+    out.push(file)
+  } else if (entry.isDirectory && entry.createReader) {
+    const reader = entry.createReader()
+    // readEntries returns at most ~100 entries per call; loop until empty.
+    let batch: FsEntry[]
+    do {
+      batch = await new Promise<FsEntry[]>((res) => reader.readEntries(res))
+      for (const e of batch) await walkEntry(e, prefix + entry.name + '/', out)
+    } while (batch.length > 0)
+  }
+}
+
+// XHR-based multipart upload. fetch can't report upload progress, so we
+// keep XHR for the dropzone path and let everything else use the shared
+// fetch helper.
 function uploadWithProgress(
   url: string,
   file: File,

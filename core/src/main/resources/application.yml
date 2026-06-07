@@ -156,9 +156,11 @@ openapk:
     enabled: ${OPENAPK_SCRIPT_ANALYZER_ENABLED:false}
     lambda-function-name: ${OPENAPK_SCRIPT_ANALYZER_FUNCTION:openapk-script-worker-js}
     region: ${OPENAPK_SCRIPT_ANALYZER_REGION:us-east-1}
-    # Hard cap on the uploaded NPM tarball. Real packages are usually <2MB;
-    # anything over 10MB is either vendored binaries or DoS attempt.
-    max-upload-bytes: ${OPENAPK_SCRIPT_ANALYZER_MAX_UPLOAD:10485760}
+    # Hard cap on the upload (tarball, zip, single .js, or client-zipped
+    # folder). Real malicious packages are tiny — <2MB — but unpacked
+    # monorepos can spill over 10MB once you include test fixtures, so 25MB
+    # is the sweet spot between "fits a real audit" and "obvious DoS".
+    max-upload-bytes: ${OPENAPK_SCRIPT_ANALYZER_MAX_UPLOAD:26214400}
     # Wall-clock cap on a sync Lambda invoke. Must exceed the Lambda's own
     # timeout (60s default) so we don't disconnect a still-working run.
     invoke-timeout: ${OPENAPK_SCRIPT_ANALYZER_TIMEOUT:PT90S}
