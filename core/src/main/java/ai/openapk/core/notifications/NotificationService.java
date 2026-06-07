@@ -5,6 +5,7 @@ import ai.openapk.core.notifications.dto.EmailPrefsResponse;
 import ai.openapk.core.notifications.dto.UpdateEmailPrefsRequest;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectKind;
+import ai.openapk.core.projects.ProjectRole;
 import ai.openapk.core.reports.EmailService;
 import ai.openapk.core.reports.ProjectReport;
 import org.slf4j.Logger;
@@ -77,6 +78,79 @@ public class NotificationService {
                 email.sendAbuseReportConfirmation(reporterEmail, reportId, reportTitle));
     }
 
+    /**
+     * "X started following you." Skipped if {@code follower == followee}
+     * (defense in depth — the DB CHECK already prevents this, but it's
+     * cheap to short-circuit here too).
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void notifyNewFollower(User followee, User follower) {
+        if (followee == null || follower == null) return;
+        if (followee.getId().equals(follower.getId())) return;
+        if (!hasEmail(followee)) return;
+        if (!getOrDefault(followee.getId()).isNotifyNewFollower()) return;
+        safeSend("new-follower", () ->
+                email.sendNewFollower(followee.getEmail(),
+                        displayNameFor(follower),
+                        follower.getId()));
+    }
+
+    /**
+     * "X commented on your report." Caller is responsible for ensuring the
+     * commenter isn't the report author (no self-ping); we still guard
+     * here so a future caller can't accidentally bypass it.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void notifyCommentOnMyReport(User reportAuthor, User commenter, ProjectReport report) {
+        if (reportAuthor == null || commenter == null || report == null) return;
+        if (reportAuthor.getId().equals(commenter.getId())) return;
+        if (!hasEmail(reportAuthor)) return;
+        if (!getOrDefault(reportAuthor.getId()).isNotifyCommentOnMyReport()) return;
+        safeSend("comment-on-my-report", () ->
+                email.sendCommentOnMyReport(reportAuthor.getEmail(),
+                        displayNameFor(commenter),
+                        report.getTitle(),
+                        report.getId()));
+    }
+
+    /**
+     * "X replied to your comment on report Y." The caller verifies the
+     * recipient isn't the replier or the report author (the latter would
+     * already get the comment-on-my-report notify).
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void notifyReplyToMyComment(User parentAuthor, User replier, ProjectReport report) {
+        if (parentAuthor == null || replier == null || report == null) return;
+        if (parentAuthor.getId().equals(replier.getId())) return;
+        if (!hasEmail(parentAuthor)) return;
+        if (!getOrDefault(parentAuthor.getId()).isNotifyReplyToMyComment()) return;
+        safeSend("reply-to-my-comment", () ->
+                email.sendReplyToMyComment(parentAuthor.getEmail(),
+                        displayNameFor(replier),
+                        report.getTitle(),
+                        report.getId()));
+    }
+
+    /**
+     * "X invited you to collaborate on project Y as VIEWER/EDITOR." Fires
+     * from {@link ai.openapk.core.projects.ProjectCollaboratorService#add}
+     * after the row is persisted.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void notifyCollaboratorInvite(User invitee, User inviter, Project project, ProjectRole role) {
+        if (invitee == null || inviter == null || project == null || role == null) return;
+        if (invitee.getId().equals(inviter.getId())) return;
+        if (!hasEmail(invitee)) return;
+        if (!getOrDefault(invitee.getId()).isNotifyCollaboratorInvite()) return;
+        safeSend("collaborator-invite", () ->
+                email.sendCollaboratorInvite(invitee.getEmail(),
+                        displayNameFor(inviter),
+                        project.getName(),
+                        project.getKind(),
+                        project.getId(),
+                        role.name()));
+    }
+
     // ----------------------------------------------------------------------
     // Settings API (GET + PATCH)
     // ----------------------------------------------------------------------
@@ -96,6 +170,10 @@ public class NotificationService {
         if (req.notifyDecompileComplete() != null) p.setNotifyDecompileComplete(req.notifyDecompileComplete());
         if (req.notifyReportPublished()   != null) p.setNotifyReportPublished(req.notifyReportPublished());
         if (req.notifyAbuseConfirmation() != null) p.setNotifyAbuseConfirmation(req.notifyAbuseConfirmation());
+        if (req.notifyNewFollower()       != null) p.setNotifyNewFollower(req.notifyNewFollower());
+        if (req.notifyCommentOnMyReport() != null) p.setNotifyCommentOnMyReport(req.notifyCommentOnMyReport());
+        if (req.notifyReplyToMyComment()  != null) p.setNotifyReplyToMyComment(req.notifyReplyToMyComment());
+        if (req.notifyCollaboratorInvite()!= null) p.setNotifyCollaboratorInvite(req.notifyCollaboratorInvite());
         prefsRepo.save(p);
         return EmailPrefsResponse.from(p);
     }
@@ -113,11 +191,28 @@ public class NotificationService {
         p.setNotifyDecompileComplete(true);
         p.setNotifyReportPublished(true);
         p.setNotifyAbuseConfirmation(true);
+        p.setNotifyNewFollower(true);
+        p.setNotifyCommentOnMyReport(true);
+        p.setNotifyReplyToMyComment(true);
+        p.setNotifyCollaboratorInvite(true);
         return p;
     }
 
     private boolean hasEmail(User user) {
         return user.getEmail() != null && !user.getEmail().isBlank();
+    }
+
+    /**
+     * What to call the *actor* in email subject lines (the person who
+     * followed / commented / invited). Explicit display name wins, else
+     * the local part of their email, else a generic fallback.
+     */
+    private static String displayNameFor(User u) {
+        if (u == null) return "Someone";
+        if (u.getDisplayName() != null && !u.getDisplayName().isBlank()) return u.getDisplayName();
+        String e = u.getEmail();
+        if (e != null && e.contains("@")) return e.substring(0, e.indexOf('@'));
+        return "Someone";
     }
 
     private void safeSend(String label, Runnable r) {

@@ -6,7 +6,9 @@ import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.reports.dto.AbuseReportRequest;
 import ai.openapk.core.reports.dto.CommunityReportDetail;
 import ai.openapk.core.reports.dto.CommunityReportSummary;
+import ai.openapk.core.social.CommentsService;
 import ai.openapk.core.social.SocialService;
+import ai.openapk.core.social.dto.CommentResponse;
 import ai.openapk.core.social.dto.ProfileResponse;
 import jakarta.validation.Valid;
 import org.springframework.core.io.FileSystemResource;
@@ -44,12 +46,14 @@ public class CommunityController {
 
     private final CommunityService service;
     private final SocialService social;
+    private final CommentsService comments;
     private final CurrentUserService currentUser;
 
     public CommunityController(CommunityService service, SocialService social,
-                               CurrentUserService currentUser) {
+                               CommentsService comments, CurrentUserService currentUser) {
         this.service = service;
         this.social = social;
+        this.comments = comments;
         this.currentUser = currentUser;
     }
 
@@ -112,6 +116,18 @@ public class CommunityController {
     @GetMapping("/reports/{id}")
     public CommunityReportDetail read(@PathVariable("id") UUID id) {
         return service.read(id);
+    }
+
+    /**
+     * Thread of comments on a community-published report. Anonymous-readable
+     * with opportunistic personalization — the {@code mine} flag on each
+     * comment is true only when the caller authenticated as that comment's
+     * author. Posting + deleting comments lives on {@code /api/social/...}
+     * since those operations require auth.
+     */
+    @GetMapping("/reports/{id}/comments")
+    public List<CommentResponse> reportComments(@PathVariable("id") UUID id) {
+        return comments.list(id, currentUser.currentOrNull());
     }
 
     /**

@@ -10,19 +10,27 @@ import ai.openapk.core.notifications.UserEmailPrefs;
 public record EmailPrefsResponse(
         boolean notifyDecompileComplete,
         boolean notifyReportPublished,
-        boolean notifyAbuseConfirmation
+        boolean notifyAbuseConfirmation,
+        boolean notifyNewFollower,
+        boolean notifyCommentOnMyReport,
+        boolean notifyReplyToMyComment,
+        boolean notifyCollaboratorInvite
 ) {
     public static EmailPrefsResponse from(UserEmailPrefs p) {
         if (p == null) return defaults();
         return new EmailPrefsResponse(
                 p.isNotifyDecompileComplete(),
                 p.isNotifyReportPublished(),
-                p.isNotifyAbuseConfirmation()
+                p.isNotifyAbuseConfirmation(),
+                p.isNotifyNewFollower(),
+                p.isNotifyCommentOnMyReport(),
+                p.isNotifyReplyToMyComment(),
+                p.isNotifyCollaboratorInvite()
         );
     }
 
     /** Defaults applied when no row exists yet for this user. */
     public static EmailPrefsResponse defaults() {
-        return new EmailPrefsResponse(true, true, true);
+        return new EmailPrefsResponse(true, true, true, true, true, true, true);
     }
 }

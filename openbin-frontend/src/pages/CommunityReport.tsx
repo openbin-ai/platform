@@ -7,6 +7,7 @@ import type { CommunityReportDetail } from '@shared/api/community'
 import { Gravatar } from '@shared/components/Gravatar'
 import { UpvoteButton } from '@shared/components/UpvoteButton'
 import { FollowButton } from '@shared/components/FollowButton'
+import { CommentsThread } from '@shared/components/CommentsThread'
 
 // Anonymous public report view for openbin-frontend. Identical shape to
 // the openapk version; only the chrome (OPENBIN/amber) differs.
@@ -131,6 +132,8 @@ export function CommunityReport() {
               </div>
             </section>
           ))}
+
+          <CommentsThread reportId={report.reportId} accent="amber" />
         </article>
       </main>
       <PublicFooter />

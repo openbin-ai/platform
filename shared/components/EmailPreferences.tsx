@@ -10,6 +10,10 @@ type EmailPrefs = {
   notifyDecompileComplete: boolean
   notifyReportPublished: boolean
   notifyAbuseConfirmation: boolean
+  notifyNewFollower: boolean
+  notifyCommentOnMyReport: boolean
+  notifyReplyToMyComment: boolean
+  notifyCollaboratorInvite: boolean
 }
 
 type Accent = 'purple' | 'amber'
@@ -114,6 +118,34 @@ export function EmailPreferences({ accent = 'purple' }: { accent?: Accent }) {
             sub="Confirmation receipt — only sent if you supplied an email at report time."
             checked={prefs.notifyAbuseConfirmation}
             onChange={(v) => toggle('notifyAbuseConfirmation', v)}
+            accentChecks={accentChecks}
+          />
+          <EmailToggle
+            label="When someone follows you"
+            sub="A short note with a link to their profile so you can follow back."
+            checked={prefs.notifyNewFollower}
+            onChange={(v) => toggle('notifyNewFollower', v)}
+            accentChecks={accentChecks}
+          />
+          <EmailToggle
+            label="When someone comments on your report"
+            sub="A heads-up so you can join the discussion on your published research."
+            checked={prefs.notifyCommentOnMyReport}
+            onChange={(v) => toggle('notifyCommentOnMyReport', v)}
+            accentChecks={accentChecks}
+          />
+          <EmailToggle
+            label="When someone replies to your comment"
+            sub="Only fires when the reply is directly to one of your own comments."
+            checked={prefs.notifyReplyToMyComment}
+            onChange={(v) => toggle('notifyReplyToMyComment', v)}
+            accentChecks={accentChecks}
+          />
+          <EmailToggle
+            label="When someone invites you to a project"
+            sub="A project owner added you as a viewer or editor on their project."
+            checked={prefs.notifyCollaboratorInvite}
+            onChange={(v) => toggle('notifyCollaboratorInvite', v)}
             accentChecks={accentChecks}
           />
         </div>

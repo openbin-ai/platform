@@ -163,6 +163,105 @@ public class EmailService {
     }
 
     /**
+     * "X started following you." Links to the follower's public profile
+     * so the recipient can decide whether to follow back. Profile URLs
+     * live on openapk.ai (the APK product is the primary surface for
+     * researcher profiles); a future per-product fork can pass {@code kind}
+     * if the profile pages diverge.
+     */
+    public void sendNewFollower(String toAddress, String followerName, UUID followerId) {
+        if (!isConfigured()) {
+            log.info("[email] new-follower SKIPPED (no SES config) to={} follower={}", toAddress, followerId);
+            return;
+        }
+        String url = "https://openapk.ai/u/" + followerId;
+        String subject = followerName + " started following you";
+        String body = """
+                %s is now following your community research on OpenBin.
+
+                See their profile: %s
+
+                Turn off follower notifications in Settings → Email preferences.
+                """.formatted(safe(followerName, 100), url);
+        sendTransactional(toAddress, subject, body, "new-follower follower=" + followerId);
+    }
+
+    /**
+     * "X commented on your report." Deep-links to the public report page
+     * so the recipient sees the comment in context. The comment body itself
+     * isn't included — replies can be long and we'd rather the user click
+     * through to the threaded view than read a wall of text in their inbox.
+     */
+    public void sendCommentOnMyReport(String toAddress, String commenterName, String reportTitle, UUID reportId) {
+        if (!isConfigured()) {
+            log.info("[email] comment-on-report SKIPPED (no SES config) to={} report={}", toAddress, reportId);
+            return;
+        }
+        String url = "https://openbin.ai/community/reports/" + reportId;
+        String subject = commenterName + " commented on " + safe(reportTitle, 80);
+        String body = """
+                %s left a comment on your community report.
+
+                Report: %s
+                Read it here: %s
+
+                Turn off comment notifications in Settings → Email preferences.
+                """.formatted(safe(commenterName, 100), safe(reportTitle, 200), url);
+        sendTransactional(toAddress, subject, body, "comment-on-report report=" + reportId);
+    }
+
+    /**
+     * "X replied to your comment on report Y." Same deep link as the
+     * comment-on-report notify because Patternfly-style comment threads
+     * are rendered inline on the report page; we don't anchor to the
+     * specific comment id (would require a fragment in the URL and the
+     * frontend doesn't auto-scroll yet).
+     */
+    public void sendReplyToMyComment(String toAddress, String replierName, String reportTitle, UUID reportId) {
+        if (!isConfigured()) {
+            log.info("[email] reply-to-comment SKIPPED (no SES config) to={} report={}", toAddress, reportId);
+            return;
+        }
+        String url = "https://openbin.ai/community/reports/" + reportId;
+        String subject = replierName + " replied to your comment";
+        String body = """
+                %s replied to your comment on a community report.
+
+                Report: %s
+                See the reply: %s
+
+                Turn off reply notifications in Settings → Email preferences.
+                """.formatted(safe(replierName, 100), safe(reportTitle, 200), url);
+        sendTransactional(toAddress, subject, body, "reply-to-comment report=" + reportId);
+    }
+
+    /**
+     * "X invited you to collaborate on project Y as VIEWER/EDITOR." Routes
+     * to the right product surface by project kind — APK projects open on
+     * openapk.ai, BIN on app.openbin.ai. Both products share the auth
+     * realm so a single sign-in lets the invitee land on either.
+     */
+    public void sendCollaboratorInvite(String toAddress, String inviterName, String projectName,
+                                       ProjectKind kind, UUID projectId, String role) {
+        if (!isConfigured()) {
+            log.info("[email] collaborator-invite SKIPPED (no SES config) to={} project={}", toAddress, projectId);
+            return;
+        }
+        String url = projectUrlFor(kind, projectId);
+        String roleLabel = "EDITOR".equals(role) ? "an editor" : "a viewer";
+        String subject = inviterName + " invited you to " + safe(projectName, 80);
+        String body = """
+                %s added you to a project as %s on OpenBin.
+
+                Project: %s
+                Open it: %s
+
+                Turn off invite notifications in Settings → Email preferences.
+                """.formatted(safe(inviterName, 100), roleLabel, safe(projectName, 200), url);
+        sendTransactional(toAddress, subject, body, "collaborator-invite project=" + projectId);
+    }
+
+    /**
      * Shared sendEmail wrapper used by every transactional path. From/region
      * come from {@code openapk.email.abuseFrom} for now — there's no
      * separate "noreply" identity in SES yet; revisit when we verify a

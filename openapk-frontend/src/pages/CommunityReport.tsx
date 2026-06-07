@@ -7,6 +7,7 @@ import type { CommunityReportDetail } from '@shared/api/community'
 import { Gravatar } from '@shared/components/Gravatar'
 import { UpvoteButton } from '@shared/components/UpvoteButton'
 import { FollowButton } from '@shared/components/FollowButton'
+import { CommentsThread } from '@shared/components/CommentsThread'
 import iconUrl from '../assets/icon.png'
 
 // Anonymous, read-only view of a single community report. Same shape as
@@ -148,6 +149,8 @@ export function CommunityReport() {
               </div>
             </section>
           ))}
+
+          <CommentsThread reportId={report.reportId} accent="purple" />
         </article>
       </main>
       <PublicFooter />

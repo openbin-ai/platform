@@ -49,6 +49,18 @@ public class UserEmailPrefs {
     @Column(name = "notify_abuse_confirmation", nullable = false)
     private boolean notifyAbuseConfirmation = true;
 
+    @Column(name = "notify_new_follower", nullable = false)
+    private boolean notifyNewFollower = true;
+
+    @Column(name = "notify_comment_on_my_report", nullable = false)
+    private boolean notifyCommentOnMyReport = true;
+
+    @Column(name = "notify_reply_to_my_comment", nullable = false)
+    private boolean notifyReplyToMyComment = true;
+
+    @Column(name = "notify_collaborator_invite", nullable = false)
+    private boolean notifyCollaboratorInvite = true;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

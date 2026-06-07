@@ -2,6 +2,7 @@ package ai.openapk.core.social;
 
 import ai.openapk.core.auth.User;
 import ai.openapk.core.auth.UserRepository;
+import ai.openapk.core.notifications.NotificationService;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.reports.CommunityService;
 import ai.openapk.core.reports.ProjectReport;
@@ -47,15 +48,18 @@ public class SocialService {
     private final UserRepository userRepo;
     private final ProjectReportRepository reportRepo;
     private final CommunityService communityService;
+    private final NotificationService notifications;
 
     public SocialService(FollowRepository followRepo, ReportVoteRepository voteRepo,
                          UserRepository userRepo, ProjectReportRepository reportRepo,
-                         CommunityService communityService) {
+                         CommunityService communityService,
+                         NotificationService notifications) {
         this.followRepo = followRepo;
         this.voteRepo = voteRepo;
         this.userRepo = userRepo;
         this.reportRepo = reportRepo;
         this.communityService = communityService;
+        this.notifications = notifications;
     }
 
     // ─── follows ────────────────────────────────────────────────────────
@@ -73,10 +77,10 @@ public class SocialService {
             // clearer error than the generic constraint-violation 500.
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "cannot follow yourself");
         }
-        userRepo.findById(followeeId).orElseThrow(() ->
+        User followee = userRepo.findById(followeeId).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "user not found"));
 
-        em.createNativeQuery("""
+        int inserted = em.createNativeQuery("""
                 INSERT INTO follows (follower_id, followee_id, created_at)
                 VALUES (:follower, :followee, NOW())
                 ON CONFLICT (follower_id, followee_id) DO NOTHING
@@ -84,6 +88,14 @@ public class SocialService {
                 .setParameter("follower", follower.getId())
                 .setParameter("followee", followeeId)
                 .executeUpdate();
+
+        // Only notify on a fresh follow — repeat POSTs from a flaky client
+        // (or a double-tap) shouldn't spam the followee's inbox. The
+        // ON CONFLICT path returns 0 affected rows; the new-row path
+        // returns 1.
+        if (inserted > 0) {
+            notifications.notifyNewFollower(followee, follower);
+        }
 
         return new ToggleResponse(true, followRepo.countByFolloweeId(followeeId));
     }

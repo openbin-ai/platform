@@ -8,5 +8,9 @@ package ai.openapk.core.notifications.dto;
 public record UpdateEmailPrefsRequest(
         Boolean notifyDecompileComplete,
         Boolean notifyReportPublished,
-        Boolean notifyAbuseConfirmation
+        Boolean notifyAbuseConfirmation,
+        Boolean notifyNewFollower,
+        Boolean notifyCommentOnMyReport,
+        Boolean notifyReplyToMyComment,
+        Boolean notifyCollaboratorInvite
 ) {}

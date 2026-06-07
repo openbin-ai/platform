@@ -2,6 +2,7 @@ package ai.openapk.core.projects;
 
 import ai.openapk.core.auth.User;
 import ai.openapk.core.auth.UserRepository;
+import ai.openapk.core.notifications.NotificationService;
 import ai.openapk.core.projects.dto.AddCollaboratorRequest;
 import ai.openapk.core.projects.dto.CollaboratorResponse;
 import org.slf4j.Logger;
@@ -35,15 +36,18 @@ public class ProjectCollaboratorService {
     private final ProjectAccessGuard guard;
     private final ProjectCollaboratorRepository collabRepo;
     private final UserRepository userRepo;
+    private final NotificationService notifications;
 
     public ProjectCollaboratorService(
             ProjectAccessGuard guard,
             ProjectCollaboratorRepository collabRepo,
-            UserRepository userRepo
+            UserRepository userRepo,
+            NotificationService notifications
     ) {
         this.guard = guard;
         this.collabRepo = collabRepo;
         this.userRepo = userRepo;
+        this.notifications = notifications;
     }
 
     /** Owner + collaborators see the roster. */
@@ -96,6 +100,13 @@ public class ProjectCollaboratorService {
         collabRepo.save(row);
         log.info("collab {} project={} user={} role={} by={}",
                 isNew ? "added" : "updated", projectId, invitee.getId(), req.role(), caller.getId());
+
+        // Only email on a *fresh* invite. Updating an existing collaborator's
+        // role (e.g. promoting VIEWER → EDITOR) shouldn't re-spam them; the
+        // share-modal UI surfaces the new role inline.
+        if (isNew) {
+            notifications.notifyCollaboratorInvite(invitee, caller, project, req.role());
+        }
         return new CollaboratorResponse(
                 invitee.getId(), invitee.getEmail(), invitee.getDisplayName(),
                 row.getRole(), row.getCreatedAt(), row.getInvitedBy().getId());

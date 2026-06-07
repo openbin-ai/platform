@@ -3,13 +3,19 @@ package ai.openapk.core.social;
 import ai.openapk.core.auth.CurrentUserService;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.reports.dto.CommunityReportSummary;
+import ai.openapk.core.social.dto.CommentResponse;
+import ai.openapk.core.social.dto.CreateCommentRequest;
 import ai.openapk.core.social.dto.ToggleResponse;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -30,10 +36,13 @@ import java.util.UUID;
 public class SocialController {
 
     private final SocialService social;
+    private final CommentsService comments;
     private final CurrentUserService currentUser;
 
-    public SocialController(SocialService social, CurrentUserService currentUser) {
+    public SocialController(SocialService social, CommentsService comments,
+                            CurrentUserService currentUser) {
         this.social = social;
+        this.comments = comments;
         this.currentUser = currentUser;
     }
 
@@ -77,5 +86,29 @@ public class SocialController {
     ) {
         ProjectKind kind = ProjectKind.valueOf(kindStr.toUpperCase(java.util.Locale.ROOT));
         return social.personalFeed(currentUser.current(), kind, page, size);
+    }
+
+    // ─── comments ───────────────────────────────────────────────────────
+
+    /**
+     * Create a comment on a community-published report. Authenticated only;
+     * the GET endpoint for reading the thread is on
+     * {@link ai.openapk.core.reports.CommunityController} since reads are
+     * anonymous. Body is { reportId, parentCommentId?, body }.
+     */
+    @PostMapping("/comments")
+    public CommentResponse postComment(@Valid @RequestBody CreateCommentRequest req) {
+        return comments.create(currentUser.current(), req);
+    }
+
+    /**
+     * Soft-delete a comment. Only the comment's author can delete it; any
+     * other caller gets 404 (no existence leak). The row stays so reply
+     * chains remain visually intact, with body shown as "[deleted]".
+     */
+    @DeleteMapping("/comments/{commentId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteComment(@PathVariable("commentId") UUID commentId) {
+        comments.softDelete(currentUser.current(), commentId);
     }
 }
