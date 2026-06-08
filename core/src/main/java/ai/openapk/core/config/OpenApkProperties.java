@@ -143,6 +143,7 @@ public record OpenApkProperties(
             Boolean enabled,
             String lambdaFunctionName,
             String pypiLambdaFunctionName,
+            String shellLambdaFunctionName,
             String region,
             Long maxUploadBytes,
             Duration invokeTimeout

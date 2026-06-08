@@ -49,6 +49,12 @@ public class ScriptEcosystemDetector {
         if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".cjs") || lower.endsWith(".ts")) {
             return ScriptEcosystem.NPM;
         }
+        // Shell scripts — no archive sniffing needed for these. PowerShell
+        // .ps1/.psm1 + POSIX .sh/.bash/.zsh all route to shell-worker.
+        if (lower.endsWith(".ps1") || lower.endsWith(".psm1") ||
+                lower.endsWith(".sh") || lower.endsWith(".bash") || lower.endsWith(".zsh")) {
+            return ScriptEcosystem.SHELL;
+        }
 
         try {
             byte[] magic;

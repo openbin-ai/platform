@@ -151,10 +151,14 @@ public class ScriptAnalysisService {
                         "failed to upload to S3: " + e.getMessage());
             }
 
+            // shell-worker uses originalName to preserve the extension when
+            // the single-file path renames to a generic input.tgz S3 key.
+            // The npm + pypi workers ignore the field, so always send it.
             Map<String, Object> event = Map.of(
                     "s3Bucket", s3Config.bucket(),
                     "s3InputKey", inputKey,
-                    "projectId", projectId.toString()
+                    "projectId", projectId.toString(),
+                    "originalName", filename
             );
             log.info("invoking {} ({}) for project={}", functionName, ecosystem, projectId);
             byte[] respBytes;
@@ -323,6 +327,7 @@ public class ScriptAnalysisService {
         return switch (ecosystem) {
             case NPM -> cfg.lambdaFunctionName();
             case PYPI -> cfg.pypiLambdaFunctionName();
+            case SHELL -> cfg.shellLambdaFunctionName();
         };
     }
 

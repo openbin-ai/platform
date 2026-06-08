@@ -14,7 +14,7 @@ export type ScriptFindingsResponse = {
   findings: ScriptFinding[]
 }
 
-export type ScriptEcosystem = 'npm' | 'pypi'
+export type ScriptEcosystem = 'npm' | 'pypi' | 'shell'
 
 export type ScriptFindingsSummary = {
   fileCount: number

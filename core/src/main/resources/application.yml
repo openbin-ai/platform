@@ -167,6 +167,10 @@ openapk:
     # the archive contains setup.py / pyproject.toml / PKG-INFO / a wheel
     # dist-info dir.
     pypi-lambda-function-name: ${OPENAPK_PYPI_ANALYZER_FUNCTION:openapk-pypi-worker}
+    # JS-3: loose-shell worker (Python 3.12 Lambda image, regex-based).
+    # Routed to by extension: .ps1 / .psm1 / .sh / .bash / .zsh. No archive
+    # sniffing needed — shell uploads are always single-file or a flat zip.
+    shell-lambda-function-name: ${OPENAPK_SHELL_ANALYZER_FUNCTION:openapk-shell-worker}
     region: ${OPENAPK_SCRIPT_ANALYZER_REGION:us-east-1}
     # Hard cap on the upload (tarball, zip, single .js, or client-zipped
     # folder). Real malicious packages are tiny — <2MB — but unpacked

@@ -364,13 +364,16 @@ function TabBtn({
   )
 }
 
-function EcosystemBadge({ ecosystem }: { ecosystem?: 'npm' | 'pypi' }) {
+function EcosystemBadge({ ecosystem }: { ecosystem?: 'npm' | 'pypi' | 'shell' }) {
   // Older findings (pre-JS-2) have no ecosystem field — they were always
   // npm so we render the npm chip when undefined.
   const eco = ecosystem ?? 'npm'
-  const style = eco === 'pypi'
-    ? 'border-sky-700/60 bg-sky-950/40 text-sky-200'
-    : 'border-emerald-700/60 bg-emerald-950/40 text-emerald-200'
+  const style =
+    eco === 'pypi'
+      ? 'border-sky-700/60 bg-sky-950/40 text-sky-200'
+      : eco === 'shell'
+        ? 'border-amber-700/60 bg-amber-950/40 text-amber-200'
+        : 'border-emerald-700/60 bg-emerald-950/40 text-emerald-200'
   return (
     <span className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider ${style}`}>
       {eco}

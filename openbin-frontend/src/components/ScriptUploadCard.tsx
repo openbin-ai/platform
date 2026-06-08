@@ -12,10 +12,10 @@ const MAX_BYTES = 25 * 1024 * 1024
 type Progress = { sent: number; total: number; filename: string } | null
 
 // Accept any of: NPM tarball, PyPI sdist (.tar.gz with setup.py), wheel
-// (.whl, zip-with-METADATA), zip archive, single .js / .py, or a folder
-// (browser packs it into a zip client-side before POST). Spring sniffs
-// the archive contents and routes to the npm-worker or pypi-worker.
-const ACCEPT_FILES = '.tgz,.tar.gz,.zip,.whl,.js,.mjs,.cjs,.py,application/gzip,application/zip,application/javascript,text/javascript,text/x-python'
+// (.whl), zip archive, single .js / .py / .ps1 / .sh, or a folder (browser
+// packs it into a zip client-side before POST). Spring sniffs the archive
+// contents and routes to the npm / pypi / shell worker.
+const ACCEPT_FILES = '.tgz,.tar.gz,.zip,.whl,.js,.mjs,.cjs,.py,.ps1,.psm1,.sh,.bash,.zsh,application/gzip,application/zip,application/javascript,text/javascript,text/x-python,text/x-shellscript'
 
 export function ScriptUploadCard({
   onUploaded,
@@ -132,15 +132,16 @@ export function ScriptUploadCard({
         </span>
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold text-zinc-50">
-            Analyze an npm or PyPI package
+            Analyze an npm / PyPI package or loose shell script
           </h2>
           <p className="mt-1 text-sm leading-relaxed text-zinc-300">
             Drop a <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.tgz</code>,{' '}
             <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.whl</code>,{' '}
             <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.zip</code>,{' '}
-            single <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.js</code>/<code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.py</code>,{' '}
-            or a folder — install hooks, secret-theft patterns, exfil endpoints, and
-            obfuscated payloads are flagged statically. Results back in under a minute.
+            single <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.js</code>/<code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.py</code>/<code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.ps1</code>/<code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.sh</code>,{' '}
+            or a folder — install hooks, drive-by execution, encoded commands, secret
+            theft, exfil endpoints, and persistence writes are flagged statically.
+            Results back in under a minute.
           </p>
 
           {busy ? (

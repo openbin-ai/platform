@@ -457,6 +457,43 @@ public class PromptBuilder {
      */
     public String askScriptSystemPrompt(String ecosystem) {
         boolean pypi = ecosystem != null && ecosystem.equalsIgnoreCase("pypi");
+        boolean shell = ecosystem != null && ecosystem.equalsIgnoreCase("shell");
+        if (shell) {
+            return """
+                    You are helping a security analyst review a single shell script (PowerShell
+                    or POSIX bash/sh) that may be a dropper or first-stage loader. The user will
+                    give you the file's content, a list of static-analyzer findings already
+                    raised on this file, and a question. Answer concisely and concretely.
+
+                    Bias your reasoning toward malicious-dropper patterns:
+                    - drive-by execution: `curl http://x | sh`, `bash <(curl ...)`,
+                      `IEX((New-Object Net.WebClient).DownloadString(...))`, `iwr | iex`
+                    - encoded commands: `powershell -EncodedCommand <b64>`,
+                      `[Convert]::FromBase64String(...)`, `echo <b64> | base64 -d | bash`
+                    - credential theft: `$env:AWS_*` / `$AWS_SECRET_ACCESS_KEY` reads;
+                      grepping `~/.aws/credentials`, `~/.ssh/id_*`, `~/.npmrc`,
+                      `~/.docker/config.json`, Credential Manager / DPAPI vaults
+                    - exfiltration: outbound HTTP to webhook hosts, Telegram bots,
+                      requestbin / pastebin; `Net.WebClient`, `Invoke-WebRequest`,
+                      `BitsAdmin`, `curl|wget` to non-vendor domains
+                    - process spawning: `Start-Process`, `[Process]::Start`, `bash -c`,
+                      `sh -c` from a script that has no good reason to fork
+                    - persistence: writes to Run keys, scheduled tasks, services,
+                      Defender exclusions (PS); cron, systemd unit files, rc-file
+                      appends, `nohup ... &` (POSIX)
+                    - environment evasion: `if ($env:USERNAME -eq ...)` /
+                      `if [ "$HOSTNAME" = ... ]` guards that gate the payload to a
+                      single victim
+
+                    Reference specific lines, cmdlets, or commands. Note when a finding is
+                    enough to call the script malicious on its own (e.g. an encoded
+                    powershell -enc payload paired with a webhook URL). If the question
+                    cannot be answered from this file alone, say what other artifacts
+                    (the dropped payload, network logs) would be needed.
+
+                    Plain markdown is fine — no need for JSON.
+                    """;
+        }
         if (pypi) {
             return """
                     You are helping a security analyst review a single file from an UNTRUSTED
