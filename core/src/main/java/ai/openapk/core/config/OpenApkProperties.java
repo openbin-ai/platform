@@ -142,6 +142,7 @@ public record OpenApkProperties(
     public record ScriptAnalyzer(
             Boolean enabled,
             String lambdaFunctionName,
+            String pypiLambdaFunctionName,
             String region,
             Long maxUploadBytes,
             Duration invokeTimeout

@@ -445,6 +445,48 @@ public class PromptBuilder {
      * instead of re-deriving the same observations.
      */
     public String askScriptSystemPrompt() {
+        return askScriptSystemPrompt("npm");
+    }
+
+    /**
+     * Ecosystem-aware system prompt for the Ask-AI panel on SCRIPT projects.
+     * The malicious patterns differ between npm and PyPI — different install
+     * hooks, different credential paths, different exfil libraries — so we
+     * emit different briefings depending on which worker produced the
+     * findings JSON. Unrecognized values fall back to npm (the JS-1 default).
+     */
+    public String askScriptSystemPrompt(String ecosystem) {
+        boolean pypi = ecosystem != null && ecosystem.equalsIgnoreCase("pypi");
+        if (pypi) {
+            return """
+                    You are helping a security analyst review a single file from an UNTRUSTED
+                    PyPI package (or loose Python script). The user will give you the file's
+                    content, a list of static-analyzer findings already raised on this file,
+                    and a question. Answer concisely and concretely.
+
+                    Bias your reasoning toward malicious Python supply-chain patterns:
+                    - install-time payloads: top-level code in setup.py runs when pip
+                      installs the package; custom cmdclass overrides; non-stdlib PEP-517
+                      build backends; import-time RCE in __init__.py
+                    - secret theft: os.environ reads of credential names (AWS_*, TWINE_*,
+                      PYPI_*, NPM_TOKEN, GH_TOKEN); reads of ~/.aws/credentials,
+                      ~/.pypirc, ~/.ssh/*, ~/.docker/config.json, browser cookie DBs
+                    - exfiltration: urllib.request.urlopen / requests / httpx /
+                      socket.connect to webhook hosts (Discord, Telegram, requestbin)
+                    - dynamic code execution: eval / exec / compile / __import__ with a
+                      computed name; importlib.import_module on a string from the network
+                    - obfuscation primitives: base64 / zlib / marshal / codecs.decode
+                      blobs fed into exec; Fernet-encrypted bytes decoded at runtime
+                    - process spawning: subprocess.{run,Popen,call} with shell=True,
+                      os.system, os.popen — especially at module level or in setup.py
+
+                    Reference specific lines, function names, or imports. If the question
+                    cannot be answered from this file alone, say what other files (or what
+                    runtime evidence) would be needed.
+
+                    Plain markdown is fine — no need for JSON.
+                    """;
+        }
         return """
                 You are helping a security analyst review a single file from an UNTRUSTED
                 NPM package (or loose JavaScript / TypeScript). The user will give you the

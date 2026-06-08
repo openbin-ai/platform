@@ -26,7 +26,10 @@ public record ScriptAnalysisFindings(
             int findingCount,
             Map<String, Integer> countsBySeverity,
             Package pkg,
-            int deobfuscatedFileCount
+            int deobfuscatedFileCount,
+            // "npm" or "pypi" — added in JS-2 when the pypi-worker landed.
+            // Nullable: pre-JS-2 findings JSON has no field; treat as "npm".
+            String ecosystem
     ) {
         // Jackson maps the JSON "package" → this field. Named "pkg" in
         // Java because "package" is a reserved word.

@@ -117,6 +117,7 @@ exports.handler = async (event, context) => {
         countsBySeverity: countsBySeverity(findings),
         package: packageSummary(pkgInfo),
         deobfuscatedFileCount: deobfFiles.length,
+        ecosystem: 'npm',
       },
       findings,
     };

@@ -11,10 +11,11 @@ const MAX_BYTES = 25 * 1024 * 1024
 
 type Progress = { sent: number; total: number; filename: string } | null
 
-// Accept any of: NPM tarball, zip archive, single JS file, or a folder
-// (browser packs it into a zip client-side before POST). The Lambda
-// sniffs magic bytes server-side and dispatches accordingly.
-const ACCEPT_FILES = '.tgz,.tar.gz,.zip,.js,.mjs,.cjs,application/gzip,application/zip,application/javascript,text/javascript'
+// Accept any of: NPM tarball, PyPI sdist (.tar.gz with setup.py), wheel
+// (.whl, zip-with-METADATA), zip archive, single .js / .py, or a folder
+// (browser packs it into a zip client-side before POST). Spring sniffs
+// the archive contents and routes to the npm-worker or pypi-worker.
+const ACCEPT_FILES = '.tgz,.tar.gz,.zip,.whl,.js,.mjs,.cjs,.py,application/gzip,application/zip,application/javascript,text/javascript,text/x-python'
 
 export function ScriptUploadCard({
   onUploaded,
@@ -131,14 +132,15 @@ export function ScriptUploadCard({
         </span>
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold text-zinc-50">
-            Analyze an NPM package or loose script
+            Analyze an npm or PyPI package
           </h2>
           <p className="mt-1 text-sm leading-relaxed text-zinc-300">
             Drop a <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.tgz</code>,{' '}
+            <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.whl</code>,{' '}
             <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.zip</code>,{' '}
-            single <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.js</code>,{' '}
+            single <code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.js</code>/<code className="rounded bg-black/40 px-1 font-mono text-xs text-purple-200">.py</code>,{' '}
             or a folder — install hooks, secret-theft patterns, exfil endpoints, and
-            obfuscator.io payloads are flagged statically. Results back in under a minute.
+            obfuscated payloads are flagged statically. Results back in under a minute.
           </p>
 
           {busy ? (

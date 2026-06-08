@@ -439,6 +439,7 @@ public class AnalysisService {
                 // that apply to this file path — saves the model from
                 // re-deriving observations the analyzer already made.
                 List<ScriptAnalysisFindings.Finding> onFile = java.util.List.of();
+                String ecosystem = "npm";  // default for pre-JS-2 findings
                 boolean truncated = false;
                 String safeContent = fileContent;
                 // 60 KB matches APK askMaxFileBytes; the DTO validator
@@ -458,13 +459,16 @@ public class AnalysisService {
                                         .filter(f -> filePath.equals(f.file()))
                                         .toList();
                             }
+                            if (findings.summary() != null && findings.summary().ecosystem() != null) {
+                                ecosystem = findings.summary().ecosystem();
+                            }
                         } catch (Exception e) {
                             log.warn("failed to load findings for ask-script project={}: {}", projectId, e.toString());
                         }
                     }
                 }
 
-                String systemPrompt = prompts.askScriptSystemPrompt();
+                String systemPrompt = prompts.askScriptSystemPrompt(ecosystem);
                 String userPrompt = prompts.askScriptUserPrompt(
                         filePath, safeContent, deobfuscated, onFile, question, truncated, priorTurns);
                 return new Prep(cred, systemPrompt, userPrompt);

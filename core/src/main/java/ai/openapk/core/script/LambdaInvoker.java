@@ -43,24 +43,22 @@ public class LambdaInvoker {
 
     private final LambdaClient client;
     private final ObjectMapper mapper;
-    private final String functionName;
 
     public LambdaInvoker(LambdaClient scriptWorkerLambdaClient,
-                         ObjectMapper mapper,
-                         OpenApkProperties props) {
+                         ObjectMapper mapper) {
         this.client = scriptWorkerLambdaClient;
         this.mapper = mapper;
-        this.functionName = props.scriptAnalyzer().lambdaFunctionName();
     }
 
     /**
-     * Synchronously invoke the script-worker. Returns the raw JSON bytes
-     * the function returned — callers deserialize into their target type.
+     * Synchronously invoke a Lambda by name. Caller (ScriptAnalysisService)
+     * picks the function name based on the upload's ecosystem so the same
+     * client handles npm + pypi workers without duplicating SDK plumbing.
      *
      * @throws LambdaInvocationException on any worker-side or transport
      *         failure; the original exception is the cause when available.
      */
-    public byte[] invoke(Map<String, Object> event) {
+    public byte[] invoke(String functionName, Map<String, Object> event) {
         byte[] payload;
         try {
             payload = mapper.writeValueAsBytes(event);

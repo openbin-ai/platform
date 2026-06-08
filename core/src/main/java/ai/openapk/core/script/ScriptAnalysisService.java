@@ -61,6 +61,7 @@ public class ScriptAnalysisService {
     private final ProjectRepository projects;
     private final ScriptAnalysisRepository analyses;
     private final LambdaInvoker invoker;
+    private final ScriptEcosystemDetector ecosystemDetector;
     private final S3Client s3;
     private final ObjectMapper mapper;
     private final OpenApkProperties.AnalysisStorage s3Config;
@@ -70,6 +71,7 @@ public class ScriptAnalysisService {
             ProjectRepository projects,
             ScriptAnalysisRepository analyses,
             LambdaInvoker invoker,
+            ScriptEcosystemDetector ecosystemDetector,
             @Qualifier("analysisS3Client") S3Client analysisS3Client,
             ObjectMapper mapper,
             OpenApkProperties props
@@ -77,6 +79,7 @@ public class ScriptAnalysisService {
         this.projects = projects;
         this.analyses = analyses;
         this.invoker = invoker;
+        this.ecosystemDetector = ecosystemDetector;
         this.s3 = analysisS3Client;
         this.mapper = mapper;
         this.s3Config = props.analysisStorage();
@@ -117,9 +120,18 @@ public class ScriptAnalysisService {
         project = projects.saveAndFlush(project);
 
         UUID projectId = project.getId();
+        // Detect BEFORE the S3 upload — MultipartFile.getInputStream() can
+        // be called multiple times (Spring buffers it), but we want to
+        // know which Lambda to target before paying the upload cost.
+        ScriptEcosystem ecosystem = ecosystemDetector.detect(file);
+        String functionName = resolveFunctionName(ecosystem);
+        if (functionName == null || functionName.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "no Lambda configured for ecosystem " + ecosystem);
+        }
         // Key stays {projectId}/input.tgz regardless of actual format —
-        // Lambda sniffs the magic bytes inside. Keeping the extension stable
-        // means the lifecycle policy + reanalyze paths don't need to fork.
+        // each worker sniffs the magic bytes inside. Keeping the extension
+        // stable means the lifecycle policy + reanalyze paths don't fork.
         String inputKey = "scripts/" + projectId + "/input.tgz";
 
         try {
@@ -144,10 +156,10 @@ public class ScriptAnalysisService {
                     "s3InputKey", inputKey,
                     "projectId", projectId.toString()
             );
-            log.info("invoking script-worker for project={}", projectId);
+            log.info("invoking {} ({}) for project={}", functionName, ecosystem, projectId);
             byte[] respBytes;
             try {
-                respBytes = invoker.invoke(event);
+                respBytes = invoker.invoke(functionName, event);
             } catch (LambdaInvoker.LambdaInvocationException e) {
                 // Map common worker errors to actionable HTTP statuses
                 // rather than the generic 500 the unhandled stack would
@@ -299,6 +311,19 @@ public class ScriptAnalysisService {
         if (lower.endsWith(".tgz") || lower.endsWith(".tar.gz")) return "application/gzip";
         if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".cjs")) return "application/javascript";
         return "application/octet-stream";
+    }
+
+    /**
+     * Pick the Lambda function name for a given ecosystem. Both names come
+     * from {@code application.yml}; an unconfigured slot yields {@code null}
+     * which {@link #uploadAndAnalyze} surfaces as a 503 — that's better than
+     * a generic 500 when the prod env is missing a config key.
+     */
+    private String resolveFunctionName(ScriptEcosystem ecosystem) {
+        return switch (ecosystem) {
+            case NPM -> cfg.lambdaFunctionName();
+            case PYPI -> cfg.pypiLambdaFunctionName();
+        };
     }
 
     /** Tiny inner record matching the worker's return shape. */

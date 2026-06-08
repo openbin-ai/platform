@@ -14,6 +14,8 @@ export type ScriptFindingsResponse = {
   findings: ScriptFinding[]
 }
 
+export type ScriptEcosystem = 'npm' | 'pypi'
+
 export type ScriptFindingsSummary = {
   fileCount: number
   tarballEntryCount: number
@@ -24,6 +26,9 @@ export type ScriptFindingsSummary = {
   // TS but not in Java, hence the asymmetry.
   package: ScriptPackageInfo
   deobfuscatedFileCount: number
+  // Added in JS-2 (pypi-worker). Optional because findings persisted
+  // before the field existed default to undefined; treat undefined as 'npm'.
+  ecosystem?: ScriptEcosystem
 }
 
 export type ScriptPackageInfo = {

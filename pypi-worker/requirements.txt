@@ -1,0 +1,5 @@
+# Lambda Python base ships boto3 + botocore preinstalled. tomllib is
+# stdlib in 3.11+. The analyzer uses only the stdlib `ast` module, so
+# this file stays empty on purpose — keeping it here so the Dockerfile
+# can `pip install -r requirements.txt` once we need a non-stdlib dep
+# (most likely a Python deobfuscator in JS-2.5).
