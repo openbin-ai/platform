@@ -51,6 +51,13 @@ server:
   port: 8081
   tomcat:
     max-swallow-size: 200MB
+  # Spring Boot 4 hides ResponseStatusException reasons from JSON error
+  # bodies by default (server.error.include-message=never), so 4xx responses
+  # only carry status + timestamp + path. We rely on the reason text for
+  # actionable user feedback (encrypted-zip explanation, oversized upload,
+  # etc.) so flip this to ALWAYS. Stacktrace flag stays off — no internals leak.
+  error:
+    include-message: always
 
 openapk:
   crypto:

@@ -316,7 +316,16 @@ function uploadWithProgress(
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve()
       } else {
-        reject(new ApiError(xhr.status, `${xhr.status} ${xhr.statusText}: ${xhr.responseText}`))
+        // Spring's error responses are JSON: { timestamp, status, error,
+        // message, path }. Surface just the `message` field so the error
+        // banner reads as a single human sentence ("This zip is encrypted…")
+        // instead of a raw JSON dump.
+        let detail = xhr.responseText
+        try {
+          const j = JSON.parse(xhr.responseText)
+          if (typeof j?.message === 'string' && j.message.length > 0) detail = j.message
+        } catch { /* not JSON, use raw text */ }
+        reject(new ApiError(xhr.status, detail))
       }
     }
     xhr.onerror = () => reject(new Error('Network error during upload'))

@@ -17,6 +17,32 @@ const { tryDeobfuscate } = require('../src/deobfuscator');
 const { analyzeSource } = require('../src/analyzer');
 
 const ANALYZED_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.ts']);
+// Mirror handler.js — sources past this size go through the regex
+// pre-scan rather than Babel (which chokes on adversarial multi-MB JS).
+const MAX_AST_BYTES = 512 * 1024;
+
+// Subset of the production regex pre-scan, kept in sync with handler.js
+// just enough that the smoke runner reports the same findings shape.
+function regexScan(source, file, deobfFlag) {
+  const findings = [];
+  const push = (rule, severity, message) => findings.push({
+    rule, severity, file, line: 1, column: 0, message,
+    snippet: '', remediation: '', evidence: {}, deobfuscated: deobfFlag,
+  });
+  if (/\beval\s*\(/.test(source)) push('eval-surface', 'HIGH', 'eval() detected via regex pre-scan');
+  if (/\bnew\s+Function\s*\(/.test(source)) push('eval-surface', 'HIGH', 'new Function detected via regex pre-scan');
+  if (/\brequire\s*\(\s*['"]child_process['"]\s*\)/.test(source)) push('spawn', 'HIGH', 'require(child_process) detected via regex pre-scan');
+  if (/\b(spawn|execSync|exec|execFile|fork)\s*\(/.test(source)) push('spawn', 'HIGH', 'child_process call detected via regex pre-scan');
+  const SENS = /process\s*\.\s*env\s*\.\s*(AWS_[A-Z0-9_]*|NPM_TOKEN|GH_TOKEN|GITHUB_TOKEN|DOCKER_[A-Z0-9_]*|NODE_AUTH_TOKEN)/g;
+  let m;
+  const seen = new Set();
+  while ((m = SENS.exec(source))) {
+    if (seen.has(m[1])) continue;
+    seen.add(m[1]);
+    push('secret-theft', 'CRITICAL', `Reads sensitive env var ${m[1]} (regex pre-scan)`);
+  }
+  return findings;
+}
 
 async function main() {
   const tarballPath = process.argv[2];
@@ -36,7 +62,11 @@ async function main() {
     const rel = path.relative(extractDir, file);
     const raw = await fsp.readFile(file, 'utf8');
     const { source, used } = await tryDeobfuscate(raw);
-    findings.push(...analyzeSource(source, rel, used));
+    if (source.length > MAX_AST_BYTES) {
+      findings.push(...regexScan(source, rel, used));
+    } else {
+      findings.push(...analyzeSource(source, rel, used));
+    }
   }
 
   findings.sort((a, b) =>
