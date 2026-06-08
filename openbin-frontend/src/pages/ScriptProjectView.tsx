@@ -642,13 +642,15 @@ function splitShikiLines(shikiHtml: string, plain: string): string[] {
   if (!shikiHtml.includes('class="line"')) {
     return escapeHtml(plain).split('\n').map((l) => l || '&nbsp;')
   }
-  const lines: string[] = []
-  const re = /<span class="line">([\s\S]*?)<\/span>(?:\n)?/g
-  let m
-  while ((m = re.exec(shikiHtml))) {
-    lines.push(m[1] || '&nbsp;')
-  }
-  return lines.length > 0 ? lines : [escapeHtml(plain)]
+  // Shiki's <span class="line"> contains nested syntax-color <span>s, so a
+  // naïve non-greedy regex stops at the first inner </span> and yields just
+  // the first token of each line. Use the browser's HTML parser instead —
+  // it tracks nested tags correctly without us writing a scanner.
+  const wrapper = document.createElement('div')
+  wrapper.innerHTML = shikiHtml
+  const lineEls = wrapper.querySelectorAll('.line')
+  if (lineEls.length === 0) return [escapeHtml(plain)]
+  return Array.from(lineEls).map((el) => el.innerHTML || '&nbsp;')
 }
 
 function escapeHtml(s: string): string {
