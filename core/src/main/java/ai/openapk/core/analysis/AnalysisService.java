@@ -400,6 +400,89 @@ public class AnalysisService {
                 streamCallback(emitter, prep.cred().getId()));
     }
 
+    /**
+     * SCRIPT-only file-level Q&A streaming. File content comes IN-LINE from
+     * the request (the browser already extracted the bundle when rendering
+     * the code viewer; no need for the server to re-download from S3 per
+     * chat turn). Findings on that file are loaded from the persisted
+     * ScriptAnalysis row so the model gets the analyzer's prior
+     * observations as context.
+     */
+    public void streamAskScript(
+            SseEmitter emitter,
+            User user,
+            UUID projectId,
+            String filePath,
+            String fileContent,
+            boolean deobfuscated,
+            String question,
+            UUID credentialId,
+            String model,
+            List<ai.openapk.core.analysis.dto.AskRequest.PriorTurn> priorTurns
+    ) {
+        record Prep(LlmCredential cred, String systemPrompt, String userPrompt) {}
+        Prep prep;
+        try {
+            prep = tx.execute(status -> {
+                Project project = guard.requireRead(user, projectId);
+                if (project.getKind() != ProjectKind.SCRIPT) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "ask-script is SCRIPT-only (project kind=" + project.getKind() + ")");
+                }
+                if (project.getStatus() != ProjectStatus.READY) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT,
+                            "project is not READY (current status: " + project.getStatus() + ")");
+                }
+                LlmCredential cred = loadCredential(user, credentialId);
+
+                // Load the persisted findings JSON and filter to the rows
+                // that apply to this file path — saves the model from
+                // re-deriving observations the analyzer already made.
+                List<ScriptAnalysisFindings.Finding> onFile = java.util.List.of();
+                boolean truncated = false;
+                String safeContent = fileContent;
+                // 60 KB matches APK askMaxFileBytes; the DTO validator
+                // already rejects larger uploads but enforce here too in
+                // case validation is bypassed.
+                if (safeContent != null && safeContent.length() > ASK_MAX_FILE_BYTES) {
+                    safeContent = safeContent.substring(0, ASK_MAX_FILE_BYTES);
+                    truncated = true;
+                }
+                if (scriptAnalyses != null) {
+                    var row = scriptAnalyses.findById(projectId).orElse(null);
+                    if (row != null && row.getFindingsJson() != null) {
+                        try {
+                            var findings = mapper.readValue(row.getFindingsJson(), ScriptAnalysisFindings.class);
+                            if (findings.findings() != null) {
+                                onFile = findings.findings().stream()
+                                        .filter(f -> filePath.equals(f.file()))
+                                        .toList();
+                            }
+                        } catch (Exception e) {
+                            log.warn("failed to load findings for ask-script project={}: {}", projectId, e.toString());
+                        }
+                    }
+                }
+
+                String systemPrompt = prompts.askScriptSystemPrompt();
+                String userPrompt = prompts.askScriptUserPrompt(
+                        filePath, safeContent, deobfuscated, onFile, question, truncated, priorTurns);
+                return new Prep(cred, systemPrompt, userPrompt);
+            });
+        } catch (Exception e) {
+            sendError(emitter, e);
+            return;
+        }
+        if (prep == null) {
+            sendError(emitter, new IllegalStateException("preparation returned null"));
+            return;
+        }
+        streamingInvoker.stream(
+                user, projectId, "ask_script_stream",
+                prep.cred(), prep.systemPrompt(), prep.userPrompt(), ASK_MAX_TOKENS, model,
+                streamCallback(emitter, prep.cred().getId()));
+    }
+
     /** Walk the functions array for an exact name match. Linear scan is fine
      *  — there are at most {@code MAX_FUNCTIONS} (5000) entries. */
     private static JsonNode findFunctionByName(JsonNode functions, String name) {

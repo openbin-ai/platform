@@ -6,6 +6,7 @@ import { SEVERITY_ORDER } from '@shared/api/scripts'
 import { extractTarGz, buildTree, type FileNode, type TarEntry } from '../syntax/untar'
 import { highlightScript } from '../syntax/highlight'
 import { ScriptFindings } from '../components/ScriptFindings'
+import { AskAiPanel } from '../components/AskAiPanel'
 import { ReportEditor } from './Report'
 
 const ORIGINAL_PREFIX = 'original/'
@@ -16,6 +17,9 @@ const DEOBF_PREFIX = 'deobfuscated/'
 const LS_LEFT_OPEN = 'openbin.script.leftOpen'
 const LS_RIGHT_WIDTH = 'openbin.script.rightWidth'
 const LS_FINDINGS_RATIO = 'openbin.script.findingsRatio'
+const LS_BOTTOM_TAB = 'openbin.script.bottomTab'
+
+type BottomTab = 'report' | 'ask'
 
 const LEFT_WIDTH = 260
 const RIGHT_WIDTH_DEFAULT = 420
@@ -65,10 +69,14 @@ export function ScriptProjectView() {
   const [findingsRatio, setFindingsRatio] = useState<number>(() =>
     clamp(readNum(LS_FINDINGS_RATIO, FINDINGS_RATIO_DEFAULT), FINDINGS_RATIO_MIN, FINDINGS_RATIO_MAX),
   )
+  const [bottomTab, setBottomTab] = useState<BottomTab>(() =>
+    (window.localStorage.getItem(LS_BOTTOM_TAB) as BottomTab) || 'ask',
+  )
 
   useEffect(() => { localStorage.setItem(LS_LEFT_OPEN, leftOpen ? '1' : '0') }, [leftOpen])
   useEffect(() => { localStorage.setItem(LS_RIGHT_WIDTH, String(rightWidth)) }, [rightWidth])
   useEffect(() => { localStorage.setItem(LS_FINDINGS_RATIO, String(findingsRatio)) }, [findingsRatio])
+  useEffect(() => { localStorage.setItem(LS_BOTTOM_TAB, bottomTab) }, [bottomTab])
 
   // Data load.
   useEffect(() => {
@@ -305,11 +313,25 @@ export function ScriptProjectView() {
             style={{ flex: `${(1 - findingsRatio) * 100} 0 0` }}
             className="flex min-h-0 flex-col overflow-hidden rounded border border-zinc-800 bg-zinc-900/40"
           >
-            <div className="border-b border-zinc-800 px-3 py-1.5 text-xs uppercase tracking-wide text-zinc-400">
-              Report
+            <div className="flex items-center gap-1 border-b border-zinc-800 px-2 py-1 text-xs">
+              <TabBtn active={bottomTab === 'ask'} onClick={() => setBottomTab('ask')}>Ask AI</TabBtn>
+              <TabBtn active={bottomTab === 'report'} onClick={() => setBottomTab('report')}>Report</TabBtn>
             </div>
-            <div className="min-h-0 flex-1 overflow-auto p-2">
-              <ReportEditor projectId={id} compact />
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {bottomTab === 'ask' ? (
+                <AskAiPanel
+                  projectId={id}
+                  filePath={selectedPath}
+                  fileBytes={selectedPath
+                    ? (sourceMode === 'deobfuscated' ? bundle?.deobfFiles : bundle?.files)?.get(selectedPath)
+                    : undefined}
+                  sourceMode={sourceMode}
+                />
+              ) : (
+                <div className="h-full overflow-auto p-2">
+                  <ReportEditor projectId={id} compact />
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -319,6 +341,27 @@ export function ScriptProjectView() {
 }
 
 // -----------------------------------------------------------------------
+
+function TabBtn({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded px-2 py-0.5 transition ${
+        active ? 'bg-purple-900/50 text-purple-100' : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
 
 function SummaryPills({ counts }: { counts: Partial<Record<Severity, number>> }) {
   return (

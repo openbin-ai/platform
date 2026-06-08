@@ -1,24 +1,33 @@
 package ai.openapk.core.script;
 
+import ai.openapk.core.analysis.AnalysisService;
 import ai.openapk.core.auth.CurrentUserService;
 import ai.openapk.core.projects.analysis.AnalysisStorageService;
 import ai.openapk.core.projects.dto.ProjectResponse;
+import ai.openapk.core.script.dto.AskScriptRequest;
 import ai.openapk.core.script.dto.ScriptAnalysisFindings;
+import jakarta.validation.Valid;
 import tools.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 
 /**
  * Tarball upload endpoint for the malicious-NPM analyzer + the read-back
@@ -36,25 +45,51 @@ public class ScriptAnalysisController {
     private final CurrentUserService currentUser;
     private final ObjectMapper mapper;
     private final AnalysisStorageService storage;
+    private final AnalysisService analysisService;
+    private final Executor aiStreamExecutor;
 
     public ScriptAnalysisController(
             ScriptAnalysisService service,
             ScriptAnalysisRepository analyses,
             CurrentUserService currentUser,
             ObjectMapper mapper,
-            AnalysisStorageService storage
+            AnalysisStorageService storage,
+            AnalysisService analysisService,
+            @Qualifier("aiStreamExecutor") Executor aiStreamExecutor
     ) {
         this.service = service;
         this.analyses = analyses;
         this.currentUser = currentUser;
         this.mapper = mapper;
         this.storage = storage;
+        this.analysisService = analysisService;
+        this.aiStreamExecutor = aiStreamExecutor;
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ProjectResponse upload(@RequestParam("file") MultipartFile file) {
         return service.uploadAndAnalyze(currentUser.current(), file);
+    }
+
+    /**
+     * Per-file SSE Q&A for SCRIPT projects. The browser sends the file's
+     * content (already in memory from the bundle extraction) plus a
+     * question; the server streams the LLM response. Mirrors the BIN
+     * {@code /ask-function/stream} flow.
+     */
+    @PostMapping(value = "/{projectId}/ask/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter askStream(@PathVariable UUID projectId, @Valid @RequestBody AskScriptRequest req) {
+        var user = currentUser.current();
+        if (!service.callerCanRead(user.getId(), projectId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project");
+        }
+        SseEmitter emitter = new SseEmitter(Duration.ofMinutes(5).toMillis());
+        aiStreamExecutor.execute(() -> analysisService.streamAskScript(
+                emitter, user, projectId, req.filePath(), req.fileContent(),
+                req.deobfuscated(), req.question(), req.credentialId(), req.model(), req.priorTurns()
+        ));
+        return emitter;
     }
 
     /**

@@ -436,6 +436,86 @@ public class PromptBuilder {
         return clean.length() > max ? clean.substring(0, max - 1) + "…" : clean;
     }
 
+    /**
+     * Per-file Q&A for SCRIPT (NPM tarball / loose JS) projects. The model
+     * is told it's looking at code from an UNTRUSTED package — bias toward
+     * "spot the malicious patterns" rather than the more neutral framing
+     * the APK ask uses. Findings already produced by the static analyzer
+     * are passed in as additional context so the model can build on them
+     * instead of re-deriving the same observations.
+     */
+    public String askScriptSystemPrompt() {
+        return """
+                You are helping a security analyst review a single file from an UNTRUSTED
+                NPM package (or loose JavaScript / TypeScript). The user will give you the
+                file's content, a list of static-analyzer findings already raised on this
+                file, and a question. Answer concisely and concretely.
+
+                Bias your reasoning toward malicious-supply-chain patterns:
+                - install-time payloads (preinstall / postinstall hooks)
+                - secret theft (process.env reads of credential names, ~/.aws/credentials,
+                  ~/.npmrc, ~/.ssh/*, browser cookie databases)
+                - exfiltration (fetch / http.request / dgram to webhook hosts, Telegram
+                  bots, Discord webhooks, IP-info services)
+                - dynamic code execution (eval, new Function, vm.runIn*, dynamic require)
+                - obfuscation primitives (numeric-array decoders, Caesar / XOR over
+                  charcodes, base64-then-eval, packed obfuscator.io output)
+                - process spawning at install or import time
+
+                If the file was deobfuscated before this conversation (the prompt will
+                say so), treat the decoded payload as authoritative and explain what it
+                actually does. Reference specific lines or function names. If the question
+                cannot be answered from this file alone, say what other files (or what
+                runtime evidence) would be needed.
+
+                Plain markdown is fine — no need for JSON.
+                """;
+    }
+
+    /** User-side prompt for SCRIPT ask. Includes the file content + a compact list of
+     *  on-file findings + the user's question + replay of any prior thread. */
+    public String askScriptUserPrompt(
+            String filePath,
+            String fileContent,
+            boolean deobfuscated,
+            List<ai.openapk.core.script.dto.ScriptAnalysisFindings.Finding> onFileFindings,
+            String question,
+            boolean truncated,
+            List<ai.openapk.core.analysis.dto.AskRequest.PriorTurn> priorTurns
+    ) {
+        var sb = new StringBuilder();
+        sb.append("Current file: ").append(filePath).append("\n");
+        if (deobfuscated) sb.append("(this is the DEOBFUSCATED version — the original was an obfuscated dropper)\n");
+        if (truncated) sb.append("(file was truncated to fit; some content omitted)\n");
+
+        if (onFileFindings != null && !onFileFindings.isEmpty()) {
+            sb.append("\n--- STATIC ANALYZER FINDINGS ON THIS FILE ---\n");
+            for (var f : onFileFindings) {
+                sb.append("- [").append(f.severity()).append("] ").append(f.rule())
+                  .append(" at line ").append(f.line())
+                  .append(": ").append(f.message()).append("\n");
+            }
+            sb.append("--- END FINDINGS ---\n");
+        }
+
+        sb.append("\n--- BEGIN FILE ---\n");
+        sb.append(fileContent);
+        sb.append("\n--- END FILE ---\n\n");
+
+        if (priorTurns != null && !priorTurns.isEmpty()) {
+            sb.append("--- PRIOR CONVERSATION (oldest first) ---\n");
+            for (var t : priorTurns) {
+                sb.append("[").append(t.role().toUpperCase()).append("]\n");
+                sb.append(t.content()).append("\n\n");
+            }
+            sb.append("--- END PRIOR CONVERSATION ---\n\n");
+            sb.append("Follow-up question: ").append(question);
+        } else {
+            sb.append("Question: ").append(question);
+        }
+        return sb.toString();
+    }
+
     public String askSystemPrompt() {
         return """
                 You are helping a security analyst understand a single file from a decompiled

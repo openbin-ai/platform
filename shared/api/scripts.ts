@@ -61,4 +61,16 @@ export const SCRIPT_PATHS = {
   upload: '/api/projects/script',
   findings: (projectId: string) => `/api/projects/script/${projectId}/findings`,
   bundleUrl: (projectId: string) => `/api/projects/script/${projectId}/bundle-url`,
+  askStream: (projectId: string) => `/api/projects/script/${projectId}/ask/stream`,
 } as const
+
+/** Mirrors AskScriptRequest on the backend. */
+export type AskScriptBody = {
+  filePath: string
+  fileContent: string
+  deobfuscated: boolean
+  question: string
+  credentialId: string
+  model?: string
+  priorTurns?: Array<{ role: 'user' | 'assistant'; content: string }>
+}
