@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useApi } from '@shared/api/client'
 import { SCRIPT_PATHS, type ScriptFinding, type ScriptFindingsResponse, type Severity } from '@shared/api/scripts'
@@ -11,26 +11,39 @@ import { ReportEditor } from './Report'
 const ORIGINAL_PREFIX = 'original/'
 const DEOBF_PREFIX = 'deobfuscated/'
 
+// localStorage keys for layout persistence — namespaced under
+// openbin.script so they don't collide with the BIN view's keys.
+const LS_LEFT_OPEN = 'openbin.script.leftOpen'
+const LS_RIGHT_WIDTH = 'openbin.script.rightWidth'
+const LS_FINDINGS_RATIO = 'openbin.script.findingsRatio'
+
+const LEFT_WIDTH = 260
+const RIGHT_WIDTH_DEFAULT = 420
+const RIGHT_WIDTH_MIN = 320
+const RIGHT_WIDTH_MAX = 800
+const FINDINGS_RATIO_DEFAULT = 0.55  // findings takes 55% of the right column by default
+const FINDINGS_RATIO_MIN = 0.15
+const FINDINGS_RATIO_MAX = 0.85
+
 type BundleState = {
   tree: FileNode
-  // Path → bytes for files under original/. Keyed by the post-prefix path.
   files: Map<string, Uint8Array>
-  // Subset of paths that also have a deobfuscated/ counterpart.
   deobfPaths: Set<string>
-  // Path → bytes for files under deobfuscated/.
   deobfFiles: Map<string, Uint8Array>
 }
 
 /**
- * SCRIPT-kind ProjectView. Three columns:
- *   1. File tree from the deobfuscated bundle (original/ side).
- *   2. Code viewer with line numbers + jump-to-line when navigated from
- *      a finding. Toggles between original and deobfuscated when a deobf
- *      counterpart exists.
- *   3. Findings (collapsible by severity) + Report editor.
+ * SCRIPT-kind ProjectView. Edge-to-edge three-pane workspace:
  *
- * The bundle download happens once on mount via a short-TTL CloudFront
- * signed URL; everything else is in-memory.
+ *   [collapsible tree] | [code, flex-1] | [findings | report, drag-split]
+ *
+ * The right column has a drag handle on its left edge for horizontal
+ * resize, and an internal drag handle for the vertical findings/report
+ * split. Both persist to localStorage.
+ *
+ * Code viewer uses a single outer scrollbar with sticky line-number +
+ * gutter columns — no per-line scrollbars (that was the old version's
+ * cardinal UX sin).
  */
 export function ScriptProjectView() {
   const { id = '' } = useParams<{ id: string }>()
@@ -44,7 +57,20 @@ export function ScriptProjectView() {
   const [sourceMode, setSourceMode] = useState<'original' | 'deobfuscated'>('original')
   const [pendingLine, setPendingLine] = useState<number | null>(null)
 
-  // Findings + bundle in parallel.
+  // Layout state — all persisted.
+  const [leftOpen, setLeftOpen] = useState<boolean>(() => readBool(LS_LEFT_OPEN, true))
+  const [rightWidth, setRightWidth] = useState<number>(() =>
+    clamp(readNum(LS_RIGHT_WIDTH, RIGHT_WIDTH_DEFAULT), RIGHT_WIDTH_MIN, RIGHT_WIDTH_MAX),
+  )
+  const [findingsRatio, setFindingsRatio] = useState<number>(() =>
+    clamp(readNum(LS_FINDINGS_RATIO, FINDINGS_RATIO_DEFAULT), FINDINGS_RATIO_MIN, FINDINGS_RATIO_MAX),
+  )
+
+  useEffect(() => { localStorage.setItem(LS_LEFT_OPEN, leftOpen ? '1' : '0') }, [leftOpen])
+  useEffect(() => { localStorage.setItem(LS_RIGHT_WIDTH, String(rightWidth)) }, [rightWidth])
+  useEffect(() => { localStorage.setItem(LS_FINDINGS_RATIO, String(findingsRatio)) }, [findingsRatio])
+
+  // Data load.
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -72,7 +98,6 @@ export function ScriptProjectView() {
     return () => { cancelled = true }
   }, [api, id])
 
-  // Default-select something useful once both loads finish.
   useEffect(() => {
     if (selectedPath || !bundle) return
     const firstFinding = findings?.findings.find((f) => f.file && f.file !== 'package.json')
@@ -81,7 +106,6 @@ export function ScriptProjectView() {
       setPendingLine(firstFinding.line || null)
       return
     }
-    // Otherwise jump to package.json if it's in the bundle, else first file.
     if (bundle.files.has('package.json')) {
       setSelectedPath('package.json')
       return
@@ -90,10 +114,7 @@ export function ScriptProjectView() {
     if (first) setSelectedPath(first)
   }, [bundle, findings, selectedPath])
 
-  // Reset source-mode toggle when switching files.
-  useEffect(() => {
-    setSourceMode('original')
-  }, [selectedPath])
+  useEffect(() => { setSourceMode('original') }, [selectedPath])
 
   const onJump = (f: ScriptFinding) => {
     if (!f.file || !bundle?.files.has(f.file)) return
@@ -103,9 +124,56 @@ export function ScriptProjectView() {
 
   const hasDeobf = selectedPath ? bundle?.deobfPaths.has(selectedPath) ?? false : false
 
+  // Horizontal resize of the right column. Handle sits on the LEFT edge of
+  // the right column; dragging leftward widens it.
+  const startResizeRight = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = rightWidth
+    const onMove = (ev: MouseEvent) => {
+      const dx = startX - ev.clientX
+      setRightWidth(clamp(startW + dx, RIGHT_WIDTH_MIN, RIGHT_WIDTH_MAX))
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [rightWidth])
+
+  // Vertical drag for the findings/report split. Handle is the bar between
+  // them; ratio is findings-height / total-right-column-height. We compute
+  // off the actual measured column height so the drag tracks the cursor.
+  const rightColRef = useRef<HTMLDivElement | null>(null)
+  const startResizeFindings = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const colEl = rightColRef.current
+    if (!colEl) return
+    const colRect = colEl.getBoundingClientRect()
+    const onMove = (ev: MouseEvent) => {
+      const rel = (ev.clientY - colRect.top) / colRect.height
+      setFindingsRatio(clamp(rel, FINDINGS_RATIO_MIN, FINDINGS_RATIO_MAX))
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
+  }, [])
+
   return (
-    <div className="mx-auto flex h-full max-w-[1600px] flex-col gap-3 px-4 py-4">
-      <header className="flex items-center justify-between border-b border-zinc-800 pb-2">
+    <div className="flex h-full flex-col px-2 py-2">
+      <header className="flex items-center justify-between border-b border-zinc-800 px-1 pb-2">
         <div className="flex items-center gap-3">
           <Link to="/projects" className="text-sm text-zinc-400 hover:text-zinc-100">
             ← Projects
@@ -116,38 +184,63 @@ export function ScriptProjectView() {
               <span className="ml-1 text-zinc-500">@{findings.summary.package.version}</span>
             )}
           </h1>
+          {findings && (
+            <SummaryPills counts={findings.summary?.countsBySeverity || {}} />
+          )}
         </div>
       </header>
 
       {error && (
-        <div className="rounded border border-red-900/60 bg-red-950/40 px-4 py-2 text-sm text-red-300">
+        <div className="mx-1 mt-2 rounded border border-red-900/60 bg-red-950/40 px-4 py-2 text-sm text-red-300">
           {error}
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[260px_1fr_400px]">
-        {/* Tree */}
-        <div className="min-h-0 overflow-auto rounded-lg border border-zinc-800 bg-zinc-900/40">
-          <div className="border-b border-zinc-800 px-3 py-2 text-xs uppercase tracking-wide text-zinc-400">
-            Files {bundle && `· ${countFiles(bundle.tree)}`}
+      <div className="mt-2 flex min-h-0 flex-1 gap-2">
+        {/* Left tree (collapsible) */}
+        {leftOpen ? (
+          <div
+            style={{ width: `${LEFT_WIDTH}px` }}
+            className="flex shrink-0 flex-col overflow-hidden rounded border border-zinc-800 bg-zinc-900/40"
+          >
+            <div className="flex items-center justify-between border-b border-zinc-800 px-2 py-1.5 text-xs uppercase tracking-wide text-zinc-400">
+              <span>Files {bundle && `· ${countFiles(bundle.tree)}`}</span>
+              <button
+                onClick={() => setLeftOpen(false)}
+                title="Collapse file tree"
+                className="rounded px-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+              >
+                ‹
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              {loadingBundle ? (
+                <p className="px-3 py-2 text-sm text-zinc-500">Loading bundle…</p>
+              ) : bundle ? (
+                <FileTreeView
+                  node={bundle.tree}
+                  selectedPath={selectedPath}
+                  onSelect={(p) => { setSelectedPath(p); setPendingLine(null) }}
+                  deobfPaths={bundle.deobfPaths}
+                />
+              ) : (
+                <p className="px-3 py-2 text-sm text-zinc-500">No bundle.</p>
+              )}
+            </div>
           </div>
-          {loadingBundle ? (
-            <p className="px-3 py-2 text-sm text-zinc-500">Loading bundle…</p>
-          ) : bundle ? (
-            <FileTreeView
-              node={bundle.tree}
-              selectedPath={selectedPath}
-              onSelect={(p) => { setSelectedPath(p); setPendingLine(null) }}
-              deobfPaths={bundle.deobfPaths}
-            />
-          ) : (
-            <p className="px-3 py-2 text-sm text-zinc-500">No bundle available.</p>
-          )}
-        </div>
+        ) : (
+          <button
+            onClick={() => setLeftOpen(true)}
+            title="Show file tree"
+            className="flex shrink-0 items-center rounded border border-zinc-800 bg-zinc-900/40 px-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+          >
+            ›
+          </button>
+        )}
 
-        {/* Code viewer */}
-        <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/40">
-          <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
+        {/* Code viewer (flex-1) */}
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded border border-zinc-800 bg-zinc-900/40">
+          <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-1.5">
             <span className="truncate font-mono text-xs text-zinc-300">
               {selectedPath || '(select a file)'}
             </span>
@@ -164,7 +257,7 @@ export function ScriptProjectView() {
               </div>
             )}
           </div>
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div className="min-h-0 flex-1 overflow-hidden">
             {selectedPath && bundle ? (
               <CodePane
                 key={`${selectedPath}:${sourceMode}`}
@@ -179,10 +272,22 @@ export function ScriptProjectView() {
           </div>
         </div>
 
-        {/* Findings + Report */}
-        <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/40">
-            <div className="border-b border-zinc-800 px-3 py-2 text-xs uppercase tracking-wide text-zinc-400">
+        {/* Right column: drag handle + findings (top) + drag split + report (bottom) */}
+        <div
+          onMouseDown={startResizeRight}
+          title="Drag to resize"
+          className="w-1 shrink-0 cursor-col-resize bg-zinc-800/60 hover:bg-purple-600/60"
+        />
+        <div
+          ref={rightColRef}
+          style={{ width: `${rightWidth}px` }}
+          className="flex shrink-0 flex-col gap-1 overflow-hidden"
+        >
+          <div
+            style={{ flex: `${findingsRatio * 100} 0 0` }}
+            className="flex min-h-0 flex-col overflow-hidden rounded border border-zinc-800 bg-zinc-900/40"
+          >
+            <div className="border-b border-zinc-800 px-3 py-1.5 text-xs uppercase tracking-wide text-zinc-400">
               Findings
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-3">
@@ -190,8 +295,17 @@ export function ScriptProjectView() {
               {findings && <ScriptFindings data={findings} onJump={onJump} />}
             </div>
           </div>
-          <div className="flex min-h-0 max-h-[40vh] flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/40">
-            <div className="border-b border-zinc-800 px-3 py-2 text-xs uppercase tracking-wide text-zinc-400">
+          {/* Vertical drag handle between findings and report */}
+          <div
+            onMouseDown={startResizeFindings}
+            title="Drag to resize"
+            className="h-1 shrink-0 cursor-row-resize bg-zinc-800/60 hover:bg-purple-600/60"
+          />
+          <div
+            style={{ flex: `${(1 - findingsRatio) * 100} 0 0` }}
+            className="flex min-h-0 flex-col overflow-hidden rounded border border-zinc-800 bg-zinc-900/40"
+          >
+            <div className="border-b border-zinc-800 px-3 py-1.5 text-xs uppercase tracking-wide text-zinc-400">
               Report
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-2">
@@ -206,19 +320,38 @@ export function ScriptProjectView() {
 
 // -----------------------------------------------------------------------
 
+function SummaryPills({ counts }: { counts: Partial<Record<Severity, number>> }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {SEVERITY_ORDER.map((s) => {
+        const n = counts[s] ?? 0
+        if (n === 0) return null
+        return (
+          <span key={s} className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] ${pillStyle(s)}`}>
+            {s} {n}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+function pillStyle(s: Severity): string {
+  return {
+    CRITICAL: 'bg-red-950/60 text-red-200 border-red-800/60',
+    HIGH: 'bg-amber-950/60 text-amber-200 border-amber-800/60',
+    MEDIUM: 'bg-yellow-950/60 text-yellow-200 border-yellow-800/60',
+    INFO: 'bg-zinc-800/70 text-zinc-300 border-zinc-700',
+  }[s]
+}
+
 function buildBundle(entries: TarEntry[]): BundleState {
   const originals = entries.filter((e) => e.type === 'file' && e.name.startsWith(ORIGINAL_PREFIX))
   const deobfs = entries.filter((e) => e.type === 'file' && e.name.startsWith(DEOBF_PREFIX))
   const files = new Map<string, Uint8Array>()
-  for (const e of originals) {
-    const p = e.name.slice(ORIGINAL_PREFIX.length)
-    files.set(p, e.bytes)
-  }
+  for (const e of originals) files.set(e.name.slice(ORIGINAL_PREFIX.length), e.bytes)
   const deobfFiles = new Map<string, Uint8Array>()
-  for (const e of deobfs) {
-    const p = e.name.slice(DEOBF_PREFIX.length)
-    deobfFiles.set(p, e.bytes)
-  }
+  for (const e of deobfs) deobfFiles.set(e.name.slice(DEOBF_PREFIX.length), e.bytes)
   const tree = buildTree(originals, ORIGINAL_PREFIX)
   return { tree, files, deobfPaths: new Set(deobfFiles.keys()), deobfFiles }
 }
@@ -252,6 +385,21 @@ function findingsForFile(
   return m
 }
 
+function readBool(k: string, def: boolean): boolean {
+  if (typeof window === 'undefined') return def
+  const v = window.localStorage.getItem(k)
+  return v === null ? def : v === '1'
+}
+function readNum(k: string, def: number): number {
+  if (typeof window === 'undefined') return def
+  const v = window.localStorage.getItem(k)
+  const n = v == null ? NaN : Number(v)
+  return Number.isFinite(n) ? n : def
+}
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, n))
+}
+
 // -----------------------------------------------------------------------
 
 function FileTreeView({
@@ -267,7 +415,6 @@ function FileTreeView({
   deobfPaths: Set<string>
   depth?: number
 }) {
-  // Root acts as a transparent wrapper.
   if (depth === 0) {
     return (
       <div className="py-1 text-sm">
@@ -330,6 +477,10 @@ function FileTreeView({
 }
 
 // -----------------------------------------------------------------------
+// Code pane: ONE outer scrollbar covers both axes. Line numbers + gutter
+// markers are sticky-positioned on the left edge so they stay visible
+// during horizontal scroll. No per-line scrollbars (the old version's
+// `overflow-x-auto` on every line was the issue).
 
 function CodePane({
   bytes,
@@ -346,22 +497,14 @@ function CodePane({
   const [loading, setLoading] = useState(true)
   const containerRef = useRef<HTMLDivElement | null>(null)
 
-  const text = useMemo(() => {
-    if (!bytes) return ''
-    return new TextDecoder('utf-8').decode(bytes)
-  }, [bytes])
-
-  // 4 MB single-line droppers will tank Shiki — render plain text past a
-  // size threshold and add a banner explaining why.
+  const text = useMemo(() => bytes ? new TextDecoder('utf-8').decode(bytes) : '', [bytes])
   const tooBigForShiki = text.length > 256 * 1024
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     void (async () => {
-      const out = tooBigForShiki
-        ? escapeHtml(text)
-        : await highlightScript(text, filename)
+      const out = tooBigForShiki ? escapeHtml(text) : await highlightScript(text, filename)
       if (!cancelled) {
         setHtml(out)
         setLoading(false)
@@ -370,8 +513,6 @@ function CodePane({
     return () => { cancelled = true }
   }, [text, filename, tooBigForShiki])
 
-  // After render, jump to the requested line. requestAnimationFrame so
-  // we wait for the DOM to commit the new HTML.
   useEffect(() => {
     if (!jumpToLine || loading) return
     requestAnimationFrame(() => {
@@ -382,52 +523,54 @@ function CodePane({
     })
   }, [jumpToLine, html, loading])
 
-  if (!bytes) return <p className="p-4 text-sm text-zinc-500">File not in bundle.</p>
-
-  // Manual line-numbering + finding markers. We render the highlighted
-  // HTML as one block per line so we can pin a marker in the gutter.
   const lines = useMemo(() => splitShikiLines(html, text), [html, text])
 
+  if (!bytes) return <p className="p-4 text-sm text-zinc-500">File not in bundle.</p>
+
   return (
-    <div ref={containerRef} className="relative font-mono text-[12.5px] leading-[1.6]">
+    <div ref={containerRef} className="relative h-full overflow-auto">
       {tooBigForShiki && (
-        <div className="sticky top-0 z-10 border-b border-amber-800/60 bg-amber-950/80 px-3 py-1.5 text-[11px] text-amber-200">
+        <div className="sticky top-0 z-20 border-b border-amber-800/60 bg-amber-950/80 px-3 py-1.5 text-[11px] text-amber-200">
           File is {(text.length / 1024 / 1024).toFixed(1)} MB — rendered as plain text (Shiki disabled past 256 KB).
         </div>
       )}
       {loading && <p className="p-4 text-sm text-zinc-500">Highlighting…</p>}
-      {!loading && lines.map((line, i) => {
-        const lineNo = i + 1
-        const hits = highlights.get(lineNo)
-        const sev = hits ? topSeverity(hits) : null
-        return (
-          <div
-            key={lineNo}
-            data-line={lineNo}
-            className={`flex items-start ${sev ? severityBg(sev) : ''}`}
-          >
-            <span className="sticky left-0 inline-block w-12 shrink-0 select-none bg-zinc-900/60 pr-2 text-right text-[11px] text-zinc-500">
-              {lineNo}
-            </span>
-            {sev && (
-              <span
-                className={`inline-block w-2 shrink-0 ${severityDot(sev)}`}
-                title={hits!.map((h) => `${h.rule}: ${h.message}`).join('\n')}
-              />
-            )}
-            <span
-              className="flex-1 whitespace-pre overflow-x-auto pr-3"
-              dangerouslySetInnerHTML={{ __html: line }}
-            />
-          </div>
-        )
-      })}
+      {!loading && (
+        // min-w-max grows the inner block to the widest line so the SINGLE
+        // outer scrollbar (above) handles horizontal scroll. Sticky line
+        // numbers stay pinned on the left as the content scrolls past.
+        <div className="min-w-max font-mono text-[12.5px] leading-[1.6]">
+          {lines.map((line, i) => {
+            const lineNo = i + 1
+            const hits = highlights.get(lineNo)
+            const sev = hits ? topSeverity(hits) : null
+            return (
+              <div
+                key={lineNo}
+                data-line={lineNo}
+                className={`flex ${sev ? severityBg(sev) : ''}`}
+              >
+                <span className="sticky left-0 z-10 inline-block w-12 shrink-0 select-none bg-zinc-900/95 pr-2 text-right text-[11px] text-zinc-500">
+                  {lineNo}
+                </span>
+                <span
+                  className={`sticky left-12 z-10 inline-block w-1.5 shrink-0 ${sev ? severityDot(sev) : 'bg-transparent'}`}
+                  title={hits ? hits.map((h) => `${h.rule}: ${h.message}`).join('\n') : undefined}
+                />
+                <span
+                  className="whitespace-pre px-3"
+                  dangerouslySetInnerHTML={{ __html: line }}
+                />
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
 
 function topSeverity(hits: ScriptFinding[]): Severity {
-  // SEVERITY_ORDER is CRITICAL → HIGH → MEDIUM → INFO; pick the most severe.
   for (const s of SEVERITY_ORDER) {
     if (hits.some((h) => h.severity === s)) return s
   }
@@ -452,11 +595,7 @@ function severityDot(s: Severity): string {
   }[s]
 }
 
-// Shiki returns <pre><code><span class="line">...</span><span class="line">...</span></code></pre>.
-// To pin per-line gutter markers we need an array of innerHTMLs for each
-// line. Falls back to splitting the raw text when Shiki was skipped.
 function splitShikiLines(shikiHtml: string, plain: string): string[] {
-  // Detect Shiki output by the wrapping <pre> + <span class="line">.
   if (!shikiHtml.includes('class="line"')) {
     return escapeHtml(plain).split('\n').map((l) => l || '&nbsp;')
   }
