@@ -7,6 +7,9 @@ import { extractTarGz, buildTree, type FileNode, type TarEntry } from '../syntax
 import { highlightScript } from '../syntax/highlight'
 import { ScriptFindings } from '../components/ScriptFindings'
 import { AskAiPanel } from '../components/AskAiPanel'
+import { Gallery } from '../components/Gallery'
+import { ScreenshotModal } from '../components/ScreenshotModal'
+import { captureScreen } from '../components/captureScreen'
 import { ReportEditor } from './Report'
 
 const ORIGINAL_PREFIX = 'original/'
@@ -19,7 +22,13 @@ const LS_RIGHT_WIDTH = 'openbin.script.rightWidth'
 const LS_FINDINGS_RATIO = 'openbin.script.findingsRatio'
 const LS_BOTTOM_TAB = 'openbin.script.bottomTab'
 
-type BottomTab = 'report' | 'ask'
+type BottomTab = 'report' | 'ask' | 'gallery'
+
+// Same screenshot capture state shape as the BIN ProjectView — `pick` opens
+// the modal in paste/drop/browse mode; `capture` skips straight to the
+// annotator with a screen-captured blob (already cropped by the browser
+// picker). Both flows end with onScreenshotSaved bumping galleryKey.
+type ShotState = null | { mode: 'pick' } | { mode: 'capture'; blob: Blob }
 
 const LEFT_WIDTH = 260
 const RIGHT_WIDTH_DEFAULT = 420
@@ -60,6 +69,13 @@ export function ScriptProjectView() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [sourceMode, setSourceMode] = useState<'original' | 'deobfuscated'>('original')
   const [pendingLine, setPendingLine] = useState<number | null>(null)
+
+  // Screenshot + Gallery state. Same shape as the BIN ProjectView so the
+  // shared ScreenshotModal + Gallery components drop in unmodified.
+  // `galleryKey` is bumped on save so the Gallery panel refetches.
+  const [shot, setShot] = useState<ShotState>(null)
+  const [galleryKey, setGalleryKey] = useState(0)
+  const [captureErr, setCaptureErr] = useState<string | null>(null)
 
   // Layout state — all persisted.
   const [leftOpen, setLeftOpen] = useState<boolean>(() => readBool(LS_LEFT_OPEN, true))
@@ -179,6 +195,22 @@ export function ScriptProjectView() {
     document.body.style.userSelect = 'none'
   }, [])
 
+  const startCapture = useCallback(async () => {
+    setCaptureErr(null)
+    try {
+      const blob = await captureScreen()
+      if (blob) setShot({ mode: 'capture', blob })
+    } catch (e) {
+      setCaptureErr((e as Error).message)
+    }
+  }, [])
+
+  const onScreenshotSaved = useCallback(() => {
+    setShot(null)
+    setGalleryKey((k) => k + 1)
+    setBottomTab('gallery')
+  }, [])
+
   return (
     <div className="flex h-full flex-col px-2 py-2">
       <header className="flex items-center justify-between border-b border-zinc-800 px-1 pb-2">
@@ -196,6 +228,22 @@ export function ScriptProjectView() {
           {findings && (
             <SummaryPills counts={findings.summary?.countsBySeverity || {}} />
           )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            onClick={() => setShot({ mode: 'pick' })}
+            title="Paste / drop / browse an image — saves to Gallery"
+            className="rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-200 hover:bg-zinc-800"
+          >
+            📷
+          </button>
+          <button
+            onClick={() => void startCapture()}
+            title="Capture a region of the screen — saves to Gallery"
+            className="rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-200 hover:bg-zinc-800"
+          >
+            📸
+          </button>
         </div>
       </header>
 
@@ -317,6 +365,7 @@ export function ScriptProjectView() {
             <div className="flex items-center gap-1 border-b border-zinc-800 px-2 py-1 text-xs">
               <TabBtn active={bottomTab === 'ask'} onClick={() => setBottomTab('ask')}>Ask AI</TabBtn>
               <TabBtn active={bottomTab === 'report'} onClick={() => setBottomTab('report')}>Report</TabBtn>
+              <TabBtn active={bottomTab === 'gallery'} onClick={() => setBottomTab('gallery')}>Gallery</TabBtn>
             </div>
             <div className="min-h-0 flex-1 overflow-hidden">
               {bottomTab === 'ask' ? (
@@ -328,15 +377,33 @@ export function ScriptProjectView() {
                     : undefined}
                   sourceMode={sourceMode}
                 />
-              ) : (
+              ) : bottomTab === 'report' ? (
                 <div className="h-full overflow-auto p-2">
                   <ReportEditor projectId={id} compact />
+                </div>
+              ) : (
+                <div className="h-full overflow-auto">
+                  <Gallery projectId={id} refreshKey={galleryKey} />
                 </div>
               )}
             </div>
           </div>
         </div>
       </div>
+      {shot && (
+        <ScreenshotModal
+          projectId={id}
+          initialBlob={shot.mode === 'capture' ? shot.blob : undefined}
+          cropFirst={shot.mode === 'capture'}
+          onClose={() => setShot(null)}
+          onInsert={onScreenshotSaved}
+        />
+      )}
+      {captureErr && (
+        <div className="pointer-events-none fixed bottom-4 right-4 rounded border border-red-900/60 bg-red-950/80 px-3 py-2 text-xs text-red-300 shadow">
+          Capture failed: {captureErr}
+        </div>
+      )}
     </div>
   )
 }
