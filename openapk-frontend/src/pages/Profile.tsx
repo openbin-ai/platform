@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useApi } from '@shared/api/client'
+import { setMeCache } from '@shared/api/me'
 import { EmailPreferences } from '@shared/components/EmailPreferences'
 import { Gravatar } from '@shared/components/Gravatar'
 
@@ -10,7 +11,7 @@ import { Gravatar } from '@shared/components/Gravatar'
 //
 // The display name is the ONE thing community readers see attached to
 // your published work; the rest of your profile is private.
-type Me = { displayName: string | null; email: string | null; emailMd5: string }
+type Me = { userId: string; displayName: string | null; email: string | null; emailMd5: string }
 
 export function Profile() {
   const api = useApi()
@@ -44,6 +45,7 @@ export function Profile() {
       })
       setMe(updated)
       setDraft(updated.displayName ?? '')
+      setMeCache(updated)
       setSavedAt(Date.now())
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Save failed')

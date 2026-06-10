@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from 'react-oidc-context'
+import { useMe } from '@shared/api/me'
 import { NotificationsBell } from '@shared/components/NotificationsBell'
 import iconUrl from '../assets/icon.png'
 
@@ -96,6 +97,11 @@ function SettingsMenu() {
   const [open, setOpen] = useState(false)
   const location = useLocation()
   const ref = useRef<HTMLDivElement | null>(null)
+  // /api/users/me is fetched lazily on first menu mount; we use the userId
+  // to build a "Public profile" link that points at the user's own
+  // /u/{userId} page. Falls back to a Profile-only menu while loading or
+  // when the user is signed out.
+  const me = useMe()
   const isActive = location.pathname.startsWith('/settings/')
 
   useEffect(() => {
@@ -135,6 +141,7 @@ function SettingsMenu() {
           role="menu"
           className="absolute right-0 top-full z-30 mt-2 w-44 overflow-hidden rounded border border-zinc-800 bg-zinc-950 shadow-xl"
         >
+          {me && <MenuLink to={`/u/${me.userId}`}>Public profile</MenuLink>}
           <MenuLink to="/settings/profile">Profile</MenuLink>
           <MenuLink to="/settings/api-keys">API Keys</MenuLink>
           <MenuLink to="/settings/report-templates">Templates</MenuLink>

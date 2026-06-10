@@ -135,6 +135,22 @@ public class CommunityController {
     }
 
     /**
+     * Researcher search — case-insensitive substring over display name +
+     * the username half of email. Only returns users who've published at
+     * least one community report, so the result set is naturally bounded
+     * to discoverable identities. Anonymous-readable (per-row
+     * {@code amFollowing} is always false for unauthenticated callers).
+     */
+    @GetMapping("/users/search")
+    public List<SocialUserSummary> searchUsers(
+            @RequestParam("q") String q,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size
+    ) {
+        return social.searchUsers(q, currentUser.currentOrNull(), page, size);
+    }
+
+    /**
      * Single published report, kind-agnostic. 404 for unpublished or
      * missing reports — intentionally identical responses so anonymous
      * probing can't distinguish "private" from "doesn't exist".

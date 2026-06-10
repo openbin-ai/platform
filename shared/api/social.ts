@@ -44,3 +44,11 @@ export const followersPath = (userId: string, page = 0, size = 40) =>
   `/api/community/users/${userId}/followers?page=${page}&size=${size}`
 export const followingPath = (userId: string, page = 0, size = 40) =>
   `/api/community/users/${userId}/following?page=${page}&size=${size}`
+
+/**
+ * Researcher search. The endpoint is anonymous-readable and only matches
+ * users who have at least one community-published report. The backend
+ * enforces a 2-character minimum on `q`; below that the call returns [].
+ */
+export const userSearchPath = (q: string, page = 0, size = 20) =>
+  `/api/community/users/search?q=${encodeURIComponent(q)}&page=${page}&size=${size}`

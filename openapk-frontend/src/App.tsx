@@ -17,6 +17,7 @@ import { Community } from './pages/Community'
 import { CommunityReport } from './pages/CommunityReport'
 import { AuthorProfilePage } from './pages/AuthorProfilePage'
 import { FollowListPage } from './pages/FollowListPage'
+import { ResearcherSearch } from './pages/ResearcherSearch'
 import { Terms } from './pages/Terms'
 import { Privacy } from './pages/Privacy'
 import { Profile } from './pages/Profile'
@@ -32,6 +33,7 @@ export default function App() {
           {/* Community pages — anonymous browsing. Outside RequireAuth so
               signed-out visitors can read published research. */}
           <Route path="/community" element={<Community />} />
+          <Route path="/community/researchers" element={<ResearcherSearch />} />
           <Route path="/community/reports/:id" element={<CommunityReport />} />
           {/* Public researcher profile. Mirrors /community in that it's
               accessible anonymously and shareable as a link. */}

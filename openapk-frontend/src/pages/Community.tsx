@@ -107,12 +107,20 @@ export function Community() {
     <div className="flex h-full flex-col bg-zinc-950 text-zinc-200">
       <PublicHeader auth={auth} />
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-zinc-100">Community research</h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Public APK analyses contributed by the community. Browse, search by hash or keyword,
-            and filter by malware type. <Link to="/terms" className="text-purple-400 hover:underline">Terms</Link>.
-          </p>
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold text-zinc-100">Community research</h1>
+            <p className="mt-1 text-sm text-zinc-500">
+              Public APK analyses contributed by the community. Browse, search by hash or keyword,
+              and filter by malware type. <Link to="/terms" className="text-purple-400 hover:underline">Terms</Link>.
+            </p>
+          </div>
+          <Link
+            to="/community/researchers"
+            className="shrink-0 rounded border border-purple-700/60 bg-purple-950/30 px-3 py-1.5 text-xs font-medium text-purple-200 transition hover:bg-purple-900/40"
+          >
+            Find researchers →
+          </Link>
         </div>
 
         <form onSubmit={submitSearch} className="mb-4 flex items-center gap-2">

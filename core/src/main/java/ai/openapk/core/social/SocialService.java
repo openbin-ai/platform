@@ -420,4 +420,86 @@ public class SocialService {
         }
         return "anonymous researcher";
     }
+
+    // ─── search ─────────────────────────────────────────────────────────
+
+    /**
+     * Case-insensitive substring search over researcher display names + the
+     * username half of their email (the fallback name shown when display_name
+     * is blank). Restricted to users who've actually published at least one
+     * community report — searching the full users table would expose every
+     * sign-up regardless of whether they've opted into being discoverable,
+     * and the only reason to look someone up is to read their work.
+     *
+     * <p>{@code amFollowing} mirrors the followers-list shape: opportunistic
+     * personalization when the viewer is authenticated, false for anonymous.
+     * Returns at most {@link #MAX_PAGE_SIZE} rows per page.
+     */
+    @Transactional(readOnly = true)
+    public List<SocialUserSummary> searchUsers(String q, User viewerOrNull, int page, int size) {
+        String trimmed = q == null ? "" : q.trim();
+        if (trimmed.length() < 2) {
+            // Avoid an effectively-unbounded scan; the UI already
+            // debounces the input and disables submit below 2 chars.
+            return List.of();
+        }
+        int limit = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
+        int offset = Math.max(0, page) * limit;
+        UUID viewerId = viewerOrNull == null ? null : viewerOrNull.getId();
+
+        // The match expression is shared between the WHERE and the ORDER BY
+        // so a name that starts with the query ranks above a name that
+        // merely contains it. `SIMILAR TO`-style ranking would be nicer but
+        // pulls in extensions; this is good enough for the dataset size.
+        var nq = em.createNativeQuery("""
+                SELECT DISTINCT u.id, u.display_name, u.email,
+                       MIN(r.community_published_at) AS joined_at,
+                       (:viewerKnown AND EXISTS (
+                           SELECT 1 FROM follows me
+                           WHERE me.follower_id = :viewer AND me.followee_id = u.id
+                       )) AS am_following,
+                       CASE
+                           WHEN LOWER(COALESCE(u.display_name, '')) LIKE :prefix THEN 0
+                           WHEN LOWER(SPLIT_PART(u.email, '@', 1)) LIKE :prefix THEN 1
+                           ELSE 2
+                       END AS rank
+                FROM users u
+                JOIN projects p ON p.user_id = u.id
+                JOIN project_reports r ON r.project_id = p.id
+                WHERE r.community_published_at IS NOT NULL
+                  AND (
+                       LOWER(COALESCE(u.display_name, '')) LIKE :needle
+                    OR LOWER(SPLIT_PART(u.email, '@', 1)) LIKE :needle
+                  )
+                GROUP BY u.id, u.display_name, u.email
+                ORDER BY rank, joined_at DESC
+                LIMIT :limit OFFSET :offset
+                """);
+        String lower = trimmed.toLowerCase(java.util.Locale.ROOT);
+        nq.setParameter("needle", "%" + lower + "%");
+        nq.setParameter("prefix", lower + "%");
+        nq.setParameter("limit", limit);
+        nq.setParameter("offset", offset);
+        nq.setParameter("viewerKnown", viewerId != null);
+        nq.setParameter("viewer", viewerId != null ? viewerId : new UUID(0L, 0L));
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = nq.getResultList();
+        var out = new ArrayList<SocialUserSummary>(rows.size());
+        for (Object[] r : rows) {
+            UUID uid = (UUID) r[0];
+            String displayName = (String) r[1];
+            String email = (String) r[2];
+            Instant joinedAt = toInstant(r[3]);
+            boolean amFollowing = (Boolean) r[4];
+            out.add(new SocialUserSummary(
+                    uid,
+                    displayNameOrFallback(displayName, email),
+                    CommunityService.md5Hex(email),
+                    joinedAt,
+                    amFollowing
+            ));
+        }
+        return out;
+    }
 }

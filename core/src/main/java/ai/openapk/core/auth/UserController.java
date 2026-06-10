@@ -37,6 +37,7 @@ public class UserController {
     public UserResponse me() {
         User u = currentUser.current();
         return new UserResponse(
+                u.getId(),
                 u.getDisplayName(),
                 u.getEmail(),
                 CommunityService.md5Hex(u.getEmail())
@@ -56,6 +57,7 @@ public class UserController {
         u.setDisplayName(dn == null || dn.isBlank() ? null : dn.trim());
         users.save(u);
         return new UserResponse(
+                u.getId(),
                 u.getDisplayName(),
                 u.getEmail(),
                 CommunityService.md5Hex(u.getEmail())
