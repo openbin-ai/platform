@@ -248,20 +248,23 @@ public class SocialService {
 
         UUID viewerId = viewerOrNull == null ? null : viewerOrNull.getId();
 
-        var nq = em.createNativeQuery("""
-                SELECT u.id, u.display_name, u.email, f.created_at,
-                       (:viewerKnown AND EXISTS (
-                           SELECT 1 FROM follows me
-                           WHERE me.follower_id = :viewer AND me.followee_id = u.id
-                       )) AS am_following
-                FROM follows f
-                """ + join + """
-
-                WHERE """ + filterCol + """
-                 = :anchor
-                ORDER BY f.created_at DESC
-                LIMIT :limit OFFSET :offset
-                """);
+        // Plain concatenation rather than a text block — Java text blocks
+        // strip trailing whitespace from content lines, so a literal
+        // `"""WHERE """ + filterCol` produced `WHEREf.followee_id` (no
+        // space). The followers / following endpoints were broken under
+        // load until this rewrite.
+        String sql =
+                "SELECT u.id, u.display_name, u.email, f.created_at, " +
+                "       (:viewerKnown AND EXISTS (" +
+                "           SELECT 1 FROM follows me " +
+                "           WHERE me.follower_id = :viewer AND me.followee_id = u.id" +
+                "       )) AS am_following " +
+                "FROM follows f " +
+                join + " " +
+                "WHERE " + filterCol + " = :anchor " +
+                "ORDER BY f.created_at DESC " +
+                "LIMIT :limit OFFSET :offset";
+        var nq = em.createNativeQuery(sql);
         nq.setParameter("anchor", userId);
         nq.setParameter("limit", limit);
         nq.setParameter("offset", offset);
