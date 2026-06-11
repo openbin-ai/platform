@@ -124,43 +124,47 @@ func pipePrefixed(r io.ReadCloser, prefix string) {
 	}
 }
 
-// ensureDockerImage makes sure the local Docker daemon has the bundled
-// worker image loaded. Resolution order:
+// ensureDockerImage makes sure the local Docker daemon has the worker image
+// loaded. Resolution order:
 //   1. Image already loaded (cheap inspect; common after first run).
-//   2. The named tarball (ghidra-worker.tar.gz / jadx-worker.tar.gz) sitting
-//      next to the CLI binary — `docker load` it. This is how release
-//      tarballs ship the image.
-//   3. The tarball in the current working directory — same idea, for users
-//      who extracted to a different layout.
-//   4. Fail with a helpful message pointing at the release page.
+//   2. The named tarball (ghidra-worker.tar.gz / jadx-worker.tar.gz) found
+//      next to the CLI binary, in the XDG cache dir, or the cwd — `docker
+//      load` it. Covers offline installs and the fully-bundled release.
+//   3. Lazy download: fetch the tarball from the latest GitHub release into
+//      the XDG cache dir, then load it. The slim installer ships only the
+//      binary, so this is the common first-run path. The cached tarball
+//      makes every subsequent run an offline (2) hit.
 //
-// No `docker pull`, no registry, no auth. Fully offline-capable once the
-// release tarball is extracted.
+// No `docker pull` and no registry auth — the image ships as a release asset
+// and the CLI `docker load`s it.
 func ensureDockerImage(image, tarballName string) error {
 	if dockerImageExists(image) {
 		return nil
 	}
 	if tarball, ok := findBundledImageTarball(tarballName); ok {
-		fmt.Fprintf(os.Stderr, "Loading bundled worker image from %s (first run only)...\n", tarballName)
-		if err := dockerLoad(tarball); err != nil {
-			return fmt.Errorf("docker load %s: %w", tarball, err)
-		}
-		if dockerImageExists(image) {
-			return nil
-		}
+		return loadImageTarball(image, tarball, "Loading worker image from "+tarball+" (first run only)...")
+	}
+	dest := filepath.Join(xdgDataHome(), "openbin", tarballName)
+	if err := downloadWorkerImage(tarballName, dest); err != nil {
+		return fmt.Errorf("worker image %q not available locally and download failed: %w\n"+
+			"You can also drop %s next to the openbin binary or in %s to install it offline.",
+			image, err, tarballName, filepath.Dir(dest))
+	}
+	return loadImageTarball(image, dest, "Loading worker image (first run only)...")
+}
+
+// loadImageTarball docker-loads a tarball and confirms the expected tag
+// materialized. Shared by the bundled and downloaded paths.
+func loadImageTarball(image, tarball, msg string) error {
+	fmt.Fprintln(os.Stderr, msg)
+	if err := dockerLoad(tarball); err != nil {
+		return fmt.Errorf("docker load %s: %w", tarball, err)
+	}
+	if !dockerImageExists(image) {
 		return fmt.Errorf("loaded %s but image %q still not found; report this to the maintainers",
 			tarball, image)
 	}
-	return fmt.Errorf(
-		"worker image %q not loaded and no %s found in any of:\n"+
-			"  - next to the openbin binary\n"+
-			"  - %s\n"+
-			"  - /usr/local/share/openbin/\n"+
-			"  - the current working directory\n"+
-			"Download a release tarball that includes the image:\n"+
-			"  https://github.com/openbin-ai/platform/releases/latest",
-		image, tarballName,
-		filepath.Join(xdgDataHome(), "openbin"))
+	return nil
 }
 
 func dockerImageExists(image string) bool {

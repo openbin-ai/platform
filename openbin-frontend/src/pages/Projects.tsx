@@ -810,7 +810,7 @@ function slugify(s: string): string {
  * husam@openbin.ai.
  */
 function GhidraSunsetCard() {
-  const releasesURL = 'https://github.com/openbin-ai/platform/releases/latest'
+  const installCmd = 'curl -fsSL https://openbin.ai/install.sh | sh'
   return (
     <div className="overflow-hidden rounded-lg border border-amber-700/50 bg-linear-to-br from-amber-950/40 via-zinc-950/40 to-zinc-950/60 p-6 shadow-[0_8px_40px_rgba(251,191,36,0.08)]">
       <div className="flex items-start gap-3">
@@ -827,30 +827,16 @@ function GhidraSunsetCard() {
             you run on your own machine — your binary never leaves your laptop,
             only the resulting analysis JSON is uploaded.
           </p>
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <a
-              href={releasesURL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center rounded-md bg-amber-400 px-4 py-2 text-sm font-semibold text-black shadow-[0_4px_20px_rgba(251,191,36,0.4)] transition hover:bg-amber-300"
-            >
-              Download the OpenBin CLI →
-            </a>
-            <span className="text-xs text-zinc-500">
-              Linux · macOS · free · open-source
-            </span>
-          </div>
-          <pre className="mt-4 overflow-x-auto rounded border border-zinc-800 bg-black/40 p-3 font-mono text-[11px] leading-relaxed text-zinc-300">
-{`# Linux/macOS — install once, run from anywhere
-tar xzf openbin-*-linux-amd64.tar.gz
-mkdir -p ~/.local/share/openbin ~/.local/bin
-mv openbin-*/ghidra-worker.tar.gz ~/.local/share/openbin/
-mv openbin-*/openbin              ~/.local/bin/
-# Make sure ~/.local/bin is on PATH (already is on most modern shells)
-
-openbin login
-openbin decompile firmware.elf
-# Project appears in the list below when upload finishes.`}
+          <p className="mt-4 text-xs font-medium uppercase tracking-wider text-zinc-500">
+            Install the CLI — one line, Linux &amp; macOS:
+          </p>
+          <pre className="mt-2 overflow-x-auto rounded border border-zinc-800 bg-black/40 p-3 font-mono text-[12px] leading-relaxed text-amber-200">
+{installCmd}
+          </pre>
+          <pre className="mt-2 overflow-x-auto rounded border border-zinc-800 bg-black/40 p-3 font-mono text-[11px] leading-relaxed text-zinc-300">
+{`openbin login                   # one-time browser sign-in
+openbin decompile firmware.elf  # decompiles locally, uploads the result —
+                                # the project appears in the list below.`}
           </pre>
           <p className="mt-4 border-t border-amber-900/40 pt-3 text-xs text-zinc-400">
             Want to sponsor cloud Ghidra for the community?{' '}

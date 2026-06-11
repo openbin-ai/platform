@@ -1,13 +1,22 @@
 name: release-cli
 
 # Push a tag matching `openbin-v*` (e.g. `openbin-v0.1.0-alpha`) to cut a
-# release. Produces five per-platform release tarballs, each containing:
-#   - openbin(.exe)         the CLI binary, statically linked
-#   - ghidra-worker.tar.gz  the bundled Docker image (loaded on first run)
-#   - README.md             install + usage docs
+# release. Produces:
+#   - openbin-<os>-<arch>.tar.gz   per-platform, SLIM: just the CLI binary
+#                                  + README (no worker image inside).
+#   - jadx-worker.tar.gz           bundled JADX image (APK decompile)
+#   - ghidra-worker.tar.gz         bundled Ghidra image (native binary RE)
 #
-# No registry login required from end users — the image ships in the tarball
-# and the CLI `docker load`s it on first run.
+# The slim CLI tarball keeps the one-liner installer (openbin.ai/install.sh)
+# fast — it only fetches the ~10 MB binary. The worker images are large
+# (jadx ~350 MB / ghidra ~700 MB gzipped) and are downloaded lazily by the
+# CLI the first time `openbin apk` / `openbin decompile` runs, via GitHub's
+# stable `releases/latest/download/<asset>` URL. No registry login required.
+#
+# Asset names are intentionally version-LESS so the `latest/download/<name>`
+# URL is stable across releases (both the installer and the CLI rely on it).
+# The version still lives in the git tag and is baked into the binary via
+# -ldflags so `openbin --version` is accurate.
 
 on:
   push:
@@ -23,8 +32,8 @@ permissions:
   contents: write   # needed to create the GitHub release
 
 jobs:
-  build-image:
-    name: Build + save ghidra-worker image
+  build-images:
+    name: Build + save worker images
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,41 +41,47 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # buildx caches layers between runs so the Ghidra download (~600 MB)
-      # is only paid on the first release; subsequent releases reuse the
-      # cached layer unless ghidra-worker/Dockerfile actually changes.
-      - name: Build ghidra-worker image
+      # buildx caches layers between runs so the heavy base downloads
+      # (Ghidra ~600 MB) are only paid once unless the Dockerfile changes.
+      - name: Build + save jadx-worker image
         run: |
-          docker buildx build \
-            --load \
-            --tag openbin/ghidra-worker:bundled \
-            --cache-from=type=gha \
-            --cache-to=type=gha,mode=max \
-            ./ghidra-worker
+          docker buildx build --load \
+            --tag openapk/jadx-worker:bundled \
+            --cache-from=type=gha,scope=jadx \
+            --cache-to=type=gha,mode=max,scope=jadx \
+            ./jadx-worker
+          docker save openapk/jadx-worker:bundled | gzip > jadx-worker.tar.gz
+          ls -lh jadx-worker.tar.gz
 
-      - name: Save image to tarball
+      - name: Build + save ghidra-worker image
         run: |
+          docker buildx build --load \
+            --tag openbin/ghidra-worker:bundled \
+            --cache-from=type=gha,scope=ghidra \
+            --cache-to=type=gha,mode=max,scope=ghidra \
+            ./ghidra-worker
           docker save openbin/ghidra-worker:bundled | gzip > ghidra-worker.tar.gz
           ls -lh ghidra-worker.tar.gz
 
-      - name: Upload as workflow artifact
+      - name: Upload image artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ghidra-worker-image
-          path: ghidra-worker.tar.gz
+          name: worker-images
+          path: |
+            jadx-worker.tar.gz
+            ghidra-worker.tar.gz
           retention-days: 1
 
   release:
     name: Build CLI ${{ matrix.os }}/${{ matrix.arch }}
-    needs: build-image
+    needs: build-images
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         # Linux + macOS only. Windows is intentionally out — see
         # [[desktop-client-and-windows-upsell]]; openbin is a Unix-first
-        # tool for security researchers and we're not maintaining a
-        # Windows port until there's demand worth the support burden.
+        # tool and we drive Windows users to the paid cloud path instead.
         include:
           - { os: linux,  arch: amd64 }
           - { os: linux,  arch: arm64 }
@@ -80,11 +95,6 @@ jobs:
           go-version: '1.22'
           cache-dependency-path: cli/go.sum
 
-      - name: Download image artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ghidra-worker-image
-
       - name: Cross-compile CLI
         working-directory: cli
         env:
@@ -92,30 +102,49 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
         run: |
-          # -trimpath strips build paths from the binary; -s -w strips the
-          # debug + symbol tables. Roughly halves the binary size with no
-          # functional impact (we don't ship a debugger-friendly build).
-          go build -trimpath -ldflags="-s -w" -o openbin .
+          ver="${{ github.event.inputs.tag || github.ref_name }}"
+          short_ver="${ver#openbin-}"
+          # -trimpath + -s -w strip build paths and debug/symbol tables
+          # (~half the size). -X stamps the version for `openbin --version`.
+          go build -trimpath \
+            -ldflags="-s -w -X main.version=${short_ver}" \
+            -o openbin .
           ls -lh openbin
 
-      - name: Assemble release tarball
+      - name: Assemble slim CLI tarball
         run: |
-          ver="${{ github.event.inputs.tag || github.ref_name }}"
-          # Strip the `openbin-` prefix from the tag so the package name
-          # is `openbin-v0.1.0-alpha-...` not `openbin-openbin-v0.1.0-alpha-...`.
-          short_ver="${ver#openbin-}"
-          pkg="openbin-${short_ver}-${{ matrix.os }}-${{ matrix.arch }}"
+          # Version-LESS package name so releases/latest/download/<name> is
+          # a stable URL the installer can hardcode.
+          pkg="openbin-${{ matrix.os }}-${{ matrix.arch }}"
           mkdir "$pkg"
-          mv cli/openbin           "$pkg/"
-          mv ghidra-worker.tar.gz  "$pkg/"
-          cp cli/README.md         "$pkg/"
+          mv cli/openbin   "$pkg/"
+          cp cli/README.md "$pkg/"
           tar czf "$pkg.tar.gz" "$pkg/"
           ls -lh "$pkg.tar.gz"
 
-      - name: Attach to GitHub release
+      - name: Attach CLI tarball to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: openbin-*.tar.gz
           generate_release_notes: true
+          fail_on_unmatched_files: true
+
+  attach-images:
+    name: Attach worker images to release
+    needs: [build-images, release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: worker-images
+
+      - name: Attach images to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            jadx-worker.tar.gz
+            ghidra-worker.tar.gz
           fail_on_unmatched_files: true
