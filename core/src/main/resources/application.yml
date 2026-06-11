@@ -44,7 +44,9 @@ spring:
     multipart:
       enabled: true
       max-file-size: 200MB
-      max-request-size: 200MB
+      # CLI APK ingest sends two parts in one request (the APK + the
+      # decompiled tree tar.gz), so the request cap is 2x the file cap.
+      max-request-size: 400MB
       file-size-threshold: 10MB
 
 server:
@@ -158,6 +160,13 @@ openapk:
     # is publicly reachable; it 401s /decompile without this when its own
     # WORKER_TOKEN env is set. Blank = no header (local dev).
     worker-token: ${OPENAPK_JADX_WORKER_TOKEN:}
+    # 2026-06-11: cloud JADX disabled, same story as Ghidra below — the
+    # always-on worker was the biggest line on the AWS bill. APK uploads
+    # without a CLI-decompiled tree get JadxSunsetMessage.TEXT; the desktop
+    # CLI runs the identical jadx-worker container locally and uploads the
+    # result. Flip to false (or set OPENAPK_JADX_DISABLED=false) to re-enable
+    # cloud decompile — dev.sh does this for local development.
+    worker-disabled: ${OPENAPK_JADX_DISABLED:true}
   script-analyzer:
     # Lambda-backed malicious-NPM analyzer. Scale-to-zero compute for a
     # sporadic, bounded workload — the only Lambda in the stack (everything

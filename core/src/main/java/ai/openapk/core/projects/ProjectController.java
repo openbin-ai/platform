@@ -57,9 +57,14 @@ public class ProjectController {
             @RequestParam(value = "kind", required = false) ProjectKind kind,
             // BIN-only hint passed through to the Ghidra worker. Ignored for
             // APK uploads. Defaults to "auto" on the service side.
-            @RequestParam(value = "arch", required = false) String arch
+            @RequestParam(value = "arch", required = false) String arch,
+            // APK-only: tar.gz of a jadx-worker output tree produced by the
+            // desktop CLI. When present, the cloud worker is skipped entirely
+            // (and no worker-quota slot is charged) — the post-decompile
+            // pipeline runs against this tree instead. See JadxSunsetMessage.
+            @RequestParam(value = "decompiledTree", required = false) MultipartFile decompiledTree
     ) {
-        return service.upload(currentUser.current(), file, kind, arch);
+        return service.upload(currentUser.current(), file, kind, arch, decompiledTree);
     }
 
     @GetMapping("/{id}")

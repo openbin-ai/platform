@@ -102,6 +102,86 @@ public class JadxDecompileService {
         return new DecompileResult(extractPackageName(outputDir));
     }
 
+    /**
+     * Ingest a CLI-produced decompile tree (tar.gz of the jadx-worker output)
+     * into {@code outputDir} — the sunset-era replacement for the cloud
+     * worker call. Unlike the worker response, this archive is USER-SUPPLIED,
+     * so it is validated before extraction: any entry that is not a plain
+     * file or directory (symlinks, hardlinks, devices — tar-slip vectors), or
+     * whose name contains {@code ..} or starts with {@code /}, rejects the
+     * whole archive. JADX output never contains links, so there is no
+     * functionality loss.
+     */
+    public DecompileResult ingestTree(Path tarGz, Path outputDir, Consumer<String> phaseReporter,
+                                      UUID userId, UUID projectId) throws IOException {
+        Files.createDirectories(outputDir);
+
+        phaseReporter.accept("EXTRACTING");
+        validateTarMembers(tarGz);
+        try (InputStream in = Files.newInputStream(tarGz)) {
+            extractTarGz(in, outputDir);
+        }
+
+        if (userId != null && projectId != null) {
+            try {
+                storage.afterDecompile(userId, projectId);
+            } catch (IOException e) {
+                log.error("afterDecompile push failed for project {}: {}", projectId, e.toString());
+                throw e;
+            }
+        }
+
+        return new DecompileResult(extractPackageName(outputDir));
+    }
+
+    /**
+     * List the archive with {@code tar -tvzf} and reject anything that isn't
+     * a plain file or directory, plus any path-traversal name. The {@code -v}
+     * listing's first column is the member type ({@code -} file, {@code d}
+     * dir, {@code l} symlink, {@code h} hardlink, …); names may contain
+     * spaces, so the type char — not field splitting — is the load-bearing
+     * check, with a second name-only pass for traversal.
+     */
+    private void validateTarMembers(Path tarGz) throws IOException {
+        for (String line : runTarList(tarGz, "-tvzf")) {
+            if (line.isBlank()) continue;
+            char type = line.charAt(0);
+            if (type != '-' && type != 'd') {
+                throw new IOException("decompiled tree archive rejected: contains non-file member (type '"
+                        + type + "'): " + abbreviate(line));
+            }
+        }
+        for (String name : runTarList(tarGz, "-tzf")) {
+            if (name.isBlank()) continue;
+            String normalized = name.startsWith("./") ? name.substring(2) : name;
+            if (normalized.startsWith("/") || normalized.equals("..")
+                    || normalized.startsWith("../") || normalized.contains("/../")
+                    || normalized.endsWith("/..")) {
+                throw new IOException("decompiled tree archive rejected: unsafe member path: "
+                        + abbreviate(name));
+            }
+        }
+    }
+
+    private java.util.List<String> runTarList(Path tarGz, String flags) throws IOException {
+        ProcessBuilder pb = new ProcessBuilder("tar", flags, tarGz.toString());
+        pb.redirectErrorStream(true);
+        Process proc = pb.start();
+        try {
+            String out = new String(proc.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            int rc = proc.waitFor();
+            if (rc != 0) {
+                throw new IOException("decompiled tree archive unreadable (tar " + flags + " rc=" + rc
+                        + "): " + abbreviate(out));
+            }
+            return out.lines().toList();
+        } catch (InterruptedException e) {
+            proc.destroyForcibly();
+            Thread.currentThread().interrupt();
+            throw new IOException("tar listing interrupted", e);
+        }
+    }
+
     private JadxWorkerClient.WorkerResponse invokeWorker(Path apk, String filename) throws IOException {
         try {
             return worker.decompile(apk, filename);

@@ -120,8 +120,14 @@ public record OpenApkProperties(
      * The worker's ECS Express endpoint is publicly reachable, so the worker
      * rejects unauthenticated /decompile calls when its WORKER_TOKEN env is
      * set. Blank = no header (local dev against docker compose).
+     *
+     * <p>{@code workerDisabled=true} rejects APK uploads that don't carry a
+     * CLI-decompiled tree with {@code JadxSunsetMessage.TEXT} (mirrors the
+     * Ghidra sunset). CLI-ingested uploads keep working — they bring their
+     * own decompile output.
      */
-    public record Jadx(String workerUrl, Duration workerTimeout, String workerToken) {}
+    public record Jadx(String workerUrl, Duration workerTimeout, String workerToken,
+                       Boolean workerDisabled) {}
 
     /**
      * Configuration for the script-worker Lambda — the malicious-NPM

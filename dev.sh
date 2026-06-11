@@ -78,6 +78,11 @@ preflight() {
     log_warn "Generate your own with:  export OPENAPK_KEK_B64=\"\$(openssl rand -base64 32)\""
   fi
 
+  # Cloud JADX is sunset in prod (worker-disabled defaults true), but dev
+  # runs the jadx-worker container from compose.yaml — re-enable it here so
+  # local APK uploads decompile. Override by exporting it yourself.
+  export OPENAPK_JADX_DISABLED="${OPENAPK_JADX_DISABLED:-false}"
+
   if ! command -v docker >/dev/null 2>&1; then
     log_error "docker not on PATH. Install Docker Engine."
     exit 1

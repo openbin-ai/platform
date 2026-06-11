@@ -27,7 +27,7 @@ import (
 // pipeline would have produced, so the backend's ingest path doesn't need
 // to discriminate between client- and worker-sourced submissions.
 func runLocalGhidra(binaryPath, arch, image string) ([]byte, error) {
-	if err := ensureDockerImage(image); err != nil {
+	if err := ensureDockerImage(image, ghidraImageTarball); err != nil {
 		return nil, err
 	}
 	port, err := findFreePort()
@@ -48,13 +48,13 @@ func runLocalGhidra(binaryPath, arch, image string) ([]byte, error) {
 	defer cancelStream()
 	var streamWG sync.WaitGroup
 	streamWG.Add(2)
-	go func() { defer streamWG.Done(); streamContainerLogs(streamCtx, containerID) }()
+	go func() { defer streamWG.Done(); streamContainerLogs(streamCtx, containerID, "[ghidra] ") }()
 	go func() { defer streamWG.Done(); heartbeat(streamCtx, "decompile") }()
 
 	if err := waitForHealth(port, 60*time.Second); err != nil {
 		// On a health failure, dump the container logs so the user has
 		// something to file a bug with instead of "it didn't work".
-		dumpContainerLogs(containerID)
+		dumpContainerLogs(containerID, "ghidra-worker")
 		return nil, err
 	}
 
@@ -62,7 +62,7 @@ func runLocalGhidra(binaryPath, arch, image string) ([]byte, error) {
 	cancelStream()
 	streamWG.Wait()
 	if err != nil {
-		dumpContainerLogs(containerID)
+		dumpContainerLogs(containerID, "ghidra-worker")
 		return nil, err
 	}
 	return body, nil
@@ -73,7 +73,7 @@ func runLocalGhidra(binaryPath, arch, image string) ([]byte, error) {
 // prefixed `[ghidra] ` to disambiguate them from the CLI's own messages.
 // Exits when ctx is cancelled (which happens once the worker call returns
 // or the run is otherwise torn down).
-func streamContainerLogs(ctx context.Context, containerID string) {
+func streamContainerLogs(ctx context.Context, containerID, prefix string) {
 	cmd := exec.CommandContext(ctx, "docker", "logs", "-f", "--tail", "0", containerID)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -88,8 +88,8 @@ func streamContainerLogs(ctx context.Context, containerID string) {
 	}
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() { defer wg.Done(); pipePrefixed(stdout, "[ghidra] ") }()
-	go func() { defer wg.Done(); pipePrefixed(stderr, "[ghidra] ") }()
+	go func() { defer wg.Done(); pipePrefixed(stdout, prefix) }()
+	go func() { defer wg.Done(); pipePrefixed(stderr, prefix) }()
 	wg.Wait()
 	_ = cmd.Wait()
 }
@@ -125,22 +125,23 @@ func pipePrefixed(r io.ReadCloser, prefix string) {
 }
 
 // ensureDockerImage makes sure the local Docker daemon has the bundled
-// Ghidra image loaded. Resolution order:
+// worker image loaded. Resolution order:
 //   1. Image already loaded (cheap inspect; common after first run).
-//   2. ghidra-worker.tar.gz sitting next to the CLI binary — `docker load`
-//      it. This is how release tarballs ship the image.
-//   3. ghidra-worker.tar.gz in the current working directory — same idea,
-//      for users who extracted to a different layout.
+//   2. The named tarball (ghidra-worker.tar.gz / jadx-worker.tar.gz) sitting
+//      next to the CLI binary — `docker load` it. This is how release
+//      tarballs ship the image.
+//   3. The tarball in the current working directory — same idea, for users
+//      who extracted to a different layout.
 //   4. Fail with a helpful message pointing at the release page.
 //
 // No `docker pull`, no registry, no auth. Fully offline-capable once the
 // release tarball is extracted.
-func ensureDockerImage(image string) error {
+func ensureDockerImage(image, tarballName string) error {
 	if dockerImageExists(image) {
 		return nil
 	}
-	if tarball, ok := findBundledImageTarball(); ok {
-		fmt.Fprintln(os.Stderr, "Loading bundled Ghidra image (first run only; ~1GB)...")
+	if tarball, ok := findBundledImageTarball(tarballName); ok {
+		fmt.Fprintf(os.Stderr, "Loading bundled worker image from %s (first run only)...\n", tarballName)
 		if err := dockerLoad(tarball); err != nil {
 			return fmt.Errorf("docker load %s: %w", tarball, err)
 		}
@@ -151,14 +152,14 @@ func ensureDockerImage(image string) error {
 			tarball, image)
 	}
 	return fmt.Errorf(
-		"Ghidra image %q not loaded and no %s found in any of:\n"+
+		"worker image %q not loaded and no %s found in any of:\n"+
 			"  - next to the openbin binary\n"+
 			"  - %s\n"+
 			"  - /usr/local/share/openbin/\n"+
 			"  - the current working directory\n"+
 			"Download a release tarball that includes the image:\n"+
 			"  https://github.com/openbin-ai/platform/releases/latest",
-		image, ghidraImageTarball,
+		image, tarballName,
 		filepath.Join(xdgDataHome(), "openbin"))
 }
 
@@ -173,8 +174,8 @@ func dockerLoad(tarball string) error {
 	return cmd.Run()
 }
 
-// findBundledImageTarball searches the standard install locations for
-// ghidra-worker.tar.gz. Resolution order, first match wins:
+// findBundledImageTarball searches the standard install locations for the
+// named worker image tarball. Resolution order, first match wins:
 //   1. Next to the executable (the extracted-release layout, and the case
 //      where a symlinked binary's target dir contains the tarball).
 //   2. $XDG_DATA_HOME/openbin/ (~/.local/share/openbin/ when XDG_DATA_HOME
@@ -186,7 +187,7 @@ func dockerLoad(tarball string) error {
 // The executable's path is fully resolved (symlinks followed) so an
 // `ln -s ~/.local/share/openbin/openbin ~/.local/bin/openbin` style install
 // finds the tarball next to the real file, not next to the symlink.
-func findBundledImageTarball() (string, bool) {
+func findBundledImageTarball(tarballName string) (string, bool) {
 	var candidates []string
 
 	if exe, err := os.Executable(); err == nil {
@@ -196,14 +197,14 @@ func findBundledImageTarball() (string, bool) {
 		if real, err := filepath.EvalSymlinks(exe); err == nil {
 			resolved = real
 		}
-		candidates = append(candidates, filepath.Join(filepath.Dir(resolved), ghidraImageTarball))
+		candidates = append(candidates, filepath.Join(filepath.Dir(resolved), tarballName))
 	}
 
-	candidates = append(candidates, filepath.Join(xdgDataHome(), "openbin", ghidraImageTarball))
-	candidates = append(candidates, filepath.Join("/usr/local/share/openbin", ghidraImageTarball))
+	candidates = append(candidates, filepath.Join(xdgDataHome(), "openbin", tarballName))
+	candidates = append(candidates, filepath.Join("/usr/local/share/openbin", tarballName))
 
 	if cwd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, filepath.Join(cwd, ghidraImageTarball))
+		candidates = append(candidates, filepath.Join(cwd, tarballName))
 	}
 
 	for _, c := range candidates {
@@ -283,9 +284,9 @@ func stopContainer(id string) {
 //   - State.Error      — Docker's own error message, if any
 //   - State.FinishedAt — when it died (helps correlate with system events)
 //
-// Called on any /analyze failure (mid-stream EOF, non-2xx, timeout) so
+// Called on any worker-call failure (mid-stream EOF, non-2xx, timeout) so
 // the user has actionable evidence to paste back.
-func dumpContainerLogs(id string) {
+func dumpContainerLogs(id, label string) {
 	if id == "" {
 		return
 	}
@@ -300,11 +301,11 @@ func dumpContainerLogs(id string) {
 	// 2. Full container logs to a tempfile so we don't drown the user's
 	//    terminal in 5000 lines of Ghidra analyzer output. The path is
 	//    printed at the bottom so they can `less` / paste it.
-	tmpLog, err := os.CreateTemp("", "openbin-ghidra-*.log")
+	tmpLog, err := os.CreateTemp("", "openbin-"+label+"-*.log")
 	if err != nil {
 		// Fall back to last-100-lines on stderr if tempfile creation fails.
 		out, _ := exec.Command("docker", "logs", "--tail", "100", id).CombinedOutput()
-		fmt.Fprintln(os.Stderr, "---- ghidra-worker logs (last 100 lines; tempfile failed) ----")
+		fmt.Fprintln(os.Stderr, "---- "+label+" logs (last 100 lines; tempfile failed) ----")
 		fmt.Fprintln(os.Stderr, string(out))
 		fmt.Fprintln(os.Stderr, "--------------------------------------------------------------")
 		return
@@ -319,7 +320,7 @@ func dumpContainerLogs(id string) {
 	_ = logsCmd.Run()
 
 	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "---- ghidra-worker post-mortem ----")
+	fmt.Fprintln(os.Stderr, "---- "+label+" post-mortem ----")
 	fmt.Fprint(os.Stderr, string(insOut))
 	fmt.Fprintln(os.Stderr, "full logs saved to: "+tmpLog.Name())
 	fmt.Fprintln(os.Stderr, "  paste with:  cat "+tmpLog.Name())

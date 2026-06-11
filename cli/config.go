@@ -37,6 +37,12 @@ const (
 	// network access for the image. See `ensureDockerImage` in ghidra.go.
 	ghidraWorkerImage  = "openbin/ghidra-worker:bundled"
 	ghidraImageTarball = "ghidra-worker.tar.gz"
+
+	// Same bundling scheme for the JADX worker (APK decompiles). The image is
+	// identical to what the cloud jadx-worker ran before the 2026-06 sunset,
+	// so CLI output is byte-identical to the old cloud pipeline.
+	jadxWorkerImage  = "openapk/jadx-worker:bundled"
+	jadxImageTarball = "jadx-worker.tar.gz"
 )
 
 // config groups the runtime endpoints + Keycloak details. Resolved once at

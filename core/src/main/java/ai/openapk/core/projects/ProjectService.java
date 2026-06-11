@@ -149,7 +149,8 @@ public class ProjectService {
     }
 
     @Transactional
-    public ProjectResponse upload(User user, MultipartFile file, ProjectKind requestedKind, String archHint) {
+    public ProjectResponse upload(User user, MultipartFile file, ProjectKind requestedKind, String archHint,
+                                  MultipartFile decompiledTree) {
         if (file.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "uploaded file is empty");
         }
@@ -166,6 +167,19 @@ public class ProjectService {
         if (kind == ProjectKind.BIN && ghidraWorkerDisabled()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     GhidraSunsetMessage.TEXT);
+        }
+        // Cloud JADX sunset gate, same shape: an APK upload with no
+        // CLI-decompiled tree would need the cloud worker. APK uploads that
+        // bring their own tree (the CLI flow) sail through — no worker, no
+        // quota charge.
+        boolean hasCliTree = decompiledTree != null && !decompiledTree.isEmpty();
+        if (hasCliTree && kind != ProjectKind.APK) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "decompiledTree is only valid for APK uploads");
+        }
+        if (kind == ProjectKind.APK && !hasCliTree && jadxWorkerDisabled()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    JadxSunsetMessage.TEXT);
         }
         String filename = sanitizeFilename(file.getOriginalFilename(), kind);
 
@@ -222,6 +236,23 @@ public class ProjectService {
                     "failed to persist upload: " + e.getMessage());
         }
 
+        // CLI flow: stash the user-supplied decompile tree next to the APK so
+        // the async ingest can pick it up. Disk-local + transient — the async
+        // task runs in this same JVM and deletes it after extraction, so it
+        // never needs to reach durable storage.
+        if (hasCliTree) {
+            try {
+                Files.copy(decompiledTree.getInputStream(),
+                        cliTreePath(user.getId(), project.getId()),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException e) {
+                storage.deleteProject(user.getId(), project.getId());
+                repo.delete(project);
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                        "failed to store decompiled tree: " + e.getMessage());
+            }
+        }
+
         project.setSha256(sha);
         project.setStatus(ProjectStatus.DECOMPILING);
         repo.save(project);
@@ -249,10 +280,15 @@ public class ProjectService {
         // the proxy and runs synchronously on this thread).
         final java.util.UUID userId = user.getId();
         final java.util.UUID projectId = project.getId();
+        final boolean cliTree = hasCliTree;
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                self.scheduleDecompile(userId, projectId);
+                if (cliTree) {
+                    self.scheduleCliTreeIngest(userId, projectId);
+                } else {
+                    self.scheduleDecompile(userId, projectId);
+                }
             }
         });
 
@@ -261,6 +297,15 @@ public class ProjectService {
 
     private boolean ghidraWorkerDisabled() {
         return props.ghidra() != null && Boolean.TRUE.equals(props.ghidra().workerDisabled());
+    }
+
+    private boolean jadxWorkerDisabled() {
+        return props.jadx() != null && Boolean.TRUE.equals(props.jadx().workerDisabled());
+    }
+
+    /** Transient on-disk location of a CLI-supplied decompile tree tar.gz. */
+    private Path cliTreePath(UUID userId, UUID projectId) {
+        return storage.apkPath(userId, projectId).getParent().resolve("decompiled-tree.tar.gz");
     }
 
     @Async("decompileExecutor")
@@ -314,6 +359,28 @@ public class ProjectService {
         }
     }
 
+    /**
+     * CLI ingest pipeline: the decompile already happened on the user's
+     * machine; extract their tree and run the same post-decompile steps as
+     * the worker path. Deliberately NOT routed through scheduleDecompile —
+     * no cloud worker runs, so no worker-quota slot is reserved or charged.
+     */
+    @Async("decompileExecutor")
+    public void scheduleCliTreeIngest(UUID userId, UUID projectId) {
+        try {
+            markStartedAt(projectId);
+            Path tarGz = cliTreePath(userId, projectId);
+            Path out = storage.srcDir(userId, projectId);
+            var result = jadx.ingestTree(tarGz, out, phase -> markPhase(projectId, phase),
+                    userId, projectId);
+            Files.deleteIfExists(tarGz);
+            finishApkDecompile(userId, projectId, result.packageName(), out);
+        } catch (Exception e) {
+            log.error("CLI tree ingest failed for project {}: {}", projectId, e.toString(), e);
+            markFailed(projectId, abbreviate(e.toString()));
+        }
+    }
+
     /** APK pipeline: JADX → file tree → usage index. The original flow. */
     private void runApkDecompile(UUID userId, UUID projectId) throws IOException {
         Path apk = storage.apkPath(userId, projectId);
@@ -324,10 +391,20 @@ public class ProjectService {
         // decompiled tree to S3 (or no-op on the fs backend).
         var result = jadx.decompile(apk, out, phase -> markPhase(projectId, phase), userId, projectId);
 
+        finishApkDecompile(userId, projectId, result.packageName(), out);
+    }
+
+    /**
+     * Shared tail of the APK pipeline — everything after a decompiled tree
+     * exists in {@code out}, whether it came from the cloud worker or a CLI
+     * upload: package name + READY persist, file-tree cache, usage index,
+     * completion notification.
+     */
+    private void finishApkDecompile(UUID userId, UUID projectId, String packageName, Path out) throws IOException {
         markPhase(projectId, "BUILDING_TREE");
         var project = repo.findById(projectId)
                 .orElseThrow(() -> new IllegalStateException("project disappeared: " + projectId));
-        project.setPackageName(result.packageName());
+        project.setPackageName(packageName);
         project.setStatus(ProjectStatus.READY);
         project.setDecompiledAt(Instant.now());
 
