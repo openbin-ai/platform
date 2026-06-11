@@ -154,6 +154,10 @@ openapk:
     # JADX_TIMEOUT_SEC (default 15m). Big games take 5+ minutes; we give 5m
     # of headroom so legitimate decompiles don't get killed at the edge.
     worker-timeout: PT20M
+    # Shared secret sent as X-Worker-Token. The worker's ECS Express endpoint
+    # is publicly reachable; it 401s /decompile without this when its own
+    # WORKER_TOKEN env is set. Blank = no header (local dev).
+    worker-token: ${OPENAPK_JADX_WORKER_TOKEN:}
   script-analyzer:
     # Lambda-backed malicious-NPM analyzer. Scale-to-zero compute for a
     # sporadic, bounded workload — the only Lambda in the stack (everything

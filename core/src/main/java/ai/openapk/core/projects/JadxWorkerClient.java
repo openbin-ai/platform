@@ -43,6 +43,7 @@ public class JadxWorkerClient {
     private final HttpClient http;
     private final URI decompileUri;
     private final Duration requestTimeout;
+    private final String workerToken;
 
     public JadxWorkerClient(OpenApkProperties props) {
         String base = props.jadx() != null && props.jadx().workerUrl() != null
@@ -51,6 +52,8 @@ public class JadxWorkerClient {
         Duration timeout = props.jadx() != null && props.jadx().workerTimeout() != null
                 ? props.jadx().workerTimeout()
                 : Duration.ofMinutes(20);
+        String token = props.jadx() != null ? props.jadx().workerToken() : null;
+        this.workerToken = token != null && !token.isBlank() ? token : null;
         this.decompileUri = URI.create(stripTrailingSlash(base) + "/decompile");
         this.requestTimeout = timeout;
         this.http = HttpClient.newBuilder()
@@ -90,12 +93,15 @@ public class JadxWorkerClient {
         String boundary = "----openapk" + Long.toHexString(System.nanoTime());
         byte[] body = buildMultipartBody(boundary, filename, bytes);
 
-        var req = HttpRequest.newBuilder(decompileUri)
+        var builder = HttpRequest.newBuilder(decompileUri)
                 .timeout(requestTimeout)
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                 .header("Accept", "application/gzip, application/json")
-                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                .build();
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body));
+        if (workerToken != null) {
+            builder.header("X-Worker-Token", workerToken);
+        }
+        var req = builder.build();
 
         log.info("Calling jadx-worker /decompile: file={} size={}b uri={}",
                 filename, bytes.length, decompileUri);

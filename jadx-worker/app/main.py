@@ -21,6 +21,7 @@ Containment story:
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import shutil
@@ -29,7 +30,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
 logging.basicConfig(
@@ -62,7 +63,21 @@ JADX_CPU_LIMIT_SEC = int(os.environ.get("JADX_CPU_LIMIT_SEC", "1200"))
 # doesn't trust its environment.
 MAX_UPLOAD_BYTES = int(os.environ.get("JADX_MAX_UPLOAD_BYTES", str(1024 * 1024 * 1024)))  # 1 GiB
 
+# Shared-secret auth for /decompile. Required in prod: the ECS Express
+# gateway endpoint is publicly reachable, so without this anyone who finds
+# the hostname can feed us APKs and burn paid CPU. Unset = open (local dev,
+# docker compose). /health stays unauthenticated — the ALB health check
+# can't send custom headers.
+WORKER_TOKEN = os.environ.get("WORKER_TOKEN", "")
+
 app = FastAPI(title="jadx-worker", version="0.1.0")
+
+
+def _check_token(provided: str | None) -> None:
+    if not WORKER_TOKEN:
+        return
+    if not provided or not hmac.compare_digest(provided, WORKER_TOKEN):
+        raise HTTPException(status_code=401, detail="missing or invalid worker token")
 
 
 @app.get("/health")
@@ -77,7 +92,10 @@ def health() -> dict:
 
 
 @app.post("/decompile")
-async def decompile(apk: UploadFile = File(..., description="An APK to decompile")):
+async def decompile(
+    apk: UploadFile = File(..., description="An APK to decompile"),
+    x_worker_token: str | None = Header(default=None),
+):
     """Decompile an APK and stream back a tar.gz of the JADX output tree.
 
     Response body is `application/gzip` containing `tar -cz` of the decompile
@@ -86,6 +104,8 @@ async def decompile(apk: UploadFile = File(..., description="An APK to decompile
     existing manifest parser to pull the package name. Worker stays minimal
     on purpose — no manifest parsing here.
     """
+    _check_token(x_worker_token)
+
     if not JADX_BIN.is_file():
         raise HTTPException(status_code=503, detail="jadx binary missing")
 

@@ -115,8 +115,13 @@ public record OpenApkProperties(
      * Connection details for the JADX worker microservice
      * (Python FastAPI + jadx CLI, deployed separately). Replaces the
      * previous in-JVM JADX integration — see jadx-worker/ at the repo root.
+     *
+     * <p>{@code workerToken} — shared secret sent as {@code X-Worker-Token}.
+     * The worker's ECS Express endpoint is publicly reachable, so the worker
+     * rejects unauthenticated /decompile calls when its WORKER_TOKEN env is
+     * set. Blank = no header (local dev against docker compose).
      */
-    public record Jadx(String workerUrl, Duration workerTimeout) {}
+    public record Jadx(String workerUrl, Duration workerTimeout, String workerToken) {}
 
     /**
      * Configuration for the script-worker Lambda — the malicious-NPM
