@@ -201,7 +201,7 @@ export function ScriptUploadCard({
             // tree before compressing.
             // @ts-expect-error — webkitdirectory not in lib.dom yet
             webkitdirectory=""
-            // @ts-expect-error — directory is the Firefox-specific spelling
+            // directory is the Firefox-specific spelling; lib.dom now types it
             directory=""
             multiple
             className="hidden"
