@@ -368,7 +368,12 @@ public class ProjectService {
     @Async("decompileExecutor")
     public void scheduleCliTreeIngest(UUID userId, UUID projectId) {
         try {
-            runCliTreeIngest(userId, projectId);
+            // Through the self proxy, NOT a plain call: @Transactional on
+            // runCliTreeIngest only takes effect when invoked via the Spring
+            // proxy. A plain this.runCliTreeIngest() bypasses it (same hazard
+            // the @Async dispatch above guards against), leaving no open
+            // session for finishApkDecompile's lazy Project.user deref.
+            self.runCliTreeIngest(userId, projectId);
         } catch (Exception e) {
             log.error("CLI tree ingest failed for project {}: {}", projectId, e.toString(), e);
             markFailed(projectId, abbreviate(e.toString()));
@@ -376,13 +381,14 @@ public class ProjectService {
     }
 
     /**
-     * Transactional body of the CLI ingest — mirrors {@link #runDecompile} so
-     * the Hibernate session stays open across {@link #finishApkDecompile}
-     * (the completion notification dereferences the lazy {@code Project.user}
-     * proxy; with open-in-view off and no surrounding tx it would fail).
+     * Transactional body of the CLI ingest — keeps the Hibernate session open
+     * across {@link #finishApkDecompile} (the completion notification
+     * dereferences the lazy {@code Project.user} proxy; with open-in-view off
+     * and no surrounding tx it would fail). MUST be invoked through {@code
+     * self} so the proxy applies the transaction.
      */
     @Transactional
-    protected void runCliTreeIngest(UUID userId, UUID projectId) throws IOException {
+    public void runCliTreeIngest(UUID userId, UUID projectId) throws IOException {
         markStartedAt(projectId);
         Path tarGz = cliTreePath(userId, projectId);
         Path out = storage.srcDir(userId, projectId);
