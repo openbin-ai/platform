@@ -368,17 +368,28 @@ public class ProjectService {
     @Async("decompileExecutor")
     public void scheduleCliTreeIngest(UUID userId, UUID projectId) {
         try {
-            markStartedAt(projectId);
-            Path tarGz = cliTreePath(userId, projectId);
-            Path out = storage.srcDir(userId, projectId);
-            var result = jadx.ingestTree(tarGz, out, phase -> markPhase(projectId, phase),
-                    userId, projectId);
-            Files.deleteIfExists(tarGz);
-            finishApkDecompile(userId, projectId, result.packageName(), out);
+            runCliTreeIngest(userId, projectId);
         } catch (Exception e) {
             log.error("CLI tree ingest failed for project {}: {}", projectId, e.toString(), e);
             markFailed(projectId, abbreviate(e.toString()));
         }
+    }
+
+    /**
+     * Transactional body of the CLI ingest — mirrors {@link #runDecompile} so
+     * the Hibernate session stays open across {@link #finishApkDecompile}
+     * (the completion notification dereferences the lazy {@code Project.user}
+     * proxy; with open-in-view off and no surrounding tx it would fail).
+     */
+    @Transactional
+    protected void runCliTreeIngest(UUID userId, UUID projectId) throws IOException {
+        markStartedAt(projectId);
+        Path tarGz = cliTreePath(userId, projectId);
+        Path out = storage.srcDir(userId, projectId);
+        var result = jadx.ingestTree(tarGz, out, phase -> markPhase(projectId, phase),
+                userId, projectId);
+        Files.deleteIfExists(tarGz);
+        finishApkDecompile(userId, projectId, result.packageName(), out);
     }
 
     /** APK pipeline: JADX → file tree → usage index. The original flow. */

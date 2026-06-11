@@ -143,7 +143,7 @@ export function Projects() {
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
       <div>
         <h1 className="text-2xl font-semibold text-zinc-100">Projects</h1>
-        <p className="mt-1 text-zinc-400">Drop an APK to decompile it with JADX. Max 200 MB.</p>
+        <p className="mt-1 text-zinc-400">Decompile APKs with the desktop CLI — web uploads are paused.</p>
       </div>
 
       {error && (
@@ -198,63 +198,16 @@ function ProjectsTab({
   onDelete: (id: string, name: string) => void
   onPatch: (id: string, body: Partial<{ name: string; workflowStatus: WorkflowStatus }>) => void
 }) {
-  const uploading = upload !== null
-  // Clamp pct to [0, 99] while bytes are still streaming — 100% is reserved
-  // for the moment the server has fully acknowledged the request, after which
-  // setUpload(null) flips us back to the idle dropzone.
-  const pct = upload && upload.total > 0
-    ? Math.min(99, Math.floor((upload.sent / upload.total) * 100))
-    : 0
+  // Web APK uploads are paused (cloud JADX sunset) — the dropzone is
+  // replaced by the CLI card below. The upload state/handlers still flow in
+  // from the parent so the dropzone can be restored in one revert when
+  // sponsorship lands; void-reference them to keep TS's unused-locals
+  // check happy without re-threading the prop list.
+  void [upload, dragActive, setDragActive, fileInputRef, onFiles]
+
   return (
     <div className="space-y-6">
-      <div
-        onDragEnter={e => { e.preventDefault(); if (!uploading) setDragActive(true) }}
-        onDragOver={e => { e.preventDefault(); if (!uploading) setDragActive(true) }}
-        onDragLeave={e => { e.preventDefault(); setDragActive(false) }}
-        onDrop={e => {
-          e.preventDefault()
-          setDragActive(false)
-          if (!uploading) onFiles(e.dataTransfer.files)
-        }}
-        onClick={() => { if (!uploading) fileInputRef.current?.click() }}
-        className={`relative flex h-40 items-center justify-center overflow-hidden rounded-lg border-2 border-dashed transition-colors ${
-          uploading
-            ? 'cursor-progress border-purple-500/70 bg-purple-950/20'
-            : dragActive
-              ? 'cursor-pointer border-purple-500 bg-purple-950/30'
-              : 'cursor-pointer border-zinc-700 bg-zinc-900/40 hover:border-zinc-500'
-        }`}
-      >
-        {uploading && upload ? (
-          <div className="z-10 w-full max-w-xl px-6 text-center">
-            <p className="truncate font-mono text-sm text-zinc-100">{upload.filename}</p>
-            <p className="mt-1 text-xs text-zinc-400">
-              Uploading {pct}% · {formatBytes(upload.sent)} / {formatBytes(upload.total)}
-            </p>
-            <div className="mt-3 h-2 overflow-hidden rounded bg-zinc-800/80">
-              <div
-                className="h-full bg-linear-to-r from-purple-600 to-purple-400 transition-[width] duration-150 ease-out"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            <p className="mt-2 text-[10px] uppercase tracking-wider text-zinc-500">
-              Decompile starts automatically when transfer completes
-            </p>
-          </div>
-        ) : (
-          <div className="text-center">
-            <p className="text-zinc-200">Drop an APK here or click to browse</p>
-            <p className="mt-1 text-xs text-zinc-500">.apk files only · up to 200 MB</p>
-          </div>
-        )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".apk"
-          className="hidden"
-          onChange={e => onFiles(e.target.files)}
-        />
-      </div>
+      <JadxSunsetCard />
 
       {loading ? (
         <p className="text-zinc-500">Loading…</p>
@@ -267,6 +220,70 @@ function ProjectsTab({
           ))}
         </ul>
       )}
+    </div>
+  )
+}
+
+/**
+ * Sunset notice replacing the APK upload dropzone while
+ * `openapk.jadx.worker-disabled=true` is set on the backend. The desktop CLI
+ * runs the same jadx-worker container on the user's machine and uploads the
+ * decompiled tree, so every analysis feature on existing and CLI-created
+ * projects keeps working — only the cloud spin-up-a-worker path is paused.
+ * Sponsorship inbound goes to husam@openbin.ai.
+ */
+function JadxSunsetCard() {
+  const releasesURL = 'https://github.com/openbin-ai/platform/releases/latest'
+  return (
+    <div className="overflow-hidden rounded-lg border border-amber-700/50 bg-linear-to-br from-amber-950/40 via-zinc-950/40 to-zinc-950/60 p-6 shadow-[0_8px_40px_rgba(251,191,36,0.08)]">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 rounded border border-amber-600/60 bg-amber-900/40 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-amber-300">
+          Web uploads paused
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-lg font-semibold text-zinc-50">
+            Web APK uploads are paused until we find a sponsor
+          </h2>
+          <p className="mt-1 text-sm leading-relaxed text-zinc-300">
+            OpenAPK is a free open-source project, and the always-on cloud
+            decompiler became our single biggest AWS cost — we simply can't
+            afford it. Decompiling now happens through the desktop CLI on your
+            own machine with the exact same JADX engine, and the result is
+            uploaded here. Existing projects and every analysis feature keep
+            working unchanged.
+          </p>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <a
+              href={releasesURL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center rounded-md bg-amber-400 px-4 py-2 text-sm font-semibold text-black shadow-[0_4px_20px_rgba(251,191,36,0.4)] transition hover:bg-amber-300"
+            >
+              Download the CLI →
+            </a>
+            <span className="text-xs text-zinc-500">
+              Linux · macOS · Windows · free · open-source
+            </span>
+          </div>
+          <pre className="mt-4 overflow-x-auto rounded border border-zinc-800 bg-black/40 p-3 font-mono text-[11px] leading-relaxed text-zinc-300">
+{`# install once (Linux/macOS), then:
+openbin login
+openbin apk app-release.apk
+# decompiles locally, uploads the result —
+# the project appears in the list below.`}
+          </pre>
+          <p className="mt-4 border-t border-amber-900/40 pt-3 text-xs text-zinc-400">
+            Want to sponsor cloud decompile for the community and bring web
+            uploads back?{' '}
+            <a
+              href="mailto:husam@openbin.ai"
+              className="font-medium text-amber-300 underline-offset-4 hover:underline"
+            >
+              husam@openbin.ai
+            </a>
+          </p>
+        </div>
+      </div>
     </div>
   )
 }
