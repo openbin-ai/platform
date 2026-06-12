@@ -12,6 +12,7 @@ import { ReportEditor } from './Report'
 import { Gallery } from '../components/Gallery'
 import { ScreenshotModal } from '../components/ScreenshotModal'
 import { captureScreen } from '../components/captureScreen'
+import { estimateCost } from '../lib/llmCost'
 
 // Identifier alphabet used to find function-name occurrences in both
 // pseudocode (post-Shiki) and disassembly (raw text). Wider than a typical
@@ -4244,7 +4245,30 @@ function StringsPanel({ strings }: { strings: string[] }) {
 
 // One side of the per-function chat thread. Roles match the LLM convention
 // so the backend can forward them verbatim into the priorTurns array.
-type ChatTurn = { role: 'user' | 'assistant'; content: string; meta?: { model: string; in: number; out: number } }
+type ChatTurn = {
+  role: 'user' | 'assistant'
+  content: string
+  meta?: { model: string; in: number; out: number }
+  /** Only present in shared-session turns — the function the user was looking
+   *  at when they asked. Helps them remember the context later. */
+  functionName?: string | null
+}
+
+// A named Ask AI conversation. Each session has a mode:
+//   - per-function: threads keyed by function name; switching functions swaps
+//     the visible thread (each function keeps its own conversation).
+//   - shared:       one thread for the whole session; switching functions just
+//     changes which function's code is attached to the next question.
+// Persisted to localStorage keyed by projectId so refresh/close keeps history.
+type ChatSession = {
+  id: string
+  title: string
+  mode: 'per-function' | 'shared'
+  /** per-function: keyed by function name. shared: single SHARED_KEY entry. */
+  threads: Record<string, ChatTurn[]>
+  createdAt: number
+  updatedAt: number
+}
 
 // localStorage persistence for LLM-paid panel state. We persist things the
 // user spent tokens on (Ask threads, Crypto scripts, Chain narrations) so
@@ -4256,37 +4280,60 @@ type ChatTurn = { role: 'user' | 'assistant'; content: string; meta?: { model: s
 // Failures (storage quota exceeded, security errors in sandboxed contexts,
 // JSON parse errors from a hand-edited slot) all degrade silently to "no
 // stored state" — chats still work in-memory.
-const askStorageKey = (projectId: string) => `openbin.ask.${projectId}`
 const cryptoStorageKey = (projectId: string) => `openbin.crypto.${projectId}`
 const chainNarrationsKey = (projectId: string, rootName: string) =>
   `openbin.chainNarrations.${projectId}.${rootName}`
 
-function loadAskThreads(projectId: string): Map<string, ChatTurn[]> {
-  if (typeof window === 'undefined') return new Map()
+// Ask AI session persistence. Sessions + their threads are namespaced by
+// projectId so each project keeps its own conversation set, and an active-id
+// slot remembers which session was open. We persist this because the user
+// spent real tokens generating it — refresh/close must not wipe it.
+const SHARED_KEY = '__shared__'
+const askSessionsKey = (projectId: string) => `openbin.askSessions.${projectId}`
+const askActiveKey = (projectId: string) => `openbin.askActiveSession.${projectId}`
+
+function emptySession(mode: 'per-function' | 'shared' = 'per-function'): ChatSession {
+  const now = Date.now()
+  return { id: crypto.randomUUID(), title: 'Untitled session', mode, threads: {}, createdAt: now, updatedAt: now }
+}
+
+function loadSessions(projectId: string): ChatSession[] {
+  if (typeof window === 'undefined') return []
   try {
-    const raw = window.localStorage.getItem(askStorageKey(projectId))
-    if (!raw) return new Map()
-    const obj = JSON.parse(raw) as Record<string, ChatTurn[]>
-    return new Map(Object.entries(obj))
+    const raw = window.localStorage.getItem(askSessionsKey(projectId))
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? (parsed as ChatSession[]) : []
   } catch {
-    return new Map()
+    return []
   }
 }
 
-function saveAskThreads(projectId: string, threads: Map<string, ChatTurn[]>) {
+function saveSessions(projectId: string, sessions: ChatSession[]) {
   if (typeof window === 'undefined') return
   try {
-    const obj: Record<string, ChatTurn[]> = {}
-    threads.forEach((v, k) => { obj[k] = v })
-    if (Object.keys(obj).length === 0) {
-      window.localStorage.removeItem(askStorageKey(projectId))
-    } else {
-      window.localStorage.setItem(askStorageKey(projectId), JSON.stringify(obj))
-    }
+    if (sessions.length === 0) window.localStorage.removeItem(askSessionsKey(projectId))
+    else window.localStorage.setItem(askSessionsKey(projectId), JSON.stringify(sessions))
   } catch {
-    // localStorage may throw on quota exceeded — silently drop the write
-    // rather than crashing the chat send path.
+    // quota / sandbox — silently drop rather than crash the send path.
   }
+}
+
+function loadActiveId(projectId: string): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage.getItem(askActiveKey(projectId))
+  } catch {
+    return null
+  }
+}
+
+function saveActiveId(projectId: string, id: string | null) {
+  if (typeof window === 'undefined') return
+  try {
+    if (id) window.localStorage.setItem(askActiveKey(projectId), id)
+    else window.localStorage.removeItem(askActiveKey(projectId))
+  } catch { /* ignore */ }
 }
 
 // Generic JSON-record persistence used by Crypto results (function → script)
@@ -4332,21 +4379,70 @@ function AskPanel({
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
   const [credentialId, setCredentialId] = useState<string>('')
 
-  // Threads per function name. Switching functions stashes the prior
-  // function's thread, so coming back restores the conversation. Kept in a
-  // ref because we mutate inside async stream callbacks and don't want each
-  // chunk to invalidate the whole map.
-  //
-  // Initialized from localStorage so threads survive a page refresh — the
-  // tokens spent generating them are real money and the user shouldn't
-  // pay twice for the same conversation. Persistence keyed by projectId so
-  // each project keeps its own conversation set.
-  const threadsRef = useRef<Map<string, ChatTurn[]>>(loadAskThreads(projectId))
-  const [turns, setTurns] = useState<ChatTurn[]>([])
+  // ── sessions ──────────────────────────────────────────────────────────
+  // Seed sessions + activeId atomically so we never land in a "have sessions
+  // but no valid activeId" limbo that renders Loading… forever.
+  const [initial] = useState(() => {
+    const loaded = loadSessions(projectId)
+    const stored = loadActiveId(projectId)
+    if (loaded.length > 0) {
+      const id = stored && loaded.some((s) => s.id === stored) ? stored : loaded[0].id
+      return { sessions: loaded, activeId: id }
+    }
+    const fresh = emptySession('per-function')
+    return { sessions: [fresh], activeId: fresh.id }
+  })
+  const [sessions, setSessions] = useState<ChatSession[]>(initial.sessions)
+  const [activeId, setActiveId] = useState<string | null>(initial.activeId)
+
+  // Cross-project nav (/projects/A → /projects/B) re-renders without remount,
+  // so reload sessions when projectId changes. Skip the first run — the lazy
+  // initializer above already loaded the right project.
+  const initFor = useRef(projectId)
+  useEffect(() => {
+    if (initFor.current === projectId) return
+    initFor.current = projectId
+    const loaded = loadSessions(projectId)
+    if (loaded.length > 0) {
+      const stored = loadActiveId(projectId)
+      setSessions(loaded)
+      setActiveId(stored && loaded.some((s) => s.id === stored) ? stored : loaded[0].id)
+    } else {
+      const fresh = emptySession('per-function')
+      setSessions([fresh])
+      setActiveId(fresh.id)
+    }
+  }, [projectId])
+
+  // Safety net: if activeId points at nothing (e.g. after a delete), jump to
+  // the first available session.
+  useEffect(() => {
+    if (sessions.length > 0 && (!activeId || !sessions.some((s) => s.id === activeId))) {
+      setActiveId(sessions[0].id)
+    }
+  }, [sessions, activeId])
+
+  // Persist sessions + active id so refresh/close keeps history.
+  useEffect(() => { saveSessions(projectId, sessions) }, [sessions, projectId])
+  useEffect(() => { saveActiveId(projectId, activeId) }, [activeId, projectId])
+
+  const active = useMemo(
+    () => sessions.find((s) => s.id === activeId) ?? null,
+    [sessions, activeId],
+  )
+
+  // ── thread selection (depends on mode + current function) ──────────────
+  const threadKey = active?.mode === 'shared' ? SHARED_KEY : (fn?.name ?? '')
+  const turns: ChatTurn[] = active && threadKey ? (active.threads[threadKey] ?? []) : []
+
+  // ── UI state ──────────────────────────────────────────────────────────
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
   const [question, setQuestion] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const answerEndRef = useRef<HTMLDivElement | null>(null)
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -4364,53 +4460,58 @@ function AskPanel({
     return () => { cancelled = true }
   }, [api])
 
-  // Cross-project navigation (/projects/A → /projects/B) re-renders this
-  // component without remounting, so the useRef above is still pinned to
-  // project A's data. Reload it whenever projectId changes so threads
-  // from project B come back and we don't overwrite B's storage slot
-  // with A's map.
+  // Auto-scroll on new content.
   useEffect(() => {
-    threadsRef.current = loadAskThreads(projectId)
-  }, [projectId])
+    requestAnimationFrame(() => {
+      transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    })
+  }, [turns.length, streaming])
 
-  // When the user selects a different function (or the project changes
-  // and we just reloaded the ref above), swap the visible thread for that
-  // function's stored thread. Errors are local to the previous attempt —
-  // don't carry them over.
-  useEffect(() => {
-    if (!fn) {
-      setTurns([])
-      setError(null)
-      return
-    }
-    setTurns(threadsRef.current.get(fn.name) ?? [])
-    setError(null)
-  }, [fn?.name, projectId])
+  // ── session mutators ──────────────────────────────────────────────────
+  const updateActive = useCallback((mut: (s: ChatSession) => ChatSession) => {
+    setSessions((prev) => prev.map((s) => (s.id === activeId ? { ...mut(s), updatedAt: Date.now() } : s)))
+  }, [activeId])
 
-  // Keep the threads ref in sync with the visible thread, and mirror to
-  // localStorage so threads survive page refresh. Skip when turns is
-  // empty — that's either the initial transient before the swap effect
-  // above populates from storage, OR the post-clearThread state (which
-  // has already handled its own save/delete). Persisting empty here
-  // would race with the swap effect and blow away storage on every mount.
-  useEffect(() => {
-    if (!fn || turns.length === 0) return
-    threadsRef.current.set(fn.name, turns)
-    saveAskThreads(projectId, threadsRef.current)
-  }, [turns, fn?.name, projectId])
+  const newSession = useCallback(() => {
+    const s = emptySession(active?.mode ?? 'per-function')
+    setSessions((prev) => [...prev, s])
+    setActiveId(s.id)
+    setDrawerOpen(false)
+  }, [active?.mode])
 
-  function clearThread() {
-    if (!fn) return
-    threadsRef.current.delete(fn.name)
-    saveAskThreads(projectId, threadsRef.current)
-    setTurns([])
-    setError(null)
+  const deleteSession = useCallback((id: string) => {
+    if (!confirm('Delete this chat session? This cannot be undone.')) return
+    setSessions((prev) => {
+      const next = prev.filter((s) => s.id !== id)
+      if (next.length === 0) {
+        const fresh = emptySession('per-function')
+        setActiveId(fresh.id)
+        return [fresh]
+      }
+      if (id === activeId) setActiveId(next[0].id)
+      return next
+    })
+  }, [activeId])
+
+  const setMode = useCallback((mode: 'per-function' | 'shared') => {
+    updateActive((s) => ({ ...s, mode }))
+  }, [updateActive])
+
+  const startRename = (s: ChatSession) => { setRenaming(s.id); setRenameDraft(s.title) }
+  const commitRename = (id: string) => {
+    const title = renameDraft.trim() || 'Untitled session'
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title, updatedAt: Date.now() } : s)))
+    setRenaming(null)
   }
 
+  // ── send ──────────────────────────────────────────────────────────────
   async function send() {
-    if (!fn) return
-    if (!credentialId) {
-      setError('Pick an LLM credential first.')
+    if (!active) return
+    if (!credentialId) { setError('Pick an LLM credential first.'); return }
+    if (!fn) {
+      setError(active.mode === 'shared'
+        ? 'Select a function to attach as context for your first question.'
+        : 'Select a function from the list first.')
       return
     }
     const trimmed = question.trim()
@@ -4419,67 +4520,82 @@ function AskPanel({
     setError(null)
     setStreaming(true)
 
-    // Snapshot what we send as priorTurns BEFORE we mutate state — replaying
-    // the full thread the model has seen so far. Then optimistically append
-    // the user's new turn + a placeholder assistant turn that we'll grow
-    // with each chunk.
+    // Snapshot priorTurns BEFORE mutating state — the full thread the model
+    // has seen so far.
     const priorTurns = turns.map((t) => ({ role: t.role, content: t.content }))
-    const userTurn: ChatTurn = { role: 'user', content: trimmed }
+    const userTurn: ChatTurn = { role: 'user', content: trimmed, functionName: fn.name }
     const assistantTurn: ChatTurn = { role: 'assistant', content: '' }
-    setTurns((prev) => [...prev, userTurn, assistantTurn])
+    updateActive((s) => ({
+      ...s,
+      title: s.title === 'Untitled session' && turns.length === 0 ? trimmed.slice(0, 40) : s.title,
+      threads: { ...s.threads, [threadKey]: [...turns, userTurn, assistantTurn] },
+    }))
     setQuestion('')
 
     await streamingApi(
       `/api/projects/${projectId}/ask-function/stream`,
-      {
-        functionName: fn.name,
-        question: trimmed,
-        credentialId,
-        priorTurns,
-      },
+      { functionName: fn.name, question: trimmed, credentialId, priorTurns },
       {
         onChunk: (text) => {
-          // Grow the last turn (the placeholder assistant message). Using the
-          // functional form keeps us correct against React's batched renders.
-          setTurns((prev) => {
-            if (prev.length === 0) return prev
-            const next = prev.slice()
+          updateActive((s) => {
+            const thread = s.threads[threadKey] ?? []
+            if (thread.length === 0) return s
+            const next = thread.slice()
             const last = next[next.length - 1]
             next[next.length - 1] = { ...last, content: last.content + text }
-            return next
-          })
-          requestAnimationFrame(() => {
-            answerEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+            return { ...s, threads: { ...s.threads, [threadKey]: next } }
           })
         },
         onDone: (info) => {
-          setTurns((prev) => {
-            if (prev.length === 0) return prev
-            const next = prev.slice()
+          updateActive((s) => {
+            const thread = s.threads[threadKey] ?? []
+            if (thread.length === 0) return s
+            const next = thread.slice()
             const last = next[next.length - 1]
             next[next.length - 1] = {
               ...last,
               meta: { model: info.model, in: info.inputTokens, out: info.outputTokens },
             }
-            return next
+            return { ...s, threads: { ...s.threads, [threadKey]: next } }
           })
           setStreaming(false)
         },
-        onError: (message) => {
-          setError(message)
+        onError: (msg) => {
+          setError(msg)
           setStreaming(false)
-          // Drop the placeholder assistant message so a failed turn doesn't
-          // pollute the next priorTurns payload.
-          setTurns((prev) => {
-            if (prev.length === 0 || prev[prev.length - 1].role !== 'assistant') return prev
-            if (prev[prev.length - 1].content !== '') return prev
-            return prev.slice(0, -1)
+          // Drop the empty placeholder so a failed send doesn't pollute the
+          // next priorTurns payload.
+          updateActive((s) => {
+            const thread = s.threads[threadKey] ?? []
+            if (thread.length === 0) return s
+            const last = thread[thread.length - 1]
+            if (last.role !== 'assistant' || last.content !== '') return s
+            return { ...s, threads: { ...s.threads, [threadKey]: thread.slice(0, -1) } }
           })
         },
       },
     )
   }
 
+  function clearCurrentThread() {
+    if (!active) return
+    if (!confirm('Clear messages in this thread?')) return
+    updateActive((s) => {
+      const next = { ...s.threads }
+      delete next[threadKey]
+      return { ...s, threads: next }
+    })
+  }
+
+  async function copyMarkdown(content: string) {
+    try {
+      await navigator.clipboard.writeText(content)
+    } catch {
+      window.prompt('Copy markdown:', content)
+    }
+  }
+
+  // ── render ────────────────────────────────────────────────────────────
   if (credentials === null) {
     return <EmptyState>Loading credentials…</EmptyState>
   }
@@ -4487,129 +4603,205 @@ function AskPanel({
     return (
       <div className="space-y-2 p-3 text-xs text-zinc-500">
         <p>No LLM credentials configured yet.</p>
-        <Link
-          to="/settings/api-keys"
-          className="inline-block rounded bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-500"
-        >
+        <Link to="/settings/api-keys" className="inline-block rounded bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-500">
           Add a credential
         </Link>
       </div>
     )
   }
+  if (!active) {
+    return <div className="p-4 text-xs text-zinc-500">Loading sessions…</div>
+  }
+
+  const fnLabel = fn ? fn.name : null
 
   return (
-    <div className="flex h-full flex-col text-xs">
-      <div className="flex items-center justify-between gap-2 border-b border-zinc-800 p-3">
-        <div className="min-w-0">
-          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
-            Asking about
-          </div>
-          {fn ? (
-            <div className="truncate font-mono text-zinc-200" title={fn.name}>
-              {fn.name}
+    <div className="relative flex h-full min-h-0 text-xs">
+      {/* Session drawer (overlay on the left of the panel) */}
+      {drawerOpen && (
+        <>
+          <div className="absolute inset-0 z-10 bg-black/40" onClick={() => setDrawerOpen(false)} />
+          <aside className="absolute inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-zinc-800 bg-zinc-950 shadow-xl">
+            <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Sessions</span>
+              <button onClick={newSession} title="New session" className="rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-300 hover:bg-zinc-800">+ New</button>
             </div>
-          ) : (
-            <div className="text-zinc-500">
-              Select a function from the list to ask about it.
-            </div>
+            <ul className="flex-1 overflow-auto">
+              {[...sessions].sort((a, b) => b.updatedAt - a.updatedAt).map((s) => {
+                const turnCount = Object.values(s.threads).reduce((acc, t) => acc + t.length, 0)
+                return (
+                  <li key={s.id} className={`group flex items-center gap-2 border-b border-zinc-900 px-3 py-2 ${s.id === activeId ? 'bg-zinc-900/80' : 'hover:bg-zinc-900/40'}`}>
+                    <div className="min-w-0 flex-1 cursor-pointer" onClick={() => { setActiveId(s.id); setDrawerOpen(false) }}>
+                      {renaming === s.id ? (
+                        <input
+                          autoFocus
+                          value={renameDraft}
+                          onChange={(e) => setRenameDraft(e.target.value)}
+                          onBlur={() => commitRename(s.id)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') commitRename(s.id); if (e.key === 'Escape') setRenaming(null) }}
+                          className="w-full rounded border border-zinc-700 bg-zinc-900 px-1 py-0.5 text-[11px] text-zinc-100"
+                        />
+                      ) : (
+                        <div className="truncate text-[11px] text-zinc-100" title={s.title}>{s.title}</div>
+                      )}
+                      <div className="mt-0.5 flex items-center gap-2 text-[9px] text-zinc-500">
+                        <span className={`rounded px-1 ${s.mode === 'shared' ? 'bg-emerald-900/50 text-emerald-300' : 'bg-zinc-800 text-zinc-400'}`}>
+                          {s.mode}
+                        </span>
+                        <span>{turnCount} msg</span>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 gap-1 opacity-0 group-hover:opacity-100">
+                      <button onClick={() => startRename(s)} title="Rename" className="rounded px-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100">✎</button>
+                      <button onClick={() => deleteSession(s.id)} title="Delete" className="rounded px-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-red-300">🗑</button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </aside>
+        </>
+      )}
+
+      {/* Main column */}
+      <div className="flex h-full min-w-0 flex-1 flex-col">
+        {/* Top bar */}
+        <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2">
+          <button
+            onClick={() => setDrawerOpen(true)}
+            title="Show all sessions"
+            className="rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-300 hover:bg-zinc-800"
+          >
+            ≡ Sessions
+          </button>
+          <span className="truncate font-mono text-[11px] text-zinc-300" title={active.title}>{active.title}</span>
+          <span className="ml-auto flex items-center gap-1 text-[10px] text-zinc-500">
+            Mode:
+            <button
+              onClick={() => setMode('per-function')}
+              className={`rounded px-1.5 py-0.5 ${active.mode === 'per-function' ? 'bg-purple-700 text-white' : 'border border-zinc-700 text-zinc-300 hover:bg-zinc-800'}`}
+              title="Each function gets its own thread"
+            >
+              Per-function
+            </button>
+            <button
+              onClick={() => setMode('shared')}
+              className={`rounded px-1.5 py-0.5 ${active.mode === 'shared' ? 'bg-purple-700 text-white' : 'border border-zinc-700 text-zinc-300 hover:bg-zinc-800'}`}
+              title="One thread for the whole session; function context changes as you switch functions"
+            >
+              Shared
+            </button>
+          </span>
+          {turns.length > 0 && !streaming && (
+            <button onClick={clearCurrentThread} title="Clear messages in this thread" className="rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800">Clear</button>
           )}
         </div>
-        {turns.length > 0 && !streaming && (
-          <button
-            onClick={clearThread}
-            title="Discard this thread and start over"
-            className="shrink-0 rounded border border-zinc-700 px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800"
-          >
-            Clear
-          </button>
-        )}
-      </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        {turns.length === 0 && !streaming && (
-          <div className="text-[11px] text-zinc-600">
-            Ask any question about this function — calling conventions,
-            suspicious patterns, what an unfamiliar instruction sequence
-            does, etc. The model gets the signature, decompiled C, and
-            first ~500 disasm lines as context. Follow-ups stay in the
-            thread until you click Clear.
-          </div>
-        )}
-        {turns.map((t, i) => (
-          <ChatTurnView key={i} turn={t} />
-        ))}
-        <div ref={answerEndRef} />
+        {/* Transcript */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          {turns.length === 0 ? (
+            <div className="text-[11px] leading-relaxed text-zinc-600">
+              {active.mode === 'per-function'
+                ? <>Ask anything about <span className="font-mono text-zinc-400">{fnLabel ?? 'the selected function'}</span> — what it does, calling conventions, suspicious patterns, what an unfamiliar instruction sequence does. The model gets the signature, decompiled C, and first ~500 disasm lines. Each function keeps its own thread.</>
+                : <>Shared mode: one thread spans every function you open. The agent always sees the function you're currently looking at, plus the full conversation history.</>
+              }
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {turns.map((t, i) => (
+                <li key={i} className={t.role === 'user' ? 'flex justify-end' : ''}>
+                  <div className={`max-w-[92%] rounded px-3 py-2 ${t.role === 'user' ? 'bg-purple-900/40 text-zinc-100' : 'bg-zinc-900/80 text-zinc-200'}`}>
+                    {active.mode === 'shared' && t.role === 'user' && t.functionName && (
+                      <div className="mb-1 truncate font-mono text-[9px] text-zinc-500" title={t.functionName}>
+                        ƒ {t.functionName}
+                      </div>
+                    )}
+                    {t.role === 'user' ? (
+                      <div className="whitespace-pre-wrap break-words text-[12px]">{t.content}</div>
+                    ) : t.content === '' && streaming && i === turns.length - 1 ? (
+                      <div className="text-[11px] italic text-zinc-500">Waiting for first token…</div>
+                    ) : (
+                      <div className="markdown-answer text-[12px] leading-relaxed">
+                        <ReactMarkdown>{t.content}</ReactMarkdown>
+                      </div>
+                    )}
+                    {t.role === 'assistant' && t.content !== '' && (
+                      <div className="mt-2 flex items-center gap-3 border-t border-zinc-800 pt-1.5 text-[9px] text-zinc-500">
+                        {t.meta && (
+                          <span>
+                            {t.meta.model} · in {t.meta.in.toLocaleString()} · out {t.meta.out.toLocaleString()}
+                            {' '}{estimateCost(t.meta.model, t.meta.in, t.meta.out)}
+                          </span>
+                        )}
+                        <button
+                          onClick={() => void copyMarkdown(t.content)}
+                          title="Copy raw markdown to clipboard"
+                          className="ml-auto rounded border border-zinc-700 px-1.5 py-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                        >
+                          Copy markdown
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div ref={transcriptEndRef} />
+        </div>
+
         {error && (
-          <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-red-300">
+          <div className="border-t border-red-900/60 bg-red-950/40 px-3 py-1 text-[11px] text-red-300">
             {error}
           </div>
         )}
-      </div>
 
-      <div className="space-y-2 border-t border-zinc-800 p-3">
-        <select
-          value={credentialId}
-          onChange={(e) => setCredentialId(e.target.value)}
-          className="w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-zinc-200"
-        >
-          {credentials.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label} ({c.provider})
-            </option>
-          ))}
-        </select>
-        <textarea
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault()
-              void send()
-            }
-          }}
-          placeholder={
-            fn
-              ? turns.length > 0
-                ? 'Follow-up… (⌘/Ctrl+Enter to send)'
-                : `What does ${fn.name} actually do? (⌘/Ctrl+Enter to send)`
-              : 'Select a function first…'
-          }
-          disabled={!fn || streaming}
-          rows={3}
-          className="w-full resize-none rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-zinc-200 placeholder:text-zinc-600 focus:border-purple-600 focus:outline-none disabled:opacity-50"
-        />
-        <button
-          onClick={() => void send()}
-          disabled={!fn || !question.trim() || streaming}
-          className="w-full rounded bg-purple-600 px-3 py-1.5 font-medium text-white hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {streaming ? 'Streaming…' : turns.length > 0 ? 'Send follow-up' : 'Ask'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function ChatTurnView({ turn }: { turn: ChatTurn }) {
-  if (turn.role === 'user') {
-    return (
-      <div className="mb-3 rounded border border-zinc-800 bg-zinc-900/60 p-2">
-        <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">You</div>
-        <div className="whitespace-pre-wrap font-mono text-[11px] text-zinc-300">{turn.content}</div>
-      </div>
-    )
-  }
-  return (
-    <div className="mb-3">
-      <div className="mb-1 text-[10px] uppercase tracking-wider text-purple-300">Assistant</div>
-      <div className="markdown-answer text-zinc-200">
-        <ReactMarkdown>{turn.content || '…'}</ReactMarkdown>
-      </div>
-      {turn.meta && (
-        <div className="mt-1 text-[10px] text-zinc-600">
-          {turn.meta.model} · {turn.meta.in.toLocaleString()} in · {turn.meta.out.toLocaleString()} out
+        {/* Input */}
+        <div className="border-t border-zinc-800 bg-zinc-950/60 p-3">
+          <div className="mb-1.5 flex items-center justify-between text-[10px] text-zinc-500">
+            <span className="truncate font-mono" title={fnLabel ?? ''}>
+              {fnLabel ? <>ƒ {fnLabel}</> : <span className="italic">No function selected</span>}
+            </span>
+            <span className="ml-2 shrink-0">⏎ to send · ⇧⏎ for newline</span>
+          </div>
+          <div className="mb-2">
+            <select
+              value={credentialId}
+              onChange={(e) => setCredentialId(e.target.value)}
+              className="w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-zinc-200"
+            >
+              {credentials.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label} ({c.provider})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-end gap-2">
+            <textarea
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !streaming) {
+                  e.preventDefault()
+                  void send()
+                }
+              }}
+              placeholder={active.mode === 'shared' ? 'Ask anything about this binary…' : 'Ask anything about this function…'}
+              rows={2}
+              disabled={streaming}
+              className="flex-1 resize-none rounded border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-[12px] text-zinc-100 focus:border-purple-500 focus:outline-none disabled:opacity-60"
+            />
+            <button
+              onClick={() => void send()}
+              disabled={streaming || !question.trim() || !fn}
+              className="self-stretch rounded bg-purple-600 px-3 text-[12px] font-medium text-white hover:bg-purple-500 disabled:opacity-50"
+            >
+              {streaming ? '…' : 'Send'}
+            </button>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }
