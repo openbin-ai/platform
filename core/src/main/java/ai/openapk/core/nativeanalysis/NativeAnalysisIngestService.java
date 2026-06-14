@@ -220,6 +220,17 @@ public class NativeAnalysisIngestService {
         row.setAnalyzedAt(Instant.now());
         nativeRepo.save(row);
 
+        // Clear the pending tag the presigned PUT applied so the 1-day
+        // orphan-ingest lifecycle rule doesn't delete this finalized result.
+        // Best-effort — see IngestService.finalize for the full rationale.
+        try {
+            analysisStorage.markReady(key);
+        } catch (Exception e) {
+            log.error("native ingest finalized but failed to clear pending tag for project={} key={} — "
+                    + "lifecycle may reap it in ~24h; re-tag status=ready manually: {}",
+                    projectId, key, e.toString());
+        }
+
         log.info("native ingest finalized: user={} project={} lib={} key={} etag={} size={}b",
                 user.getId(), projectId, row.getLibPath(), key, head.etag(), head.sizeBytes());
 

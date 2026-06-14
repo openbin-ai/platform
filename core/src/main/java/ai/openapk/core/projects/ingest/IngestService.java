@@ -306,6 +306,21 @@ public class IngestService {
         p.setDecompiledAt(Instant.now());
         repo.save(p);
 
+        // Flip the S3 object's status tag pending → ready. The presigned PUT
+        // tagged it pending so the 1-day "orphan ingest" lifecycle rule reaps
+        // it if finalize never runs; now that we HAVE finalized, clear that
+        // tag or the rule deletes this good result ~24h later (project stays
+        // READY but the CloudFront fetch 403s). Best-effort: a tagging failure
+        // must not fail an otherwise-successful finalize — log and move on so
+        // an ops alert / re-tag can recover, rather than blocking the user.
+        try {
+            analysisStorage.markReady(key);
+        } catch (Exception e) {
+            log.error("ingest finalized but failed to clear pending tag for project={} key={} — "
+                    + "lifecycle may reap it in ~24h; re-tag status=ready manually: {}",
+                    p.getId(), key, e.toString());
+        }
+
         log.info("ingest finalized: user={} project={} key={} etag={} size={}b functions={}",
                 user.getId(), p.getId(), key, head.etag(), head.sizeBytes(),
                 meta.functionCount());

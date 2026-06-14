@@ -9,6 +9,9 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectTaggingRequest;
+import software.amazon.awssdk.services.s3.model.Tag;
+import software.amazon.awssdk.services.s3.model.Tagging;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
@@ -137,6 +140,26 @@ public class AnalysisStorageService {
         return s3.getObject(GetObjectRequest.builder()
                 .bucket(cfg.bucket())
                 .key(key)
+                .build());
+    }
+
+    /**
+     * Flip the object's {@code status} tag from {@code pending} to {@code
+     * ready} once an upload is finalized. CRITICAL: the bucket has a lifecycle
+     * rule that DELETES objects tagged {@code status=pending} after 1 day (to
+     * reap orphaned uploads from CLI crashes). Without this call, a perfectly
+     * good finalized result keeps the pending tag the presigned PUT applied
+     * and self-destructs ~24-48h later, leaving the project row READY but the
+     * S3 object gone (403 on the signed CloudFront URL). Replacing the tag set
+     * with {@code status=ready} takes the object out of the rule's filter.
+     */
+    public void markReady(String key) {
+        s3.putObjectTagging(PutObjectTaggingRequest.builder()
+                .bucket(cfg.bucket())
+                .key(key)
+                .tagging(Tagging.builder()
+                        .tagSet(Tag.builder().key("status").value("ready").build())
+                        .build())
                 .build());
     }
 
