@@ -40,6 +40,15 @@ export function Gallery({
   const [items, setItems] = useState<MediaItem[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deletingName, setDeletingName] = useState<string | null>(null)
+  // Browse-mode click-to-preview. Pick mode previews via the picker modal.
+  const [lightbox, setLightbox] = useState<MediaItem | null>(null)
+
+  useEffect(() => {
+    if (!lightbox) return
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightbox(null) }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [lightbox])
 
   const reload = useCallback(async () => {
     setError(null)
@@ -103,7 +112,13 @@ export function Gallery({
               <AuthenticatedImg src={item.url} className={`block ${thumbHCls} w-full object-contain bg-zinc-950 hover:opacity-90`} />
             </button>
           ) : (
-            <AuthenticatedImg src={item.url} className={`block ${thumbHCls} w-full object-cover`} />
+            <button
+              onClick={() => setLightbox(item)}
+              className="block w-full"
+              title="Click to preview"
+            >
+              <AuthenticatedImg src={item.url} className={`block ${thumbHCls} w-full object-cover hover:opacity-90`} />
+            </button>
           )}
           <div className="flex items-center justify-between border-t border-zinc-800 px-1.5 py-1 text-[10px] text-zinc-500">
             <span title={new Date(item.createdAt).toLocaleString()}>
@@ -123,6 +138,33 @@ export function Gallery({
         </div>
         )
       })}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-black/80 p-6"
+          onClick={() => setLightbox(null)}
+        >
+          <div className="flex items-center justify-end">
+            <button
+              onClick={() => setLightbox(null)}
+              className="rounded p-1 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex flex-1 items-center justify-center overflow-auto" onClick={e => e.stopPropagation()}>
+            <AuthenticatedImg
+              src={lightbox.url}
+              className="max-h-full max-w-full rounded border border-zinc-800 object-contain"
+            />
+          </div>
+          <div className="mt-2 text-center text-[11px] text-zinc-400">
+            <span className="font-mono">{lightbox.filename.slice(0, 16)}…</span>
+            {' · '}{(lightbox.sizeBytes / 1024).toFixed(0)} KB
+            {' · '}press Esc or click outside to close
+          </div>
+        </div>
+      )}
     </div>
   )
 }
