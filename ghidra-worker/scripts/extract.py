@@ -40,7 +40,15 @@
 #@category OpenAPK
 
 import json
+import re
 import traceback
+
+# Identifier shape for decompiled variable names (uVar1, param_1, local_18,
+# in_EAX, ...). ClangVariableToken also covers constant + global operands
+# (Ghidra models them as varnodes), so we filter `vars` to this shape to keep
+# only real locals/params — constants (0x1a, 8) and punctuated data names
+# (.rdata, s_Foo:_..) are dropped; data symbols are navigable separately.
+_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # Function-record cap: huge so navigation works on big binaries (silentXMR-
 # class XMR miners can have 10k+ functions). Each metadata-only record is
@@ -235,7 +243,7 @@ try:
                                     lst.append(addr_s)
                             if ClangVariableToken is not None and isinstance(tok, ClangVariableToken):
                                 nm = _safe(lambda: tok.getText(), None)
-                                if nm:
+                                if nm and _IDENT_RE.match(nm):
                                     vlst = var_addrs.get(nm)
                                     if vlst is None:
                                         if len(var_order) >= MAX_VARS_PER_FUNCTION:
