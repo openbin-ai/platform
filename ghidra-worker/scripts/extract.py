@@ -21,6 +21,8 @@
 #         name, address, size, signature,
 #         decompiled,                              # C pseudocode (null for external/thunk)
 #         disassembly: [{addr, text}, ...],        # per-instruction listing (null for external/thunk)
+#         line_map: [[lineNo, [addr, ...]], ...],  # decompiled-C line -> instruction addrs (cross-highlight)
+#         vars: [{name, addrs: [addr, ...]}, ...], # decompiled variable -> instruction addrs (cross-highlight)
 #         xrefs: {callers: [name, ...], callees: [name, ...]},
 #         external, thunk
 #     }, ...],
@@ -69,6 +71,15 @@ DECOMPILE_TIMEOUT_SEC = 90
 # direction so a hotpath function with thousands of callers stays bounded.
 MAX_DISASM_LINES_PER_FUNCTION = 5000
 MAX_XREFS_PER_DIRECTION = 50
+# Cross-highlight maps (Ghidra-style "follow along"): per decompiled function
+# we emit a decompiled-line -> instruction-address map and a variable ->
+# instruction-address map, both walked from the decompiler's ClangToken
+# markup. Capped so a pathological gigafunction can't blow the JSON: addrs
+# per line and per variable are deduped + bounded, and the number of distinct
+# variables tracked per function is capped.
+MAX_LINEMAP_ADDRS = 64
+MAX_VARS_PER_FUNCTION = 512
+MAX_VAR_ADDRS = 256
 # Data-symbol value preview: how many bytes of the underlying data to
 # include in each record's `value` field. Enough to identify magic
 # constants, small structs, and short strings without bloating the JSON.
@@ -114,6 +125,15 @@ try:
         raise SystemExit(0)
 
     from ghidra.app.decompiler import DecompInterface, DecompileOptions
+    # ClangVariableToken is the leaf token class for decompiled-C variables
+    # (locals + params: uVar1, param_1, local_18, ...). Used to build the
+    # variable -> instruction-address map for cross-highlighting. Imported
+    # defensively: if the symbol is missing on some Ghidra build, var maps
+    # are simply skipped (line maps still work).
+    try:
+        from ghidra.app.decompiler import ClangVariableToken
+    except:
+        ClangVariableToken = None
 
     # ---------- Functions + decompiled C + disassembly + xrefs ----------
     decompiler = DecompInterface()
@@ -152,8 +172,19 @@ try:
         )
         decompiled = None
         disassembly = None
+        # Cross-highlight maps. line_map: [[lineNo, [addr, ...]], ...] mapping
+        # each 1-based decompiled-C line to the instruction addresses it came
+        # from. vars: [{"name", "addrs": [...]}, ...] mapping each decompiled
+        # variable to the instructions that reference it. Both null when the
+        # function isn't decompiled or the markup walk fails (the UI then
+        # degrades to no cross-highlight). Addresses are str(Address) -- the
+        # SAME formatting as disassembly[].addr -- so the frontend can match
+        # them directly against disasm rows.
+        line_map = None
+        var_refs = None
         if decompile_this:
             # Decompiled C pseudocode (Ghidra's main view).
+            res = None
             try:
                 res = decompiler.decompileFunction(fn, DECOMPILE_TIMEOUT_SEC, monitor)
                 if res is not None and res.decompileCompleted():
@@ -162,6 +193,63 @@ try:
                         decompiled = dfn.getC()
             except:
                 decompiled = None
+
+            # Walk the decompiler's ClangToken markup to correlate decompiled
+            # lines + variables to machine addresses. Each leaf ClangToken
+            # carries getLineParent().getLineNumber() (1-based, aligns with
+            # getC()) and getMinAddress() (the instruction the token came
+            # from). This is the data Ghidra's GUI uses for its own
+            # token<->listing highlighting; we export a compacted form.
+            if decompiled is not None and res is not None:
+                try:
+                    markup = res.getCCodeMarkup()  # ClangTokenGroup root, may be None
+                    if markup is not None:
+                        line_addrs = {}     # lineNo -> [addr, ...] (ordered, deduped)
+                        var_addrs = {}      # name   -> [addr, ...] (ordered, deduped)
+                        var_order = []      # preserve first-seen variable order
+                        # Iterative DFS preserving document order; recursion
+                        # could blow Jython's stack on a huge token tree.
+                        stack = [markup]
+                        leaves = []
+                        while stack:
+                            node = stack.pop()
+                            nc = _safe(lambda: node.numChildren(), 0) or 0
+                            if nc == 0:
+                                leaves.append(node)
+                            else:
+                                for i in range(nc - 1, -1, -1):
+                                    stack.append(node.Child(i))
+                        for tok in leaves:
+                            lp = _safe(lambda: tok.getLineParent(), None)
+                            lineno = _safe(lambda: lp.getLineNumber(), None) if lp is not None else None
+                            a = _safe(lambda: tok.getMinAddress(), None)
+                            addr_s = str(a) if a is not None else None
+                            if addr_s is None:
+                                continue
+                            if lineno is not None:
+                                lst = line_addrs.get(lineno)
+                                if lst is None:
+                                    lst = []
+                                    line_addrs[lineno] = lst
+                                if addr_s not in lst and len(lst) < MAX_LINEMAP_ADDRS:
+                                    lst.append(addr_s)
+                            if ClangVariableToken is not None and isinstance(tok, ClangVariableToken):
+                                nm = _safe(lambda: tok.getText(), None)
+                                if nm:
+                                    vlst = var_addrs.get(nm)
+                                    if vlst is None:
+                                        if len(var_order) >= MAX_VARS_PER_FUNCTION:
+                                            continue
+                                        vlst = []
+                                        var_addrs[nm] = vlst
+                                        var_order.append(nm)
+                                    if addr_s not in vlst and len(vlst) < MAX_VAR_ADDRS:
+                                        vlst.append(addr_s)
+                        line_map = [[ln, line_addrs[ln]] for ln in sorted(line_addrs.keys())]
+                        var_refs = [{"name": nm, "addrs": var_addrs[nm]} for nm in var_order]
+                except:
+                    line_map = None
+                    var_refs = None
 
             # Per-instruction disassembly listing. Walked via listing.getInstructions
             # rather than the decompiler so what the user sees in the disasm
@@ -240,6 +328,8 @@ try:
             "signature": sig,
             "decompiled": decompiled,
             "disassembly": disassembly,
+            "line_map": line_map,
+            "vars": var_refs,
             "xrefs": {"callers": xrefs_callers, "callees": xrefs_callees},
             "external": is_external,
             "thunk": is_thunk,

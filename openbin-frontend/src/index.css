@@ -122,3 +122,32 @@ body {
   box-shadow: inset 2px 0 0 #a855f7;
   transition: background 1.6s ease-out, box-shadow 1.6s ease-out;
 }
+
+/* ---- Ghidra-style cross-highlight (follow along) ----------------------
+   Clicking a decompiled line, a variable, or an instruction lights up the
+   corresponding spots in BOTH the pseudocode and disassembly panes. These
+   are persistent (cleared on Escape / function switch), distinct from the
+   transient .search-flash above. var-token marks clickable variables. */
+.shiki-host .var-token {
+  cursor: pointer;
+  border-radius: 2px;
+}
+.shiki-host .var-token:hover {
+  background: rgba(56, 189, 248, 0.18);
+}
+/* Active line in the pseudocode pane. */
+.shiki-host .line.xhi-line {
+  background: rgba(56, 189, 248, 0.13);
+  box-shadow: inset 2px 0 0 #38bdf8;
+}
+/* Active variable token, in either pane (pseudo spans + asm operand spans). */
+.xhi-var {
+  background: rgba(250, 204, 21, 0.28);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.5);
+}
+/* Active instruction row in the disassembly pane. */
+.xhi-asm-row {
+  background: rgba(56, 189, 248, 0.13);
+  box-shadow: inset 2px 0 0 #38bdf8;
+}

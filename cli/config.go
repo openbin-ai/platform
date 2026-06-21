@@ -35,7 +35,15 @@ const (
 	// Release tarballs ship the image as `ghidra-worker.tar.gz` next to the
 	// binary; we `docker load` it on first run so end users never need
 	// network access for the image. See `ensureDockerImage` in ghidra.go.
-	ghidraWorkerImage  = "openbin/ghidra-worker:bundled"
+	//
+	// IMPORTANT — this tag is the cache key. `ensureDockerImage` skips the
+	// download whenever a local image with this exact tag already exists, so
+	// the ONLY way to push a changed worker (new extract.py output, etc.) to
+	// users who already ran one decompile is to BUMP this tag. Keep it in
+	// lockstep with the `--tag` in .github/workflows/release-cli.yml.
+	//   :bundled — v1 (pre-2026-06-15; decompiled + disassembly only)
+	//   :2       — adds line_map + vars for Ghidra-style cross-highlighting
+	ghidraWorkerImage  = "openbin/ghidra-worker:2"
 	ghidraImageTarball = "ghidra-worker.tar.gz"
 
 	// Same bundling scheme for the JADX worker (APK decompiles). The image is

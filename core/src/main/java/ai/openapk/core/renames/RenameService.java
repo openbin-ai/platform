@@ -494,7 +494,7 @@ public class RenameService {
      * (Ghidra reuses {@code uVar1}, {@code param_1}, etc. across every
      * function). So for variables we parse the JSON, locate each owning
      * function's {@code decompiled} + {@code disassembly[].text} + {@code
-     * signature} fields, and rewrite only those.
+     * signature} + {@code vars[].name} fields, and rewrite only those.
      *
      * <p>Order matters: variables are applied to the original-named function
      * bodies first, then the global pass rewrites the function names
@@ -549,6 +549,17 @@ public class RenameService {
                                 if (!(lineNode instanceof ObjectNode line)) continue;
                                 String text = line.path("text").asString(null);
                                 if (text != null) line.put("text", applyOne(text, vars));
+                            }
+                        }
+                        // Cross-highlight var map: rewrite each entry's `name`
+                        // so the frontend's name-keyed variable highlight still
+                        // resolves after a rename (the addrs are immutable).
+                        JsonNode varsNode = fn.path("vars");
+                        if (varsNode instanceof ArrayNode varsArr) {
+                            for (JsonNode vNode : varsArr) {
+                                if (!(vNode instanceof ObjectNode v)) continue;
+                                String vname = v.path("name").asString(null);
+                                if (vname != null) v.put("name", applyOne(vname, vars));
                             }
                         }
                     }

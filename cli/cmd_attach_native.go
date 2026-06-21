@@ -48,6 +48,8 @@ Required flags:
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Best-effort "you're out of date" nudge after the run finishes.
+		defer checkForUpdate()
 		localPath := args[0]
 		info, err := os.Stat(localPath)
 		if err != nil {

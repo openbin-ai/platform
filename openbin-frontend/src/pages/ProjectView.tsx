@@ -103,6 +103,11 @@ function applyRenamesToAnalysis(analysis: BinaryAnalysis, renames: Rename[]): Bi
         disassembly: fn.disassembly
           ? fn.disassembly.map((l) => ({ ...l, text: applyPairs(l.text, vars) }))
           : fn.disassembly,
+        // Keep the cross-highlight var map in sync with the renamed decompiled
+        // text so name-keyed variable highlighting still resolves.
+        vars: fn.vars
+          ? fn.vars.map((v) => ({ ...v, name: applyPairs(v.name, vars) }))
+          : fn.vars,
       }
     })
   }
@@ -161,6 +166,7 @@ function canonAddr(raw: string): string {
 // localStorage so a refresh restores the user's preferred layout.
 const LEFT_OPEN_KEY = 'openbin.leftPanelOpen'
 const RIGHT_OPEN_KEY = 'openbin.rightPanelOpen'
+const SPLIT_KEY = 'openbin.codeSplitView'
 const RIGHT_WIDTH_KEY = 'openbin.rightPanelWidth'
 const LEFT_WIDTH = 280
 const RAIL_WIDTH = 36
@@ -174,6 +180,14 @@ const RIGHT_WIDTH_MAX = 900
 // "empty array" so the UI can render the right empty-state copy.
 type DisasmLine = { addr: string; text: string }
 type Xrefs = { callers: string[]; callees: string[] }
+// Cross-highlight maps emitted by extract.py for decompiled functions.
+// line_map: [lineNo (1-based), [instruction addrs]] — the decompiled-C line
+// to machine-instruction correspondence. vars: variable name -> the
+// instruction addresses that reference it. Both optional/nullable: absent on
+// pre-feature analyses and on functions with no body, in which case the UI
+// degrades to no cross-highlight.
+type LineMap = [number, string[]][]
+type VarRef = { name: string; addrs: string[] }
 type BinaryFunction = {
   name: string
   address: string
@@ -181,6 +195,8 @@ type BinaryFunction = {
   signature: string
   decompiled: string | null
   disassembly: DisasmLine[] | null
+  line_map?: LineMap | null
+  vars?: VarRef[] | null
   xrefs: Xrefs
   external: boolean
   thunk: boolean
@@ -307,6 +323,14 @@ type PendingHighlight = {
   asmAddr?: string
   nonce: number
 }
+
+// Active cross-highlight selection, shared between the pseudocode and
+// disassembly panes so a click in one lights up the corresponding spots in
+// both (Ghidra-style "follow along"). `vars` are decompiled variable names to
+// glow in both panes; `lines` are 1-based decompiled lines to glow; `addrs`
+// are the instruction addresses to glow in the disassembly. Derived from the
+// clicked target via the function's line_map / vars maps.
+type Cross = { vars: string[]; lines: number[]; addrs: Set<string> }
 
 // Screenshot capture state shared between the project header buttons and the
 // ScreenshotModal. `pick` opens the modal for paste/drop/browse; `capture`
@@ -1185,29 +1209,94 @@ function CodePane({
   //   data-jump-addr   — raw / address-suffixed reference, dispatched to
   //                      fn-by-addr or data-by-addr by jumpToTarget
   // Bare text and unresolved tokens never get a wrapper, so they remain inert.
+
+  // Side-by-side split (persisted) + cross-highlight follow-along selection.
+  const [split, setSplit] = useState<boolean>(() => {
+    try { return localStorage.getItem(SPLIT_KEY) === '1' } catch { return false }
+  })
+  const toggleSplit = useCallback(() => {
+    setSplit((s) => {
+      const next = !s
+      try { localStorage.setItem(SPLIT_KEY, next ? '1' : '0') } catch { /* ignore */ }
+      return next
+    })
+  }, [])
+  const [cross, setCross] = useState<Cross | null>(null)
+  // Reset the selection whenever the open function changes.
+  useEffect(() => { setCross(null) }, [fn?.name])
+  // Escape clears the follow-along highlight.
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') setCross(null) }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [])
+
+  // Per-function cross-highlight lookup maps derived from the worker's
+  // line_map (decompiled line <-> instruction addrs) and vars (name -> addrs).
+  const lineToAddrs = useMemo(() => {
+    const m = new Map<number, string[]>()
+    for (const [ln, addrs] of fn?.line_map ?? []) m.set(ln, addrs)
+    return m
+  }, [fn])
+  const addrToLine = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const [ln, addrs] of fn?.line_map ?? []) {
+      for (const a of addrs) if (!m.has(a)) m.set(a, ln)
+    }
+    return m
+  }, [fn])
+  const varToAddrs = useMemo(() => {
+    const m = new Map<string, string[]>()
+    for (const v of fn?.vars ?? []) m.set(v.name, v.addrs)
+    return m
+  }, [fn])
+
   const handleClick = useCallback((e: React.MouseEvent) => {
-    const t = (e.target as HTMLElement).closest(
-      '[data-fn], [data-jump-data], [data-jump-addr]',
-    ) as HTMLElement | null
-    if (!t) return
-    if (t.dataset.fn) {
-      const name = t.dataset.fn
-      if (!name || !fnByName.has(name) || name === fn?.name) return
-      e.preventDefault()
-      onSelect(name)
+    const el = e.target as HTMLElement
+    // 1) Navigation links win — function/data/addr jumps.
+    const t = el.closest('[data-fn], [data-jump-data], [data-jump-addr]') as HTMLElement | null
+    if (t) {
+      if (t.dataset.fn) {
+        const name = t.dataset.fn
+        if (!name || !fnByName.has(name) || name === fn?.name) return
+        e.preventDefault()
+        onSelect(name)
+        return
+      }
+      if (t.dataset.jumpData) {
+        e.preventDefault()
+        onJump({ kind: 'data', value: t.dataset.jumpData })
+        return
+      }
+      if (t.dataset.jumpAddr) {
+        e.preventDefault()
+        onJump({ kind: 'addr', value: t.dataset.jumpAddr })
+        return
+      }
+    }
+    // 2) Variable token -> glow the variable in both panes + its instructions.
+    const varEl = el.closest('[data-var]') as HTMLElement | null
+    if (varEl?.dataset.var) {
+      const name = varEl.dataset.var
+      setCross({ vars: [name], lines: [], addrs: new Set(varToAddrs.get(name) ?? []) })
       return
     }
-    if (t.dataset.jumpData) {
-      e.preventDefault()
-      onJump({ kind: 'data', value: t.dataset.jumpData })
+    // 3) Disassembly row -> glow that instruction + the C line it came from.
+    const addrEl = el.closest('[data-addr]') as HTMLElement | null
+    if (addrEl?.dataset.addr) {
+      const addr = addrEl.dataset.addr
+      const ln = addrToLine.get(addr)
+      setCross({ vars: [], lines: ln != null ? [ln] : [], addrs: new Set([addr]) })
       return
     }
-    if (t.dataset.jumpAddr) {
-      e.preventDefault()
-      onJump({ kind: 'addr', value: t.dataset.jumpAddr })
+    // 4) Pseudocode line -> glow the line + the instructions it compiled to.
+    const lineEl = el.closest('[data-ln]') as HTMLElement | null
+    if (lineEl?.dataset.ln) {
+      const ln = Number(lineEl.dataset.ln)
+      setCross({ vars: [], lines: [ln], addrs: new Set(lineToAddrs.get(ln) ?? []) })
       return
     }
-  }, [fn?.name, fnByName, onSelect, onJump])
+  }, [fn?.name, fnByName, onSelect, onJump, varToAddrs, addrToLine, lineToAddrs])
 
   if (!fn) {
     return (
@@ -1235,15 +1324,15 @@ function CodePane({
           {fn.thunk && <span className="ml-2 text-zinc-500">thunk</span>}
         </div>
       </div>
-      <div className="flex border-b border-zinc-800 text-xs">
+      <div className="flex items-stretch border-b border-zinc-800 text-xs">
         <TabButton
-          active={view === 'pseudo'}
+          active={view === 'pseudo' && !split}
           onClick={() => onViewChange('pseudo')}
         >
           Pseudocode
         </TabButton>
         <TabButton
-          active={view === 'disasm'}
+          active={view === 'disasm' && !split}
           disabled={disasmDisabled}
           onClick={() => !disasmDisabled && onViewChange('disasm')}
         >
@@ -1251,11 +1340,16 @@ function CodePane({
         </TabButton>
         {/* Deobf is enabled when the function has a body to send. Sparkle
             marks it as AI-generated; the chip annotates whether a deobf
-            already exists (instant view) vs needs to be generated. */}
+            already exists (instant view) vs needs to be generated. Selecting
+            it leaves split view (deobf is a single full-width pane). */}
         <TabButton
           active={view === 'deobf'}
           disabled={disasmDisabled || !fn.decompiled}
-          onClick={() => !(disasmDisabled || !fn.decompiled) && onViewChange('deobf')}
+          onClick={() => {
+            if (disasmDisabled || !fn.decompiled) return
+            if (split) toggleSplit()
+            onViewChange('deobf')
+          }}
         >
           ✨ Deobf
           {deobfs.has(fn.name) && (
@@ -1264,24 +1358,60 @@ function CodePane({
             </span>
           )}
         </TabButton>
+        {/* Side-by-side toggle: shows pseudocode + disassembly in two columns
+            so the user can follow the C against the machine code. Clicking a
+            line/variable/instruction in either pane cross-highlights both. */}
+        <div className="ml-auto flex items-center pr-2">
+          <button
+            onClick={toggleSplit}
+            disabled={disasmDisabled}
+            title={split
+              ? 'Switch to single pane'
+              : 'Side-by-side: pseudocode + disassembly. Click a line, variable, or instruction to follow along across both.'}
+            className={`rounded px-2 py-1 text-[11px] ${
+              split ? 'bg-sky-700/40 text-sky-200' : 'text-zinc-400 hover:bg-zinc-800'
+            } disabled:opacity-30`}
+          >
+            ⇆ Split
+          </button>
+        </div>
       </div>
       <div
-        className="min-h-0 flex-1 overflow-auto bg-zinc-900/40"
+        className="min-h-0 flex-1 overflow-hidden bg-zinc-900/40"
         onClick={handleClick}
       >
-        {view === 'pseudo' && (
-          <PseudocodeView fn={fn} lookups={lookups} pendingHighlight={pendingHighlight} />
-        )}
-        {view === 'disasm' && (
-          <DisassemblyView fn={fn} lookups={lookups} pendingHighlight={pendingHighlight} />
-        )}
-        {view === 'deobf' && (
-          <DeobfView
-            projectId={projectId}
-            fn={fn}
-            deobf={deobfs.get(fn.name) ?? null}
-            onDeobfChange={onDeobfChange}
-          />
+        {split && !disasmDisabled ? (
+          <div className="flex h-full min-h-0">
+            <div className="min-w-0 flex-1 overflow-auto border-r border-zinc-800">
+              <div className="border-b border-zinc-800/60 px-4 py-1 text-[10px] uppercase tracking-wide text-zinc-500">
+                Pseudocode
+              </div>
+              <PseudocodeView fn={fn} lookups={lookups} pendingHighlight={pendingHighlight} cross={cross} />
+            </div>
+            <div className="min-w-0 flex-1 overflow-auto">
+              <div className="border-b border-zinc-800/60 px-4 py-1 text-[10px] uppercase tracking-wide text-zinc-500">
+                Disassembly
+              </div>
+              <DisassemblyView fn={fn} lookups={lookups} pendingHighlight={pendingHighlight} cross={cross} />
+            </div>
+          </div>
+        ) : (
+          <div className="h-full overflow-auto">
+            {view === 'pseudo' && (
+              <PseudocodeView fn={fn} lookups={lookups} pendingHighlight={pendingHighlight} cross={cross} />
+            )}
+            {view === 'disasm' && (
+              <DisassemblyView fn={fn} lookups={lookups} pendingHighlight={pendingHighlight} cross={cross} />
+            )}
+            {view === 'deobf' && (
+              <DeobfView
+                projectId={projectId}
+                fn={fn}
+                deobf={deobfs.get(fn.name) ?? null}
+                onDeobfChange={onDeobfChange}
+              />
+            )}
+          </div>
         )}
       </div>
     </main>
@@ -1447,11 +1577,19 @@ function PseudocodeView({
   fn,
   lookups,
   pendingHighlight,
+  cross,
 }: {
   fn: BinaryFunction
   lookups: SymbolLookups
   pendingHighlight: PendingHighlight | null
+  cross: Cross | null
 }) {
+  // Variable names for this function — used to wrap variable tokens with
+  // data-var so they're clickable for cross-highlighting.
+  const varNames = useMemo(
+    () => new Set((fn.vars ?? []).map((v) => v.name)),
+    [fn],
+  )
   // Run Shiki async whenever the selected function changes. The first call
   // pays the WASM + grammar download (~250kb gzipped, cached by the browser
   // afterward); subsequent calls are sync-fast. We keep a cancel flag so a
@@ -1470,10 +1608,10 @@ function PseudocodeView({
     setHtml(null)
     void highlightC(fn.decompiled).then((rendered) => {
       if (cancelled) return
-      setHtml(addFunctionLinks(rendered, lookups, fn.name))
+      setHtml(addFunctionLinks(rendered, lookups, fn.name, varNames))
     })
     return () => { cancelled = true }
-  }, [fn, lookups])
+  }, [fn, lookups, varNames])
 
   // Scroll-to-line + flash, mirroring openapk's HighlightedCode behavior.
   // Fires when html is rendered AND a pending highlight targets this exact
@@ -1495,6 +1633,27 @@ function PseudocodeView({
     const t = setTimeout(() => el.classList.remove('search-flash'), 1600)
     return () => clearTimeout(t)
   }, [html, fn.name, pendingHighlight])
+
+  // Cross-highlight: glow the active line(s) and variable token(s). Toggled
+  // by class so we never re-render the (expensive) Shiki HTML — we just paint
+  // over it. Runs after html paints and whenever the selection changes.
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    host.querySelectorAll('.xhi-line, .xhi-var').forEach((el) => {
+      el.classList.remove('xhi-line', 'xhi-var')
+    })
+    if (!cross) return
+    for (const ln of cross.lines) {
+      const el = host.querySelector(`[data-ln="${ln}"]`)
+      if (el) el.classList.add('xhi-line')
+    }
+    for (const name of cross.vars) {
+      host.querySelectorAll(`[data-var="${CSS.escape(name)}"]`).forEach((el) => {
+        el.classList.add('xhi-var')
+      })
+    }
+  }, [html, cross])
 
   if (fn.external) {
     return (
@@ -1607,16 +1766,17 @@ function addFunctionLinks(
   html: string,
   lookups: SymbolLookups,
   selfName: string,
+  varNames: ReadonlySet<string>,
 ): string {
-  if (lookups.fnByName.size === 0 && lookups.dataByName.size === 0 &&
-      lookups.fnByAddr.size === 0 && lookups.dataByAddr.size === 0) {
-    return html
-  }
   // Wrap in a sentinel so we can read innerHTML back out without the
   // <html>/<body> boilerplate DOMParser adds.
   const doc = new DOMParser().parseFromString(`<div id="r">${html}</div>`, 'text/html')
   const root = doc.getElementById('r')
   if (!root) return html
+  // Stamp each Shiki `.line` with its 1-based source line number so a click
+  // anywhere on the line can resolve to a line number for cross-highlighting,
+  // and the highlight effect can target lines by number.
+  root.querySelectorAll('.line').forEach((el, i) => el.setAttribute('data-ln', String(i + 1)))
   const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT)
   const texts: Text[] = []
   let cur: Node | null
@@ -1631,14 +1791,24 @@ function addFunctionLinks(
     while ((m = PSEUDO_TOKEN.exec(text)) !== null) {
       const word = m[0]
       const payload = resolveJump(word, lookups, selfName)
-      if (!payload) continue
+      // A token is either a navigable link (function/data/addr) OR a
+      // cross-highlight variable. Links win — they're more valuable than the
+      // highlight hint, and a local variable name never collides with a known
+      // symbol in practice.
+      const isVar = !payload && varNames.has(word)
+      if (!payload && !isVar) continue
       mutated = true
       if (m.index > lastIndex) {
         frag.appendChild(doc.createTextNode(text.slice(lastIndex, m.index)))
       }
       const span = doc.createElement('span')
-      span.className = payload.className
-      span.setAttribute(payload.attr, payload.value)
+      if (payload) {
+        span.className = payload.className
+        span.setAttribute(payload.attr, payload.value)
+      } else {
+        span.className = 'var-token'
+        span.setAttribute('data-var', word)
+      }
       span.textContent = word
       frag.appendChild(span)
       lastIndex = m.index + word.length
@@ -1763,10 +1933,15 @@ function DisasmTokens({
   text,
   lookups,
   selfName,
+  activeVars,
 }: {
   text: string
   lookups: SymbolLookups
   selfName: string
+  // Active cross-highlight variable names — any identifier token whose text
+  // matches (e.g. a named stack var `local_18` that appears verbatim in the
+  // listing operand) gets the same glow as in the pseudocode pane.
+  activeVars?: ReadonlySet<string>
 }) {
   const tokens = tokenizeAsmLine(text)
   const parts: React.ReactNode[] = []
@@ -1808,6 +1983,7 @@ function DisasmTokens({
         break
       case 'ident': {
         const lc = t.text.toLowerCase()
+        const varHi = activeVars?.has(t.text) ? ' xhi-var' : ''
         // Function/data/addr link wins first — even if a function happens
         // to share a name with a register (rare but possible for short
         // imports like `sp` or `lr` in pathological binaries), navigation
@@ -1817,7 +1993,7 @@ function DisasmTokens({
           parts.push(
             <span
               key={key}
-              className={payload.className}
+              className={payload.className + varHi}
               {...{ [payload.attr]: payload.value }}
             >
               {t.text}
@@ -1827,20 +2003,20 @@ function DisasmTokens({
           // First identifier on the line is the mnemonic. Bright color so
           // the eye can scan a column of instructions quickly.
           parts.push(
-            <span key={key} className="font-semibold text-sky-300">{t.text}</span>,
+            <span key={key} className={'font-semibold text-sky-300' + varHi}>{t.text}</span>,
           )
           mnemonicSeen = true
         } else if (ASM_REGISTERS.has(lc)) {
           parts.push(
-            <span key={key} className="text-amber-300">{t.text}</span>,
+            <span key={key} className={'text-amber-300' + varHi}>{t.text}</span>,
           )
         } else if (ASM_SIZE_KEYWORDS.has(lc)) {
           parts.push(
-            <span key={key} className="text-violet-300">{t.text}</span>,
+            <span key={key} className={'text-violet-300' + varHi}>{t.text}</span>,
           )
         } else {
           parts.push(
-            <span key={key} className="text-zinc-200">{t.text}</span>,
+            <span key={key} className={'text-zinc-200' + varHi}>{t.text}</span>,
           )
         }
         break
@@ -1854,12 +2030,31 @@ function DisassemblyView({
   fn,
   lookups,
   pendingHighlight,
+  cross,
 }: {
   fn: BinaryFunction
   lookups: SymbolLookups
   pendingHighlight: PendingHighlight | null
+  cross: Cross | null
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
+  const activeVars = useMemo(
+    () => (cross ? new Set(cross.vars) : undefined),
+    [cross],
+  )
+
+  // When the cross-highlight selection changes, scroll the first highlighted
+  // instruction into view so the user sees the corresponding machine code
+  // without hunting for it. Distinct from pendingHighlight (side-panel jumps).
+  useEffect(() => {
+    if (!cross || cross.addrs.size === 0) return
+    const host = hostRef.current
+    if (!host) return
+    const first = cross.addrs.values().next().value
+    if (!first) return
+    const el = host.querySelector<HTMLElement>(`[data-addr="${CSS.escape(first)}"]`)
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [cross])
 
   // Scroll-to-addr + flash when a side-panel hit targets this function with
   // an asmAddr. `data-addr` on each row gives us a direct querySelector
@@ -1893,18 +2088,21 @@ function DisassemblyView({
   }
   return (
     <div ref={hostRef} className="font-mono text-[12px] leading-relaxed">
-      {fn.disassembly.map((line, i) => (
-        <div
-          key={i}
-          data-addr={line.addr}
-          className="flex gap-4 px-4 py-0.5 hover:bg-zinc-900/40"
-        >
-          <span className="w-20 shrink-0 text-zinc-600">{line.addr}</span>
-          <span className="text-zinc-200">
-            <DisasmTokens text={line.text} lookups={lookups} selfName={fn.name} />
-          </span>
-        </div>
-      ))}
+      {fn.disassembly.map((line, i) => {
+        const hot = cross?.addrs.has(line.addr) ?? false
+        return (
+          <div
+            key={i}
+            data-addr={line.addr}
+            className={`flex gap-4 px-4 py-0.5 ${hot ? 'xhi-asm-row' : 'hover:bg-zinc-900/40'}`}
+          >
+            <span className="w-20 shrink-0 text-zinc-600">{line.addr}</span>
+            <span className="text-zinc-200">
+              <DisasmTokens text={line.text} lookups={lookups} selfName={fn.name} activeVars={activeVars} />
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }

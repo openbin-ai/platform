@@ -31,6 +31,31 @@ body {
   transition: background 1.6s ease-out, box-shadow 1.6s ease-out;
 }
 
+/* ---- Ghidra-style cross-highlight (follow along) ----------------------
+   Clicking a decompiled line, variable, or instruction lights up the
+   corresponding spots in both the pseudocode and disassembly panes.
+   Persistent (cleared on Escape / function switch). */
+.shiki-host .var-token {
+  cursor: pointer;
+  border-radius: 2px;
+}
+.shiki-host .var-token:hover {
+  background: rgba(56, 189, 248, 0.18);
+}
+.shiki-host .line.xhi-line {
+  background: rgba(56, 189, 248, 0.13);
+  box-shadow: inset 2px 0 0 #38bdf8;
+}
+.xhi-var {
+  background: rgba(250, 204, 21, 0.28);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.5);
+}
+.xhi-asm-row {
+  background: rgba(56, 189, 248, 0.13);
+  box-shadow: inset 2px 0 0 #38bdf8;
+}
+
 .shiki-plain code {
   white-space: pre;
   color: #d4d4d8;

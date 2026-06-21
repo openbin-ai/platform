@@ -19,15 +19,31 @@ type NativeLibrary = {
   analyzedAt: string | null
 }
 
+type DisasmLine = { addr: string; text: string }
+// Cross-highlight maps from extract.py (decompiled functions only). line_map:
+// [lineNo (1-based), [instruction addrs]]; vars: variable name -> referencing
+// instruction addrs. Optional/nullable — absent on pre-feature analyses, in
+// which case the disassembly pane still renders but cross-highlight is inert.
+type LineMap = [number, string[]][]
+type VarRef = { name: string; addrs: string[] }
 type NativeFunction = {
   name: string
   address: string
   size: number
   signature: string
   decompiled: string | null
+  disassembly?: DisasmLine[] | null
+  line_map?: LineMap | null
+  vars?: VarRef[] | null
   external: boolean
   thunk: boolean
 }
+
+// Active cross-highlight selection shared by the pseudocode + disassembly
+// panes (Ghidra-style follow-along). vars: variable names to glow in both
+// panes; lines: 1-based decompiled lines to glow; addrs: instruction
+// addresses to glow in the disassembly.
+type Cross = { vars: string[]; lines: number[]; addrs: Set<string> }
 
 type NativeAnalysisResult = {
   functions: NativeFunction[]
@@ -73,6 +89,15 @@ const C_KEYWORDS = new Set([
   'NULL', 'null',
 ])
 
+// Persisted side-by-side preference for the native code view.
+const NATIVE_SPLIT_KEY = 'openapk.nativeCodeSplitView'
+
+function tabCls(active: boolean): string {
+  return `rounded px-2 py-1 text-[11px] ${
+    active ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:bg-zinc-800'
+  } disabled:opacity-30`
+}
+
 /**
  * Post-process shiki HTML to wrap in-binary function-name tokens in
  * clickable spans. Internal names get {@code data-fn-addr=<address>} (the
@@ -89,8 +114,9 @@ function decorateCalls(
   html: string,
   nameToAddr: Map<string, string>,
   externalNames: Set<string>,
+  varNames: ReadonlySet<string>,
 ): string {
-  if (nameToAddr.size === 0 && externalNames.size === 0) return html
+  if (nameToAddr.size === 0 && externalNames.size === 0 && varNames.size === 0) return html
   return html.replace(/<span([^>]*?)>([^<]+)<\/span>/g, (full, _attrs, text: string) => {
     const decoded = text
       .replace(/&amp;/g, '&')
@@ -109,6 +135,11 @@ function decorateCalls(
     }
     if (externalNames.has(stripped)) {
       return `<span class="fn-extern" title="External — resolved at runtime">${full}</span>`
+    }
+    // Decompiled variable — clickable for cross-highlight (data-var). Wrapped
+    // last so navigable symbols always win.
+    if (varNames.has(stripped)) {
+      return `<span class="var-token" data-var="${stripped}">${full}</span>`
     }
     return full
   })
@@ -785,6 +816,75 @@ function FunctionsPanel({
     ? functions.filter(fn => fn.name.toLowerCase().includes(f) || fn.address.toLowerCase().includes(f))
     : functions
   const openFn = openAddr ? functions.find(fn => fn.address === openAddr) ?? null : null
+
+  // Pseudocode/disassembly tab, side-by-side split (persisted), and the
+  // cross-highlight follow-along selection (reset whenever the open function
+  // changes; Escape clears it).
+  const [codeTab, setCodeTab] = useState<'pseudo' | 'disasm'>('pseudo')
+  const [split, setSplit] = useState<boolean>(() => {
+    try { return localStorage.getItem(NATIVE_SPLIT_KEY) === '1' } catch { return false }
+  })
+  const toggleSplit = useCallback(() => {
+    setSplit(s => {
+      const next = !s
+      try { localStorage.setItem(NATIVE_SPLIT_KEY, next ? '1' : '0') } catch { /* ignore */ }
+      return next
+    })
+  }, [])
+  const [cross, setCross] = useState<Cross | null>(null)
+  useEffect(() => { setCross(null) }, [openAddr])
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') setCross(null) }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [])
+
+  // Cross-highlight lookup maps derived from the open function's worker maps.
+  const varNames = useMemo(() => new Set((openFn?.vars ?? []).map(v => v.name)), [openFn])
+  const lineToAddrs = useMemo(() => {
+    const m = new Map<number, string[]>()
+    for (const [ln, addrs] of openFn?.line_map ?? []) m.set(ln, addrs)
+    return m
+  }, [openFn])
+  const addrToLine = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const [ln, addrs] of openFn?.line_map ?? []) for (const a of addrs) if (!m.has(a)) m.set(a, ln)
+    return m
+  }, [openFn])
+  const varToAddrs = useMemo(() => {
+    const m = new Map<string, string[]>()
+    for (const v of openFn?.vars ?? []) m.set(v.name, v.addrs)
+    return m
+  }, [openFn])
+  const disasmAvailable = !!(openFn && openFn.disassembly && openFn.disassembly.length > 0)
+
+  // Single delegated click handler for the code region: function-name jumps
+  // (data-fn-addr) win, then variable / instruction / line cross-highlight.
+  const handleCenterClick = useCallback((e: React.MouseEvent) => {
+    const el = e.target as HTMLElement
+    const fnEl = el.closest('[data-fn-addr]') as HTMLElement | null
+    if (fnEl?.dataset.fnAddr) { e.preventDefault(); onNavigate(fnEl.dataset.fnAddr); return }
+    const varEl = el.closest('[data-var]') as HTMLElement | null
+    if (varEl?.dataset.var) {
+      const name = varEl.dataset.var
+      setCross({ vars: [name], lines: [], addrs: new Set(varToAddrs.get(name) ?? []) })
+      return
+    }
+    const addrEl = el.closest('[data-addr]') as HTMLElement | null
+    if (addrEl?.dataset.addr) {
+      const addr = addrEl.dataset.addr
+      const ln = addrToLine.get(addr)
+      setCross({ vars: [], lines: ln != null ? [ln] : [], addrs: new Set([addr]) })
+      return
+    }
+    const lineEl = el.closest('[data-ln]') as HTMLElement | null
+    if (lineEl?.dataset.ln) {
+      const ln = Number(lineEl.dataset.ln)
+      setCross({ vars: [], lines: [ln], addrs: new Set(lineToAddrs.get(ln) ?? []) })
+      return
+    }
+  }, [onNavigate, varToAddrs, addrToLine, lineToAddrs])
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 border-b border-zinc-800/80 bg-black/20 p-2">
@@ -884,13 +984,67 @@ function FunctionsPanel({
                   )}
                 </div>
               </div>
-              {openFn.decompiled ? (
-                <DecompiledCode
-                  code={openFn.decompiled}
-                  nameToAddr={nameToAddr}
-                  externalNames={externalNames}
-                  onNavigate={onNavigate}
-                />
+              {(openFn.decompiled || disasmAvailable) ? (
+                <>
+                  <div className="mb-2 flex items-center gap-1 border-b border-zinc-800/60 pb-1">
+                    <button
+                      onClick={() => setCodeTab('pseudo')}
+                      disabled={!openFn.decompiled}
+                      className={tabCls(codeTab === 'pseudo' && !split)}
+                    >
+                      Pseudocode
+                    </button>
+                    <button
+                      onClick={() => setCodeTab('disasm')}
+                      disabled={!disasmAvailable}
+                      className={tabCls(codeTab === 'disasm' && !split)}
+                    >
+                      Disassembly
+                    </button>
+                    <button
+                      onClick={toggleSplit}
+                      disabled={!disasmAvailable || !openFn.decompiled}
+                      title={split
+                        ? 'Switch to single pane'
+                        : 'Side-by-side: pseudocode + disassembly. Click a line, variable, or instruction to follow along across both.'}
+                      className={`ml-auto rounded px-2 py-1 text-[11px] ${
+                        split ? 'bg-amber-700/40 text-amber-100' : 'text-zinc-400 hover:bg-zinc-800'
+                      } disabled:opacity-30`}
+                    >
+                      ⇆ Split
+                    </button>
+                  </div>
+                  <div onClick={handleCenterClick}>
+                    {split && disasmAvailable && openFn.decompiled ? (
+                      <div className="flex min-w-0 gap-2">
+                        <div className="min-w-0 flex-1">
+                          <DecompiledCode
+                            code={openFn.decompiled}
+                            nameToAddr={nameToAddr}
+                            externalNames={externalNames}
+                            varNames={varNames}
+                            cross={cross}
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <NativeDisassembly fn={openFn} nameToAddr={nameToAddr} cross={cross} />
+                        </div>
+                      </div>
+                    ) : codeTab === 'disasm' && disasmAvailable ? (
+                      <NativeDisassembly fn={openFn} nameToAddr={nameToAddr} cross={cross} />
+                    ) : openFn.decompiled ? (
+                      <DecompiledCode
+                        code={openFn.decompiled}
+                        nameToAddr={nameToAddr}
+                        externalNames={externalNames}
+                        varNames={varNames}
+                        cross={cross}
+                      />
+                    ) : (
+                      <NativeDisassembly fn={openFn} nameToAddr={nameToAddr} cross={cross} />
+                    )}
+                  </div>
+                </>
               ) : (
                 <p className="text-xs text-zinc-500">
                   {openFn.external
@@ -923,32 +1077,50 @@ function DecompiledCode({
   code,
   nameToAddr,
   externalNames,
-  onNavigate,
+  varNames,
+  cross,
 }: {
   code: string
   nameToAddr: Map<string, string>
   externalNames: Set<string>
-  onNavigate: (addr: string) => void
+  varNames: ReadonlySet<string>
+  cross: Cross | null
 }) {
   const [html, setHtml] = useState<string | null>(null)
+  const hostRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setHtml(null)
     void highlight(code, 'c').then(h => {
-      if (!cancelled) setHtml(decorateCalls(h, nameToAddr, externalNames))
+      if (!cancelled) setHtml(decorateCalls(h, nameToAddr, externalNames, varNames))
     })
     return () => { cancelled = true }
-  }, [code, nameToAddr, externalNames])
+  }, [code, nameToAddr, externalNames, varNames])
 
-  const onClick = useCallback((e: React.MouseEvent) => {
-    const target = e.target as HTMLElement | null
-    const link = target?.closest('[data-fn-addr]') as HTMLElement | null
-    if (link?.dataset.fnAddr) {
-      e.preventDefault()
-      onNavigate(link.dataset.fnAddr)
+  // Stamp each Shiki `.line` with its 1-based source line so a click resolves
+  // to a line number and the cross-highlight effect can target lines.
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host || html === null) return
+    host.querySelectorAll('.line').forEach((el, i) => el.setAttribute('data-ln', String(i + 1)))
+  }, [html])
+
+  // Paint the active cross-highlight (line + variable) over the rendered HTML
+  // without re-running Shiki — just toggle classes.
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    host.querySelectorAll('.xhi-line, .xhi-var').forEach(el => el.classList.remove('xhi-line', 'xhi-var'))
+    if (!cross) return
+    for (const ln of cross.lines) {
+      const el = host.querySelector(`[data-ln="${ln}"]`)
+      if (el) el.classList.add('xhi-line')
     }
-  }, [onNavigate])
+    for (const name of cross.vars) {
+      host.querySelectorAll(`[data-var="${CSS.escape(name)}"]`).forEach(el => el.classList.add('xhi-var'))
+    }
+  }, [html, cross])
 
   if (html === null) {
     return (
@@ -959,10 +1131,181 @@ function DecompiledCode({
   }
   return (
     <div
+      ref={hostRef}
       className="shiki-host overflow-x-auto rounded border border-zinc-800 bg-black/60 p-3 font-mono text-xs leading-relaxed [&_.fn-link]:cursor-pointer [&_.fn-link]:rounded-sm [&_.fn-link]:border-b [&_.fn-link]:border-dotted [&_.fn-link]:border-zinc-600 hover:[&_.fn-link]:border-amber-400 hover:[&_.fn-link]:bg-amber-950/30 [&_.fn-extern]:opacity-60"
-      onClick={onClick}
       dangerouslySetInnerHTML={{ __html: html }}
     />
+  )
+}
+
+// =========================================================================
+// Disassembly view + asm tokenizer (ported from openbin-frontend's
+// ProjectView so the APK native pane reaches Ghidra-style parity).
+// =========================================================================
+
+const ASM_REGISTERS: ReadonlySet<string> = new Set([
+  'rax', 'rbx', 'rcx', 'rdx', 'rsi', 'rdi', 'rbp', 'rsp', 'rip',
+  'r8', 'r9', 'r10', 'r11', 'r12', 'r13', 'r14', 'r15',
+  'eax', 'ebx', 'ecx', 'edx', 'esi', 'edi', 'ebp', 'esp', 'eip',
+  'r8d', 'r9d', 'r10d', 'r11d', 'r12d', 'r13d', 'r14d', 'r15d',
+  'ax', 'bx', 'cx', 'dx', 'si', 'di', 'bp', 'sp',
+  'ah', 'al', 'bh', 'bl', 'ch', 'cl', 'dh', 'dl',
+  'cs', 'ds', 'es', 'fs', 'gs', 'ss',
+  ...Array.from({ length: 32 }, (_, i) => `xmm${i}`),
+  ...Array.from({ length: 32 }, (_, i) => `ymm${i}`),
+  // AArch64 (most common for Android .so): x0-x30, w0-w30, SIMD banks.
+  ...Array.from({ length: 31 }, (_, i) => `x${i}`),
+  ...Array.from({ length: 31 }, (_, i) => `w${i}`),
+  ...Array.from({ length: 32 }, (_, i) => `s${i}`),
+  ...Array.from({ length: 32 }, (_, i) => `d${i}`),
+  ...Array.from({ length: 32 }, (_, i) => `q${i}`),
+  ...Array.from({ length: 32 }, (_, i) => `v${i}`),
+  'sp', 'lr', 'pc', 'fp', 'ip', 'xzr', 'wzr', 'wsp', 'cpsr',
+  // ARM/Thumb 32-bit (r0-r15).
+  ...Array.from({ length: 16 }, (_, i) => `r${i}`),
+])
+
+const ASM_SIZE_KEYWORDS: ReadonlySet<string> = new Set([
+  'byte', 'word', 'dword', 'qword', 'tword', 'oword', 'xword', 'yword', 'zword',
+  'ptr', 'short', 'near', 'far',
+])
+
+type AsmToken =
+  | { kind: 'comment'; text: string }
+  | { kind: 'number'; text: string }
+  | { kind: 'ident'; text: string }
+  | { kind: 'punct'; text: string }
+  | { kind: 'ws'; text: string }
+
+function tokenizeAsmLine(line: string): AsmToken[] {
+  const out: AsmToken[] = []
+  const semi = line.indexOf(';')
+  const body = semi >= 0 ? line.slice(0, semi) : line
+  const comment = semi >= 0 ? line.slice(semi) : ''
+  const re =
+    /(\s+)|(#?-?0x[0-9a-fA-F]+|#-?\d+|-?\b\d+\b)|([A-Za-z_$@?][A-Za-z0-9_$@.?]*)|([,+\-*:!=<>(){}\[\]])/g
+  let m: RegExpExecArray | null
+  let lastIndex = 0
+  while ((m = re.exec(body)) !== null) {
+    if (m.index > lastIndex) out.push({ kind: 'punct', text: body.slice(lastIndex, m.index) })
+    if (m[1] !== undefined) out.push({ kind: 'ws', text: m[1] })
+    else if (m[2] !== undefined) out.push({ kind: 'number', text: m[2] })
+    else if (m[3] !== undefined) out.push({ kind: 'ident', text: m[3] })
+    else if (m[4] !== undefined) out.push({ kind: 'punct', text: m[4] })
+    lastIndex = m.index + m[0].length
+  }
+  if (lastIndex < body.length) out.push({ kind: 'punct', text: body.slice(lastIndex) })
+  if (comment) out.push({ kind: 'comment', text: comment })
+  return out
+}
+
+function DisasmTokens({
+  text,
+  nameToAddr,
+  activeVars,
+}: {
+  text: string
+  nameToAddr: Map<string, string>
+  activeVars?: ReadonlySet<string>
+}) {
+  const tokens = tokenizeAsmLine(text)
+  const parts: React.ReactNode[] = []
+  let mnemonicSeen = false
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]
+    const key = i
+    switch (t.kind) {
+      case 'ws':
+        parts.push(t.text)
+        break
+      case 'comment':
+        parts.push(<span key={key} className="italic text-zinc-500">{t.text}</span>)
+        break
+      case 'number':
+        parts.push(<span key={key} className="text-orange-300">{t.text}</span>)
+        break
+      case 'punct':
+        parts.push(<span key={key} className="text-zinc-500">{t.text}</span>)
+        break
+      case 'ident': {
+        const lc = t.text.toLowerCase()
+        const varHi = activeVars?.has(t.text) ? ' xhi-var' : ''
+        const addr = nameToAddr.get(t.text)
+        if (addr) {
+          parts.push(
+            <span key={key} className={'fn-link' + varHi} data-fn-addr={addr} role="link" tabIndex={0}>
+              {t.text}
+            </span>,
+          )
+        } else if (!mnemonicSeen) {
+          parts.push(<span key={key} className={'font-semibold text-sky-300' + varHi}>{t.text}</span>)
+          mnemonicSeen = true
+        } else if (ASM_REGISTERS.has(lc)) {
+          parts.push(<span key={key} className={'text-amber-300' + varHi}>{t.text}</span>)
+        } else if (ASM_SIZE_KEYWORDS.has(lc)) {
+          parts.push(<span key={key} className={'text-violet-300' + varHi}>{t.text}</span>)
+        } else {
+          parts.push(<span key={key} className={'text-zinc-200' + varHi}>{t.text}</span>)
+        }
+        break
+      }
+    }
+  }
+  return <>{parts}</>
+}
+
+function NativeDisassembly({
+  fn,
+  nameToAddr,
+  cross,
+}: {
+  fn: NativeFunction
+  nameToAddr: Map<string, string>
+  cross: Cross | null
+}) {
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const activeVars = useMemo(() => (cross ? new Set(cross.vars) : undefined), [cross])
+
+  useEffect(() => {
+    if (!cross || cross.addrs.size === 0) return
+    const host = hostRef.current
+    if (!host) return
+    const first = cross.addrs.values().next().value
+    if (!first) return
+    const el = host.querySelector<HTMLElement>(`[data-addr="${CSS.escape(first)}"]`)
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [cross])
+
+  if (!fn.disassembly || fn.disassembly.length === 0) {
+    return (
+      <p className="p-3 text-xs text-zinc-500">
+        {fn.external || fn.thunk
+          ? 'No disassembly — external/thunk function.'
+          : 'No disassembly available. Re-run analysis with an updated worker to populate it.'}
+      </p>
+    )
+  }
+  return (
+    <div
+      ref={hostRef}
+      className="overflow-x-auto rounded border border-zinc-800 bg-black/60 font-mono text-[12px] leading-relaxed [&_.fn-link]:cursor-pointer [&_.fn-link]:rounded-sm hover:[&_.fn-link]:bg-amber-950/30"
+    >
+      {fn.disassembly.map((line, i) => {
+        const hot = cross?.addrs.has(line.addr) ?? false
+        return (
+          <div
+            key={i}
+            data-addr={line.addr}
+            className={`flex gap-4 px-3 py-0.5 ${hot ? 'xhi-asm-row' : 'hover:bg-zinc-900/40'}`}
+          >
+            <span className="w-24 shrink-0 text-zinc-600">{line.addr}</span>
+            <span className="text-zinc-200">
+              <DisasmTokens text={line.text} nameToAddr={nameToAddr} activeVars={activeVars} />
+            </span>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 

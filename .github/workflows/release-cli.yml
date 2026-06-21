@@ -53,14 +53,19 @@ jobs:
           docker save openapk/jadx-worker:bundled | gzip > jadx-worker.tar.gz
           ls -lh jadx-worker.tar.gz
 
+      # The ghidra-worker tag is a versioned cache key — bump it whenever the
+      # worker output changes so the CLI re-downloads instead of reusing a
+      # stale local image. MUST stay in lockstep with `ghidraWorkerImage` in
+      # cli/config.go. The tarball NAME stays version-less (stable URL); only
+      # the image tag inside it is versioned.
       - name: Build + save ghidra-worker image
         run: |
           docker buildx build --load \
-            --tag openbin/ghidra-worker:bundled \
+            --tag openbin/ghidra-worker:2 \
             --cache-from=type=gha,scope=ghidra \
             --cache-to=type=gha,mode=max,scope=ghidra \
             ./ghidra-worker
-          docker save openbin/ghidra-worker:bundled | gzip > ghidra-worker.tar.gz
+          docker save openbin/ghidra-worker:2 | gzip > ghidra-worker.tar.gz
           ls -lh ghidra-worker.tar.gz
 
       - name: Upload image artifacts
@@ -147,4 +152,25 @@ jobs:
           files: |
             jadx-worker.tar.gz
             ghidra-worker.tar.gz
+          fail_on_unmatched_files: true
+
+  attach-version:
+    name: Publish VERSION marker (powers `openbin update` nudge)
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      # A tiny version-less asset the CLI fetches via the stable
+      # releases/latest/download/VERSION URL to detect when a newer release
+      # exists — no GitHub API, no token, no rate limit. Matches the version
+      # baked into the binary via -ldflags.
+      - name: Write VERSION
+        run: |
+          ver="${{ github.event.inputs.tag || github.ref_name }}"
+          printf '%s' "${ver#openbin-}" > VERSION
+          cat VERSION
+      - name: Attach VERSION to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: VERSION
           fail_on_unmatched_files: true

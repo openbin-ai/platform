@@ -65,10 +65,50 @@ export function Layout() {
           </nav>
         </div>
       </header>
+      <CliUpdateBanner />
       <main className="flex-1 overflow-auto">
         {/* No max-width here — pages opt in via their own container. */}
         <Outlet />
       </main>
+    </div>
+  )
+}
+
+// Site-wide announcement nudging CLI users to update. We can't detect a
+// visitor's installed CLI version from the browser, so this is a broadcast
+// notice (not version-aware) — dismissible, and re-shown for the NEXT
+// announcement by bumping the key suffix. Bump in lockstep with a meaningful
+// worker/CLI release the user should pick up.
+const CLI_BANNER_KEY = 'openbin.cliUpdateBanner.dismissed.v2'
+
+function CliUpdateBanner() {
+  const [dismissed, setDismissed] = useState(true)
+  useEffect(() => {
+    try { setDismissed(localStorage.getItem(CLI_BANNER_KEY) === '1') } catch { setDismissed(false) }
+  }, [])
+  if (dismissed) return null
+  return (
+    <div className="border-b border-amber-900/50 bg-amber-950/40">
+      <div className="mx-auto flex max-w-6xl items-center gap-3 px-6 py-2 text-xs text-amber-200">
+        <span aria-hidden>⬆️</span>
+        <span className="flex-1">
+          <strong>New:</strong> side-by-side disassembly + Ghidra-style cross-highlighting.
+          Using the CLI? Update it —{' '}
+          <code className="rounded bg-amber-900/40 px-1 py-0.5 font-mono text-amber-100">curl -fsSL https://openbin.ai/install.sh | sh</code>{' '}
+          (or <code className="rounded bg-amber-900/40 px-1 py-0.5 font-mono text-amber-100">openbin update</code> on recent builds) —
+          to pull the latest worker. Older CLIs keep working, just without the new follow-along view.
+        </span>
+        <button
+          onClick={() => {
+            try { localStorage.setItem(CLI_BANNER_KEY, '1') } catch { /* ignore */ }
+            setDismissed(true)
+          }}
+          className="shrink-0 rounded px-1.5 py-0.5 text-amber-300/70 hover:bg-amber-900/40 hover:text-amber-100"
+          aria-label="Dismiss"
+        >
+          ✕
+        </button>
+      </div>
     </div>
   )
 }
