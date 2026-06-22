@@ -141,10 +141,22 @@ func ensureDockerImage(image, tarballName string) error {
 	if dockerImageExists(image) {
 		return nil
 	}
-	if tarball, ok := findBundledImageTarball(tarballName); ok {
-		return loadImageTarball(image, tarball, "Loading worker image from "+tarball+" (first run only)...")
-	}
 	dest := filepath.Join(xdgDataHome(), "openbin", tarballName)
+	if tarball, ok := findBundledImageTarball(tarballName); ok {
+		if err := loadImageTarball(image, tarball, "Loading worker image from "+tarball+" (first run only)..."); err == nil {
+			return nil
+		}
+		// A tarball was present but didn't produce the expected tag — almost
+		// always a STALE CACHE after a worker version bump (the asset name is
+		// version-less, so a cached ghidra-worker.tar.gz from an older release
+		// loads the old tag). Fall through to re-download the current release
+		// asset, which overwrites the stale cache at `dest`. Without this,
+		// every returning user who'd decompiled before the bump would wedge on
+		// "loaded ... but image not found" until manually deleting the cache.
+		fmt.Fprintf(os.Stderr,
+			"Cached %s doesn't contain %s (stale after a worker update) — re-downloading the current image...\n",
+			tarballName, image)
+	}
 	if err := downloadWorkerImage(tarballName, dest); err != nil {
 		return fmt.Errorf("worker image %q not available locally and download failed: %w\n"+
 			"You can also drop %s next to the openbin binary or in %s to install it offline.",
