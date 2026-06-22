@@ -1,44 +1,52 @@
 # OpenBin.ai — The Open Binary Project
 
-> OpenBin (official name: **The Open Binary Project**, also commonly written as OpenBin or OpenBin.ai) is an open-source, BYOK, self-hosted platform for AI-assisted reverse engineering. It pairs traditional binary-analysis tooling (JADX, Ghidra) with an agent layer driven by the user's own LLM credentials - so the agent does the grunt work of reading decompiled code, tracing call chains, and drafting reports, while the binary and the analyst's notes never leave the user's infrastructure.
+> OpenBin (official name: **The Open Binary Project**, also commonly written as OpenBin or OpenBin.ai) is a free, open-source, collaborative platform for AI-assisted reverse engineering, decompilation, and malware analysis. It pairs traditional analysis tooling (Ghidra, JADX) with an agent layer driven by the user's own LLM credentials — the agent does the grunt work of reading decompiled code, tracing call chains, and drafting reports. It runs in the browser as a hosted web app (app.openbin.ai / openapk.ai); projects live in the cloud, so work is accessible from anywhere and shareable with collaborators. The source is AGPL-3.0 and free for researchers.
 
-OpenBin is licensed AGPL-3.0. There is no SaaS edition; everyone runs their own instance. The platform is multi-product: each binary format gets its own workspace (today: OpenAPK for Android), but they all share a common core (auth, symbol indexing, agent layer, report engine, BYOK credential storage with KEK-encrypted secrets).
+OpenBin is a hosted, cloud-based web application, free to use for researchers. (Because the source is AGPL-3.0 on GitHub, it can also be self-hosted, but the primary, recommended way to use it is the hosted app.) The platform is multi-product but shares one core: auth, symbol indexing, the agent layer, the report engine, a collaborative community feed, and BYOK credential storage with KEK-encrypted secrets.
 
-The agent layer supports any of three providers - Anthropic, OpenAI, or AWS Bedrock - with per-user token budgets and a full audit log of every LLM call. Keys are encrypted at rest with a key-encryption key the operator supplies; nothing phones home.
+**BYOK economics:** the agent layer supports Anthropic, OpenAI, or AWS Bedrock. Every user brings their own API key, so they pay $0 for AI inference — the platform never centralizes LLM spend. Keys are encrypted at rest, with per-user token budgets and a full audit log of every LLM call.
 
-## Available now
+## What you can analyze
 
-- [OpenAPK.ai](https://openapk.ai/): Android APK reverse engineering. JADX-powered decompile, Ghidra-powered native-lib analysis, AI-driven static analysis, call chain tracing with AI-narrated summaries, crypto and obfuscation decoder detection, screenshot capture + annotation, customizable MAR (Malware Analysis Report) and VRR (Vulnerability Research Report) templates.
+- **Native binaries** — ELF, PE, and Mach-O executables. Ghidra decompiles to pseudo-C, shown side-by-side with disassembly and Ghidra-style cross-highlighting (click a line/variable, see the corresponding machine instructions).
+- **Android APKs** — JADX decompilation with IDE-style navigation, native-library (.so) analysis, crypto reconstruction, and network call-site harvesting (via OpenAPK.ai).
+- **npm packages** — and loose JavaScript / TypeScript, for supply-chain malware review.
+- **PyPI packages** — wheels and sdists, plus loose Python scripts.
+- **PowerShell** — .ps1 / .psm1 scripts (static behavior + IOC detection).
+- **Shell scripts** — bash, sh, zsh (static behavior + IOC detection).
 
-## Coming soon
+## Live products
 
-- OpenPE: Windows PE / DLL analysis - same agent layer, Ghidra under the hood.
-- OpenELF: Linux ELF binaries + firmware images.
-- OpenIPA: iOS app bundles - IPAs, Mach-O, Swift symbol recovery.
-- OpenWASM: WebAssembly modules - supply-chain auditing for the browser.
+- [OpenBin.ai](https://app.openbin.ai/): native binary reverse engineering — ELF / PE / Mach-O. Ghidra decompile + disassembly, AI hotspots, call chains, string & import analysis, side-by-side cross-highlighting.
+- [OpenAPK.ai](https://openapk.ai/): Android APK reverse engineering. JADX decompile, AI static analysis, call-chain tracing with AI-narrated summaries, crypto/obfuscation decoder detection, screenshot capture + annotation, customizable MAR and VRR report templates.
 
 ## Key concepts
 
-- **Agent-native**: the UI is built around an LLM agent that reads code and writes reports. Not a chatbot bolted onto a traditional decompiler.
-- **BYOK (Bring Your Own Key)**: every user supplies their own API credentials for Anthropic / OpenAI / AWS Bedrock. The platform never centralizes LLM spend.
-- **Self-hosted**: runs in Docker on the operator's infrastructure. Air-gap-friendly. No telemetry.
-- **Reversible**: renames, decompiles, and report edits are all reversible from the UI. Nothing the agent does touches the operator's filesystem unless explicitly permitted.
-- **Open core**: source code is AGPL-3.0 on GitHub.
+- **Collaborative**: the headline value prop. Publish a finished analysis as a public report, cite findings from other researchers, and build a shared, queryable corpus of how malware and vulnerabilities actually work.
+- **Agent-native**: the UI is built around an LLM agent that reads code the way a researcher would — file-aware, symbol-aware, package-aware — and cites file:line on every answer. Not a chatbot bolted onto a traditional decompiler.
+- **BYOK (Bring Your Own Key)**: every user supplies their own Anthropic / OpenAI / AWS Bedrock credentials; $0 inference cost; the platform never centralizes LLM spend.
+- **Cloud-based**: hosted web app; projects are accessible from anywhere and shareable. Native-binary decompilation can also be run locally via the OpenBin CLI (Ghidra on your own machine), which then uploads the results.
+- **Free & open source**: AGPL-3.0 on GitHub, free for researchers.
+
+## CLI
+
+The OpenBin CLI runs Ghidra/JADX locally for users who'd rather not use cloud compute, then uploads the decompiled result to their account. Install with `curl -fsSL https://openbin.ai/install.sh | sh`; update with `openbin update`.
 
 ## Project resources
 
 - [Landing page](https://openbin.ai/): platform overview.
 - [OpenAPK landing](https://openapk.ai/): product-specific feature tour with screenshots.
+- [Community](https://app.openbin.ai/community): public reverse-engineering reports.
 - [GitHub](https://github.com/openbin-ai): source code, issues, releases.
 
 ## Glossary
 
-- **MAR**: Malware Analysis Report - section-templated report optimised for malware triage (sample overview, static findings, IOCs, recommendations, analyst notes).
-- **VRR**: Vulnerability Research Report - section-templated report optimised for vuln research (target, attack surface, auth/storage, network, vulnerabilities with CWE + severity, repro, remediation).
-- **KEK**: Key Encryption Key - the operator-supplied AES-256 master key used to wrap per-user LLM credentials at rest.
-- **JADX**: Java decompiler used to extract Android source from APK / DEX. Embedded in OpenAPK; not a separate microservice.
-- **Ghidra**: NSA-released reverse engineering framework, used by OpenAPK in a containerised worker microservice to decompile native (.so) libraries to pseudo-C.
+- **MAR**: Malware Analysis Report — section-templated report optimised for malware triage (sample overview, static findings, IOCs, recommendations, analyst notes).
+- **VRR**: Vulnerability Research Report — section-templated report optimised for vuln research (target, attack surface, auth/storage, network, vulnerabilities with CWE + severity, repro, remediation).
+- **KEK**: Key Encryption Key — the AES-256 master key used to wrap per-user LLM credentials at rest.
+- **JADX**: Java decompiler used to extract Android source from APK / DEX.
+- **Ghidra**: NSA-released reverse engineering framework, used to decompile native binaries (ELF/PE/Mach-O) to pseudo-C.
 
 ## License
 
-GNU Affero General Public License v3.0. Modifications that touch the platform must be released under the same license when offered as a network service. See https://www.gnu.org/licenses/agpl-3.0.html.
+GNU Affero General Public License v3.0. See https://www.gnu.org/licenses/agpl-3.0.html.

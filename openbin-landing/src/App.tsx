@@ -1,4 +1,5 @@
-import { Bot, GitBranch, Unlock, NotebookPen, Globe, KeyRound, Users, Share2 } from 'lucide-react'
+import { Bot, GitBranch, Unlock, NotebookPen, Globe, KeyRound, Users, Share2, Cpu, Smartphone, Package, FileCode2, Terminal } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import LetterGlitch from './components/LetterGlitch'
 import DecryptedText from './components/DecryptedText'
 import ElectricBorder from './components/ElectricBorder'
@@ -26,6 +27,7 @@ export default function App() {
       <main className="relative z-10">
         <Hero />
         <AvailableNow />
+        <Ecosystems />
         <Capabilities />
         <TabbedShowcase />
         <WhyOpenBin />
@@ -102,7 +104,7 @@ function Hero() {
       </p>
       <h1 className="max-w-5xl text-5xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-7xl">
         <DecryptedText
-          text="The collaborative platform"
+          text="AI decompilation,"
           animateOn="view"
           sequential
           revealDirection="start"
@@ -112,7 +114,7 @@ function Hero() {
         />
         <br className="hidden sm:block" />{' '}
         <DecryptedText
-          text="for security research."
+          text="reverse engineering & debugging."
           animateOn="view"
           sequential
           revealDirection="start"
@@ -122,15 +124,17 @@ function Hero() {
         />
       </h1>
       <p className="mt-7 max-w-3xl text-xl leading-relaxed text-zinc-100 sm:text-2xl">
-        Research <span className="text-amber-400">malware</span>, reverse engineer{' '}
-        <span className="text-amber-400">binaries</span>, publish findings, and{' '}
-        <span className="text-amber-400">collaborate with security researchers</span>
-        {' '}- accelerated by intelligent agents.
+        Decompile and reverse engineer <span className="text-amber-400">native binaries</span>,{' '}
+        <span className="text-amber-400">Android APKs</span>, and malicious{' '}
+        <span className="text-amber-400">npm, PyPI, PowerShell &amp; shell</span> packages -
+        then publish your findings and{' '}
+        <span className="text-amber-400">collaborate with the security-research community</span>.
+        Accelerated by intelligent agents running on your own LLM.
       </p>
       <p className="mt-4 max-w-2xl text-base leading-relaxed text-zinc-300 sm:text-lg">
-        The collaborative home the security-research community was missing.
-        Open-source, AGPL-licensed, bring-your-own-LLM-key - your binary, your
-        model, your infrastructure.
+        Free and open source (AGPL). Cloud-based, so your work is accessible from
+        anywhere and shareable with your team. Bring your own LLM key - you only
+        ever pay your own AI provider.
       </p>
       <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row">
         <a
@@ -173,7 +177,7 @@ function Hero() {
       </div>
       <CloudSunsetNote />
       <p className="mt-8 font-mono text-sm uppercase tracking-[0.15em] text-zinc-300">
-        Beta · BYOK (Anthropic · OpenAI · Bedrock) · AGPL v3 · self-hostable
+        Beta · Free &amp; open source (AGPL v3) · BYOK (Anthropic · OpenAI · Bedrock) · Runs in your browser
       </p>
     </section>
   )
@@ -291,6 +295,44 @@ function AvailableNow() {
   )
 }
 
+// What you can drop in. Doubles as SEO surface — these are the formats people
+// search for ("decompile apk", "npm malware", "powershell analysis", ...).
+const ecosystems: { icon: LucideIcon; title: string; formats: string; engine: string }[] = [
+  { icon: Cpu, title: 'Native binaries', formats: 'ELF · PE · Mach-O', engine: 'Ghidra decompile + disassembly' },
+  { icon: Smartphone, title: 'Android APKs', formats: '.apk · .dex · .so', engine: 'JADX decompile (OpenAPK)' },
+  { icon: Package, title: 'npm packages', formats: '.tgz · .js · .ts', engine: 'supply-chain malware review' },
+  { icon: FileCode2, title: 'PyPI packages', formats: '.whl · sdist · .py', engine: 'Python package + script analysis' },
+  { icon: Terminal, title: 'PowerShell', formats: '.ps1 · .psm1', engine: 'static behavior + IOC detection' },
+  { icon: Terminal, title: 'Shell scripts', formats: '.sh · .bash · .zsh', engine: 'static behavior + IOC detection' },
+]
+
+function Ecosystems() {
+  return (
+    <section className="mx-auto max-w-6xl px-6 pt-8 pb-16">
+      <h2 className="mb-3 text-center font-mono text-sm font-semibold uppercase tracking-[0.22em] text-amber-400">
+        Analyze almost anything
+      </h2>
+      <p className="mx-auto mb-10 max-w-2xl text-center text-lg leading-relaxed text-zinc-200">
+        One platform for binaries, mobile apps, and the package ecosystems where
+        supply-chain malware actually hides.
+      </p>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+        {ecosystems.map(({ icon: Icon, title, formats, engine }) => (
+          <div
+            key={title}
+            className="flex flex-col items-center rounded-xl border border-zinc-800/80 bg-zinc-950/70 p-5 text-center backdrop-blur transition hover:border-amber-500/40 hover:bg-zinc-900/70"
+          >
+            <Icon className="mb-3 h-7 w-7 text-amber-400" aria-hidden />
+            <h3 className="text-sm font-semibold text-zinc-50">{title}</h3>
+            <p className="mt-1 font-mono text-[11px] text-zinc-400">{formats}</p>
+            <p className="mt-2 text-xs leading-snug text-zinc-400">{engine}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 const capabilityCards: BentoCard[] = [
   {
     icon: Bot,
@@ -346,7 +388,7 @@ const capabilityCards: BentoCard[] = [
     label: 'BYOK',
     title: 'Your LLM, your keys',
     description:
-      'Anthropic, OpenAI, Bedrock. Provider keys encrypted with a KEK you control. Your binary never leaves your box.',
+      'Anthropic, OpenAI, or Bedrock - your own key, encrypted at rest. You pay $0 for AI inference: the platform never centralizes LLM spend.',
   },
 ]
 
@@ -392,8 +434,8 @@ function WhyOpenBin() {
           body="Built from day one for LLMs to read decompiled code the way a researcher would - file-aware, symbol-aware, package-aware. Not a chatbot strapped onto a 2008 disassembler."
         />
         <Pillar
-          title="BYOK, open source, self-hostable"
-          body="Your binary, your model, your infrastructure. Provider keys encrypted with a KEK you control. AGPL-licensed core, free for researchers - enterprise licensing available."
+          title="Free, open source, BYOK"
+          body="Free for researchers and AGPL-licensed - the whole platform is on GitHub. Bring your own LLM key (Anthropic, OpenAI, Bedrock), encrypted at rest, so you pay $0 for AI inference. Enterprise licensing available."
         />
       </div>
     </section>
@@ -461,7 +503,7 @@ function Footer() {
         <span>Collaborative platform for security research and reverse engineering</span>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-sm tracking-wide text-zinc-400">
-        <span>AGPL v3 · BYOK · self-hosted</span>
+        <span>AGPL v3 · BYOK · Free for researchers</span>
         <span aria-hidden>·</span>
         <a href="/terms.html" className="hover:text-amber-400">Terms</a>
         <span aria-hidden>·</span>

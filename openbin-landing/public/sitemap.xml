@@ -7,13 +7,13 @@
 
   <url>
     <loc>https://openbin.ai/</loc>
-    <lastmod>2026-05-25</lastmod>
+    <lastmod>2026-06-21</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
     <image:image>
       <image:loc>https://openbin.ai/og-image.png</image:loc>
-      <image:title>OpenBin.ai - Open-source, agent-native reverse engineering</image:title>
-      <image:caption>The open-source, BYOK, self-hosted platform for AI-assisted reverse engineering.</image:caption>
+      <image:title>OpenBin.ai - Free, collaborative AI reverse engineering and decompilation</image:title>
+      <image:caption>Free, open-source, collaborative AI platform for reverse engineering and decompilation - binaries, APKs, npm/PyPI packages, PowerShell and shell scripts.</image:caption>
     </image:image>
   </url>
 

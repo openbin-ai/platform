@@ -101,10 +101,10 @@ export function Landing() {
             Part of The Open Binary Project
           </p>
           <p className="mt-5 max-w-2xl text-base text-zinc-300/90 sm:text-lg">
-            A self-hosted research workspace for security teams and reverse
+            A free, cloud-based research workspace for security teams and reverse
             engineers. Bring your own LLM key - point an agent at the decompiled
             tree and put it to work on identifier recovery, string decoding, and
-            crypto reconstruction. Your APK, your model, your infrastructure.
+            crypto reconstruction. Your work, your model, accessible anywhere.
           </p>
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row">
             {authed ? (
@@ -137,7 +137,7 @@ export function Landing() {
             </a>
           </div>
           <p className="mt-6 text-xs text-zinc-500">
-            Beta · BYOK (Anthropic · OpenAI · Bedrock) · self-hosted
+            Beta · Free &amp; open source (AGPL v3) · BYOK (Anthropic · OpenAI · Bedrock)
           </p>
         </section>
 
@@ -149,18 +149,19 @@ export function Landing() {
             <p className="mt-4 text-base leading-relaxed text-zinc-200">
               OpenAPK ships no hosted LLM and proxies nothing. You provide
               credentials for Anthropic, OpenAI, or AWS Bedrock; they are
-              encrypted at rest with a KEK you control, and every model call
-              leaves <em className="not-italic text-purple-300">your</em>{' '}
-              infrastructure with <em className="not-italic text-purple-300">your</em>{' '}
-              headers. No telemetry. No middleman. No vendor lock-in on the
-              intelligence layer.
+              encrypted at rest, and every model call goes straight to{' '}
+              <em className="not-italic text-purple-300">your</em> provider with{' '}
+              <em className="not-italic text-purple-300">your</em> headers - so you
+              pay <span className="text-purple-300">$0</span> for AI inference. No
+              telemetry. No middleman. No vendor lock-in on the intelligence layer.
             </p>
             <p className="mt-4 text-sm leading-relaxed text-zinc-400">
-              The APK, the decompiled tree, the reports, the screenshots -
-              all of it sits in Postgres and on a disk you own. Self-host the
-              whole stack with Docker. Air-gap it if you need to. The agent is
-              a tool the researcher commands, not a SaaS that holds their work
-              hostage.
+              Your projects - the APK, the decompiled tree, reports, screenshots -
+              live in the cloud, so your work is accessible from anywhere and
+              shareable with your team. Everything the agent does is reversible
+              from the UI, and because the whole platform is AGPL-3.0 on GitHub,
+              you can self-host it if you'd rather. The agent is a tool you
+              command, not a SaaS that holds your work hostage.
             </p>
           </div>
         </section>
@@ -216,11 +217,11 @@ export function Landing() {
             />
             <Feature
               title="Reversible by design"
-              body="Renames, decompiles, and report edits are all reversible from the UI. Nothing the agent does touches your filesystem unless you tick a box. Audit trail per project."
+              body="Renames, decompiles, and report edits are all reversible from the UI. Nothing the agent proposes is applied to your project unless you accept it. Audit trail per project."
             />
             <Feature
-              title="Self-hosted"
-              body="Docker-compose for the whole stack: Spring Boot core, Postgres, Keycloak, MinIO/S3, frontend. Air-gap-friendly. No phone-home. No vendor analytics."
+              title="Free & open source"
+              body="Free for researchers. The whole stack - Spring Boot core, Postgres, Keycloak, S3, frontend - is AGPL-3.0 on GitHub: inspect it, contribute, or self-host if you need to. No phone-home, no vendor analytics."
             />
           </div>
         </section>
@@ -250,7 +251,7 @@ export function Landing() {
                 </div>
                 <p className="mt-3 text-sm leading-relaxed text-zinc-300">
                   Same agent, native binaries. ELF / PE / Mach-O reverse engineering powered by
-                  Ghidra, with the same BYOK, self-hosted, open-source stance. Built for the
+                  Ghidra, with the same free, BYOK, open-source stance. Built for the
                   malware triage and vuln-research workflows OpenAPK doesn't cover.
                 </p>
                 <span className="mt-4 inline-block text-sm font-semibold text-amber-400 group-hover:text-amber-300">
@@ -267,7 +268,7 @@ export function Landing() {
           </h2>
           <p className="mt-3 text-sm text-zinc-400">
             Sign in, drop in your LLM provider key, and upload your first APK.
-            The agent goes to work; nothing leaves your box.
+            The agent goes to work; your key and your findings stay yours.
           </p>
           <div className="mt-6">
             {authed ? (
@@ -295,7 +296,7 @@ export function Landing() {
             <span>Part of the <a href="https://openbin.ai" target="_blank" rel="noopener noreferrer" className="text-amber-400 hover:underline">OpenBin</a> family</span>
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-[11px] tracking-wide text-zinc-500">
-            <span>AGPL v3 · BYOK · self-hostable</span>
+            <span>AGPL v3 · BYOK · Free for researchers</span>
             <span aria-hidden>·</span>
             <Link to="/terms" className="hover:text-zinc-300">Terms</Link>
             <span aria-hidden>·</span>

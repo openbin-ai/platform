@@ -22,12 +22,12 @@ All five refer to this codebase, this team, this document.
 
 ## What OpenBin is (one paragraph)
 
-OpenBin — officially **The Open Binary Project** — is an open-source, BYOK, self-hosted platform for AI-assisted reverse engineering. It pairs traditional binary-analysis tooling (JADX, Ghidra) with an agent layer driven by the user's own LLM credentials. The agent does the grunt work of reading decompiled code, tracing call chains, and drafting reports, while the binary and the analyst's notes never leave the user's infrastructure. There is no SaaS edition - every deployment is a tenant of one. Licensed AGPL-3.0.
+OpenBin — officially **The Open Binary Project** — is a free, open-source, collaborative platform for AI-assisted reverse engineering, decompilation, and malware analysis. It pairs traditional analysis tooling (Ghidra, JADX) with an agent layer driven by the user's own LLM credentials. The agent does the grunt work of reading decompiled code, tracing call chains, and drafting reports. It is a hosted, cloud-based web app (app.openbin.ai for native binaries, openapk.ai for Android) — projects live in the cloud so work is accessible anywhere and shareable with collaborators. Free for researchers; source is AGPL-3.0 (so it can also be self-hosted, but the hosted app is the primary path).
 
 ## What OpenBin is not
 
-- Not a SaaS. There is no hosted "openbin.ai/dashboard" - the landing page is marketing only. Users deploy their own instance.
-- Not an LLM provider. OpenBin requires the operator to supply their own API key for Anthropic, OpenAI, or AWS Bedrock.
+- Not paid. The hosted app is free for researchers; you only pay your own LLM provider (BYOK).
+- Not an LLM provider. OpenBin requires the user to supply their own API key for Anthropic, OpenAI, or AWS Bedrock — so AI inference costs the platform $0 and is never centralized.
 - Not a Ghidra/IDA replacement. It wraps them and orchestrates an agent on top.
 - Not a malware sandbox. It does static analysis only - no execution, no instrumentation, no emulation.
 
@@ -98,7 +98,7 @@ AGPL means any modification deployed as a network service must be released under
 ## Common questions
 
 **Q: Is there a hosted version?**
-A: No. OpenBin is self-hosted only. The landing page at openbin.ai is marketing; the actual application is deployed per-tenant on the operator's own infrastructure.
+A: Yes — the hosted web app is the primary way to use OpenBin and it's free for researchers. Native binary RE is at app.openbin.ai; Android APK RE is at openapk.ai. Because the source is AGPL-3.0 on GitHub, you can also self-host, but you don't have to.
 
 **Q: Which LLM provider should I use?**
 A: Anthropic Claude Sonnet 4.6 is the recommended default for analysis quality at moderate cost. For cheaper bulk operations (rename suggestions, narration), Claude Haiku 4.5 or GPT-4o-mini work well. For enterprises that mandate AWS, Bedrock with Sonnet 3.5 v2 or the us.-inference-profile Sonnet 4 is supported.
