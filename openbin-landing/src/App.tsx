@@ -62,7 +62,7 @@ function Header() {
         </a>
         <a
           href="https://app.openbin.ai/docs"
-          className="hidden text-zinc-200 hover:text-amber-400 sm:inline"
+          className="text-zinc-200 hover:text-amber-400"
         >
           Docs
         </a>
@@ -181,6 +181,16 @@ function Hero() {
           Try OpenAPK →
         </a>
       </div>
+      {/* New-user onramp — sits right under the CTAs, full attention, not
+          competing as a fifth button. The single most useful link for the
+          people who just signed up and don't yet know where to click. */}
+      <a
+        href="https://app.openbin.ai/docs"
+        className="mt-6 inline-flex items-center gap-2 text-base font-medium text-amber-400 underline-offset-4 hover:underline"
+      >
+        <span aria-hidden>📖</span>
+        New here? Read the 5-step guide →
+      </a>
       <CloudSunsetNote />
       <p className="mt-8 font-mono text-sm uppercase tracking-[0.15em] text-zinc-300">
         Beta · Free &amp; open source (AGPL v3) · BYOK (Anthropic · OpenAI · Bedrock) · Runs in your browser
