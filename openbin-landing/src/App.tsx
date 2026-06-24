@@ -61,6 +61,12 @@ function Header() {
           Why OpenBin
         </a>
         <a
+          href="https://app.openbin.ai/docs"
+          className="hidden text-zinc-200 hover:text-amber-400 sm:inline"
+        >
+          Docs
+        </a>
+        <a
           href="https://app.openbin.ai/community"
           className="text-amber-400 hover:text-amber-300"
         >

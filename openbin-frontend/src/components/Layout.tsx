@@ -34,6 +34,7 @@ export function Layout() {
           <nav className="flex items-center gap-5 text-sm">
             <NavItem to="/">Dashboard</NavItem>
             <NavItem to="/projects">Projects</NavItem>
+            <NavItem to="/docs">Docs</NavItem>
             {/* Community is the platform's headline value prop — give it
                 a distinct button treatment so users find it without scanning
                 the nav. Filled amber accent matches the openbin brand. */}
