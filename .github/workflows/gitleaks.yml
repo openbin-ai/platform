@@ -1,0 +1,25 @@
+name: gitleaks
+
+# Secret-scan every push and PR over the full history. Uses the gitleaks
+# container directly (the marketplace action requires a license key for
+# organization repos; the CLI itself is MIT).
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" \
+            zricethezav/gitleaks:latest \
+            detect --source /repo --no-banner --redact --verbose

@@ -12,9 +12,9 @@ keep upload UX responsive, and the per-invocation memory/CPU ceiling
 caps blast radius for any single hostile package. Cost ceiling at
 realistic traffic is ~$5/mo for 100k invocations.
 
-This is the *only* Lambda in the OpenAPK stack — everything else runs
-on ECS Express. The divergence is intentional, documented in
-`memory/js_script_analyzer_plan.md`.
+This runs as a Lambda while the heavier workers run as long-lived
+services — the divergence is intentional: script analysis is a
+sporadic, bounded workload that suits scale-to-zero compute.
 
 ## Event + response
 
@@ -93,8 +93,9 @@ Severity is a fixed enum: `CRITICAL` > `HIGH` > `MEDIUM` > `INFO`.
 docker build -t openapk/script-worker:dev .
 ```
 
-The image is multi-arch-buildable via `push-to-ecr.sh` (which targets
-`linux/amd64` for Lambda compatibility).
+Build with `--platform linux/amd64` for Lambda compatibility (add
+`--provenance=false --sbom=false` under buildx — Lambda rejects OCI
+attestation manifests).
 
 ## Local test with the Lambda Runtime Interface Emulator
 
@@ -133,12 +134,10 @@ use the fixtures-based smoke test instead (see `fixtures/README.md`).
 
 ## Deploy
 
-`./push-to-ecr.sh script-worker` builds, pushes to ECR
-(`openapk/script-worker`), and runs `aws lambda update-function-code` so
-the new image is live without leaving the terminal. The Lambda function
-itself (`openapk-script-worker-js`) is created once via the AWS Console;
-see `memory/js_script_analyzer_plan.md` for the one-time setup
-checklist.
+Deploy as a container-image Lambda: push the image to your registry,
+create the function from it once, then roll new code with `aws lambda
+update-function-code --image-uri …`. Point the core at the function via
+the `OPENAPK_SCRIPT_ANALYZER_FUNCTION` env var.
 
 ## Non-goals (deferred to JS-2 / JS-3 / JS-4)
 

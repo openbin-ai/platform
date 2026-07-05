@@ -64,12 +64,13 @@ single-file uploads land under a name that preserves the extension:
 
 ```bash
 docker build -t openapk/shell-worker:dev .
-./push-to-ecr.sh shell-worker
 ```
 
-Lambda function name: `openapk-shell-worker`. Created once via the AWS
-Console or `aws lambda create-function`; see the JS-3 ship notes in
-`memory/js_script_analyzer_plan.md`.
+Deploy as a container-image Lambda: push the image to your registry,
+create the function from it (build with `--platform linux/amd64
+--provenance=false --sbom=false` — Lambda rejects OCI attestation
+manifests), and point the core at it via the
+`OPENAPK_SHELL_ANALYZER_FUNCTION` env var.
 
 ## Tunables (env vars)
 

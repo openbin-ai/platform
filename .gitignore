@@ -54,3 +54,13 @@ decompiled/
 infra/
 .dev-logs/
 .dev-pids/
+
+# --- Local agent config / session state ---
+.claude/
+
+# --- Compiled CLI binary (built from cli/, never committed) ---
+cli/cli
+
+# --- Python bytecode ---
+__pycache__/
+*.pyc

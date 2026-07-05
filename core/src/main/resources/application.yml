@@ -171,19 +171,20 @@ openapk:
     # Lambda-backed malicious-NPM analyzer. Scale-to-zero compute for a
     # sporadic, bounded workload — the only Lambda in the stack (everything
     # else runs on ECS Express). Off by default in dev so missing function
-    # config doesn't break boot; flip to true in prod after the function +
-    # IAM role + ECR repo exist (see memory/js_script_analyzer_plan.md).
+    # config doesn't break boot; flip to true after the function + IAM role
+    # + ECR repo exist in your account. Function names are deployment-
+    # specific — set them via env; there is no baked-in default.
     enabled: ${OPENAPK_SCRIPT_ANALYZER_ENABLED:false}
-    lambda-function-name: ${OPENAPK_SCRIPT_ANALYZER_FUNCTION:openapk-script-worker-js}
+    lambda-function-name: ${OPENAPK_SCRIPT_ANALYZER_FUNCTION:}
     # JS-2: PyPI worker (Python 3.12 Lambda image). Spring sniffs the upload
     # and routes to whichever ecosystem matches — npm by default, pypi when
     # the archive contains setup.py / pyproject.toml / PKG-INFO / a wheel
     # dist-info dir.
-    pypi-lambda-function-name: ${OPENAPK_PYPI_ANALYZER_FUNCTION:openapk-pypi-worker}
+    pypi-lambda-function-name: ${OPENAPK_PYPI_ANALYZER_FUNCTION:}
     # JS-3: loose-shell worker (Python 3.12 Lambda image, regex-based).
     # Routed to by extension: .ps1 / .psm1 / .sh / .bash / .zsh. No archive
     # sniffing needed — shell uploads are always single-file or a flat zip.
-    shell-lambda-function-name: ${OPENAPK_SHELL_ANALYZER_FUNCTION:openapk-shell-worker}
+    shell-lambda-function-name: ${OPENAPK_SHELL_ANALYZER_FUNCTION:}
     region: ${OPENAPK_SCRIPT_ANALYZER_REGION:us-east-1}
     # Hard cap on the upload (tarball, zip, single .js, or client-zipped
     # folder). Real malicious packages are tiny — <2MB — but unpacked
