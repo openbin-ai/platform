@@ -385,6 +385,14 @@ export function ProjectView() {
   const [error, setError] = useState<string | null>(null)
 
   const [selectedName, setSelectedName] = useState<string | null>(null)
+  // Ghidra-style back/forward navigation over function selections. selectFn
+  // pushes the function it navigated AWAY from onto `past` and clears
+  // `future`; goBack/goForward walk the stacks without re-pushing. Entries
+  // can go stale after a rename (names are the keys) — the walkers skip
+  // anything no longer present in fnByName instead of dead-ending.
+  const [nav, setNav] = useState<{ past: string[]; future: string[] }>({ past: [], future: [] })
+  const selectedNameRef = useRef<string | null>(null)
+  useEffect(() => { selectedNameRef.current = selectedName }, [selectedName])
   const [view, setView] = useState<ViewMode>('pseudo')
   const [filter, setFilter] = useState('')
   const [sidePanel, setSidePanel] = useState<SidePanelKind>('ai')
@@ -614,6 +622,11 @@ export function ProjectView() {
   // same hit twice still triggers a fresh flash (state shape changes via
   // the nonce even when the location is identical).
   const selectFn = useCallback((name: string, hint?: JumpHint) => {
+    const prev = selectedNameRef.current
+    if (prev && prev !== name) {
+      // Cap the stack so a marathon session can't grow it unbounded.
+      setNav(({ past }) => ({ past: [...past.slice(-63), prev], future: [] }))
+    }
     setSelectedName(name)
     const fn = fnByName.get(name)
     if (fn && (fn.external || fn.thunk)) {
@@ -671,6 +684,51 @@ export function ProjectView() {
     }
     return false
   }, [fnByName, fnByAddr, dataByName, dataByAddr, selectFn])
+
+  // Walk one step back/forward through the selection history. Selection is
+  // applied directly (not via selectFn) so the walk itself doesn't push a
+  // new history entry. Mirrors selectFn's external/thunk guard so landing
+  // on a body-less function can't strand the pane on an empty disasm tab.
+  const navigateHistory = useCallback((dir: 'back' | 'forward') => {
+    const from = dir === 'back' ? [...nav.past] : [...nav.future]
+    const to = dir === 'back' ? [...nav.future] : [...nav.past]
+    let target: string | undefined
+    while (from.length) {
+      const cand = from.pop()!
+      if (fnByName.has(cand)) { target = cand; break }
+    }
+    if (!target) {
+      // Nothing valid left in that direction — just drop the stale names.
+      setNav(dir === 'back' ? { past: from, future: nav.future } : { past: nav.past, future: from })
+      return
+    }
+    const current = selectedNameRef.current
+    if (current) to.push(current)
+    setNav(dir === 'back' ? { past: from, future: to } : { past: to, future: from })
+    setSelectedName(target)
+    setPendingHighlight(null)
+    const f = fnByName.get(target)
+    if (f && (f.external || f.thunk)) setView('pseudo')
+  }, [nav, fnByName])
+  const goBack = useCallback(() => navigateHistory('back'), [navigateHistory])
+  const goForward = useCallback(() => navigateHistory('forward'), [navigateHistory])
+  const canGoBack = nav.past.some((n) => fnByName.has(n))
+  const canGoForward = nav.future.some((n) => fnByName.has(n))
+
+  // Alt+←/→ mirror the header buttons (same bindings as Ghidra/IDA and the
+  // browser, which is exactly the muscle memory being borrowed).
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+      // Never steal Alt/Option+Arrow from text editing (word-jump on macOS).
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (e.key === 'ArrowLeft') { e.preventDefault(); goBack() }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); goForward() }
+    }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [goBack, goForward])
 
   if (loading) {
     return <CenteredMessage>Loading analysis…</CenteredMessage>
@@ -741,6 +799,10 @@ export function ProjectView() {
           fn={selected}
           view={view}
           onViewChange={setView}
+          onNavBack={goBack}
+          onNavForward={goForward}
+          canNavBack={canGoBack}
+          canNavForward={canGoForward}
           projectId={id}
           onRenamed={reload}
           fnByName={fnByName}
@@ -1163,6 +1225,10 @@ function CodePane({
   fn,
   view,
   onViewChange,
+  onNavBack,
+  onNavForward,
+  canNavBack,
+  canNavForward,
   projectId,
   onRenamed,
   fnByName,
@@ -1176,6 +1242,13 @@ function CodePane({
   fn: BinaryFunction | null
   view: ViewMode
   onViewChange: (v: ViewMode) => void
+  // Selection-history navigation (Ghidra-style). Buttons live in the code
+  // pane header; the stacks live in ProjectView because every selectFn call
+  // site (sidebar, in-code links, side panels) must feed them.
+  onNavBack: () => void
+  onNavForward: () => void
+  canNavBack: boolean
+  canNavForward: boolean
   projectId: string
   onRenamed: (newName: string) => Promise<void>
   fnByName: Map<string, BinaryFunction>
@@ -1309,19 +1382,43 @@ function CodePane({
   const disasmDisabled = fn.external || fn.thunk
   return (
     <main className="flex min-h-0 flex-col">
-      <div className="border-b border-zinc-800 p-3">
-        <FunctionNameEditor
-          fn={fn}
-          projectId={projectId}
-          onRenamed={onRenamed}
-        />
-        <div className="mt-0.5 truncate font-mono text-xs text-zinc-500">
-          {fn.signature}
+      <div className="flex items-start gap-2 border-b border-zinc-800 p-3">
+        <div className="mt-0.5 flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={onNavBack}
+            disabled={!canNavBack}
+            title="Back (Alt+←)"
+            aria-label="Back to previous function"
+            className="rounded border border-zinc-800 px-1.5 py-0.5 font-mono text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-400"
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            onClick={onNavForward}
+            disabled={!canNavForward}
+            title="Forward (Alt+→)"
+            aria-label="Forward to next function"
+            className="rounded border border-zinc-800 px-1.5 py-0.5 font-mono text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-400"
+          >
+            →
+          </button>
         </div>
-        <div className="mt-0.5 text-[11px] text-zinc-600">
-          @ {fn.address} · {fn.size} bytes
-          {fn.external && <span className="ml-2 text-amber-400">external</span>}
-          {fn.thunk && <span className="ml-2 text-zinc-500">thunk</span>}
+        <div className="min-w-0 flex-1">
+          <FunctionNameEditor
+            fn={fn}
+            projectId={projectId}
+            onRenamed={onRenamed}
+          />
+          <div className="mt-0.5 truncate font-mono text-xs text-zinc-500">
+            {fn.signature}
+          </div>
+          <div className="mt-0.5 text-[11px] text-zinc-600">
+            @ {fn.address} · {fn.size} bytes
+            {fn.external && <span className="ml-2 text-amber-400">external</span>}
+            {fn.thunk && <span className="ml-2 text-zinc-500">thunk</span>}
+          </div>
         </div>
       </div>
       <div className="flex items-stretch border-b border-zinc-800 text-xs">
