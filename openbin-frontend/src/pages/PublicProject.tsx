@@ -4,6 +4,7 @@ import { useAuth } from 'react-oidc-context'
 import ReactMarkdown from 'react-markdown'
 import { API_BASE, useApi } from '@shared/api/client'
 import { HighlightsPanel } from '@shared/components/HighlightsPanel'
+import { ForkButton } from '@shared/components/ForkButton'
 import { AuthenticatedImg } from '../components/AuthenticatedImg'
 
 // Anonymous read-only view of a project the owner made public
@@ -22,6 +23,8 @@ type PublicSummary = {
   arch: string | null
   packageName: string | null
   publicReadAt: string | null
+  forkedFromId: string | null
+  forkCount: number
 }
 
 type ReportSection = { id: string; title: string; content: string }
@@ -77,17 +80,32 @@ export function PublicProject() {
       <Header auth={auth} />
       <main className="mx-auto w-full min-w-0 max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
         <header className="mb-6 border-b border-zinc-800 pb-4">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-zinc-400">
               {summary.kind}
             </span>
             <span className="rounded border border-emerald-700/60 bg-emerald-950/30 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-emerald-300">
               public · read-only
             </span>
+            {summary.forkedFromId && (
+              <Link
+                to={`/public/projects/${summary.forkedFromId}`}
+                className="rounded border border-zinc-700 bg-zinc-800/60 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:text-amber-300"
+                title="View the project this was forked from"
+              >
+                🍴 forked from source
+              </Link>
+            )}
+            {summary.forkCount > 0 && (
+              <span className="text-[10px] text-zinc-500">{summary.forkCount} fork{summary.forkCount === 1 ? '' : 's'}</span>
+            )}
           </div>
-          <h1 className="mt-2 wrap-break-word text-xl font-semibold text-zinc-100 sm:text-2xl">
-            {report?.title || summary.name}
-          </h1>
+          <div className="mt-2 flex items-start justify-between gap-3">
+            <h1 className="wrap-break-word text-xl font-semibold text-zinc-100 sm:text-2xl">
+              {report?.title || summary.name}
+            </h1>
+            <ForkButton projectId={summary.id} accent="amber" />
+          </div>
           <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-zinc-500 sm:grid-cols-3">
             <Meta label="Project" value={summary.name} />
             <Meta label="Filename" value={summary.originalFilename} mono />

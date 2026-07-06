@@ -65,6 +65,9 @@ type Project = {
   role: ProjectRole | null
   // Non-null = project is publicly readable (owner toggle).
   publicReadAt?: string | null
+  // Set when this project is a fork; drives "forked from" attribution.
+  forkedFromId?: string | null
+  forkCount?: number
 }
 
 type Provider = 'ANTHROPIC' | 'OPENAI' | 'BEDROCK'
@@ -862,6 +865,15 @@ function PageHeader({
             >
               editor
             </span>
+          )}
+          {project?.forkedFromId && (
+            <Link
+              to={`/projects/${project.forkedFromId}`}
+              className="shrink-0 rounded border border-zinc-700 bg-zinc-800/60 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:text-purple-300"
+              title="View the project this was forked from"
+            >
+              🍴 forked
+            </Link>
           )}
         </div>
         <div className="flex items-center gap-3">

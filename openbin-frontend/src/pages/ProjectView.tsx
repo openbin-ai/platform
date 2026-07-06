@@ -271,6 +271,9 @@ type ProjectSummary = {
   // Non-null = project is publicly readable (owner toggle). Drives the
   // visibility control in the header.
   publicReadAt?: string | null
+  // Set when this project is a fork; drives the "forked from" attribution.
+  forkedFromId?: string | null
+  forkCount?: number
 }
 
 type ViewMode = 'pseudo' | 'disasm' | 'deobf'
@@ -974,6 +977,17 @@ function Header({
         <div className="mt-0.5 truncate text-xs text-zinc-500">
           {project.executableFormat ?? '—'} · {project.arch ?? 'arch unknown'} ·{' '}
           {project.languageId ?? '—'} · {functionCount} functions
+          {project.forkedFromId && (
+            <>
+              {' · '}
+              <Link to={`/projects/${project.forkedFromId}`} className="text-zinc-400 hover:text-amber-300" title="View the project this was forked from">
+                🍴 forked
+              </Link>
+            </>
+          )}
+          {!!project.forkCount && project.forkCount > 0 && (
+            <span> · {project.forkCount} fork{project.forkCount === 1 ? '' : 's'}</span>
+          )}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
