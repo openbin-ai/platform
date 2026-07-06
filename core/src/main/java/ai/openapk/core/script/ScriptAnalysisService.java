@@ -27,6 +27,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -95,6 +96,21 @@ public class ScriptAnalysisService {
         if (file.getSize() > maxBytes) {
             throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,
                     "upload exceeds " + maxBytes + "-byte cap");
+        }
+        // Reject native executables up front. The npm/pypi/shell analyzers
+        // only understand text-based package ecosystems — a PE/ELF/Mach-O
+        // file falls through to the npm worker, which "analyzes" raw machine
+        // code as if it were JavaScript and emits a meaningless report. Native
+        // binaries are decompiled only by the desktop CLI (local Ghidra), so
+        // bounce them here with a clear pointer instead of creating junk.
+        String exeKind = nativeExecutableKind(file);
+        if (exeKind != null) {
+            throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                    "This looks like a " + exeKind + " executable. Executables and native "
+                    + "binaries are decompiled only through the OpenBIN desktop CLI (local "
+                    + "Ghidra) — not the script analyzer. Install it from openbin.ai and run "
+                    + "`openbin decompile <file>`. The script analyzer only accepts source "
+                    + "packages: npm/PyPI archives and shell/JS/Python scripts.");
         }
         if (s3Config == null || s3Config.bucket() == null || s3Config.bucket().isBlank()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
@@ -294,6 +310,34 @@ public class ScriptAnalysisService {
             sb.append('\n');
         }
         return sb.toString();
+    }
+
+    /**
+     * Classify native-executable magic numbers so we can bounce them before
+     * the analyzer wastes an invocation on bytes it can't understand. Returns
+     * a human label ("Windows", "Linux ELF", "macOS Mach-O") or null when the
+     * upload isn't a recognized executable. A malformed/short read returns
+     * null so the normal pipeline still handles the edge case.
+     */
+    private static String nativeExecutableKind(MultipartFile file) {
+        byte[] m;
+        try (InputStream in = file.getInputStream()) {
+            m = in.readNBytes(4);
+        } catch (IOException e) {
+            return null;
+        }
+        if (m.length < 4) return null;
+        int b0 = m[0] & 0xff, b1 = m[1] & 0xff, b2 = m[2] & 0xff, b3 = m[3] & 0xff;
+        if (b0 == 0x4d && b1 == 0x5a) return "Windows";                       // "MZ" — PE
+        if (b0 == 0x7f && b1 == 0x45 && b2 == 0x4c && b3 == 0x46) return "Linux ELF"; // 0x7f E L F
+        long be = ((long) b0 << 24) | ((long) b1 << 16) | ((long) b2 << 8) | b3;
+        // Mach-O 32/64-bit (both byte orders) + universal "fat" binaries.
+        if (be == 0xfeedfaceL || be == 0xfeedfacfL
+                || be == 0xcffaedfeL || be == 0xcefaedfeL
+                || be == 0xcafebabeL || be == 0xbebafecaL) {
+            return "macOS Mach-O";
+        }
+        return null;
     }
 
     private static String sanitizeFilename(String raw) {

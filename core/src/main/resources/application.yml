@@ -17,6 +17,10 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # Apply pending lower-numbered migrations even when a higher version has
+    # already run — standard hotfix posture for deployments that carry
+    # environment-specific migrations alongside the mainline sequence.
+    out-of-order: true
 
   security:
     oauth2:

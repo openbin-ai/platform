@@ -144,6 +144,19 @@ export function ScriptUploadCard({
             Results back in under a minute.
           </p>
 
+          <p className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-200">
+            <span aria-hidden className="mt-px">⚠</span>
+            <span>
+              <strong className="font-semibold">Compiled executables aren’t analyzed here.</strong>{' '}
+              Windows <code className="rounded bg-black/40 px-1 font-mono text-amber-100">.exe</code>,
+              Linux <code className="rounded bg-black/40 px-1 font-mono text-amber-100">ELF</code>, and
+              macOS Mach-O binaries are decompiled <strong className="font-semibold">only</strong> through the
+              OpenBIN desktop CLI (local Ghidra) — install it from{' '}
+              <a href="https://openbin.ai" className="underline hover:text-amber-100">openbin.ai</a>{' '}
+              and run <code className="rounded bg-black/40 px-1 font-mono text-amber-100">openbin decompile &lt;file&gt;</code>.
+            </span>
+          </p>
+
           {busy ? (
             <div className="mt-4 space-y-2">
               <div className="flex items-center justify-between text-xs">
