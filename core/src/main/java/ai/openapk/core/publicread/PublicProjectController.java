@@ -10,6 +10,7 @@ import ai.openapk.core.reports.ProjectReportService;
 import ai.openapk.core.reports.dto.ReportResponse;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,7 +19,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -92,10 +92,13 @@ public class PublicProjectController {
         publicGuard.requirePublic(id);
         MediaService.Resolved resolved = mediaService.resolvePublic(id, name);
         if (resolved instanceof MediaService.Resolved.Presigned p) {
-            return ResponseEntity.ok()
-                    .contentType(MediaType.APPLICATION_JSON)
+            // 302 to the presigned URL — works for a plain anonymous <img src>
+            // (no Authorization header carried, so no Firefox CORS-redirect
+            // refusal). Mirrors the community media endpoint.
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .header(HttpHeaders.LOCATION, p.url().toString())
                     .header(HttpHeaders.CACHE_CONTROL, "public, max-age=300")
-                    .body(Map.of("url", p.url().toString()));
+                    .build();
         }
         var path = ((MediaService.Resolved.Local) resolved).path();
         return ResponseEntity.ok()

@@ -4,6 +4,7 @@ import { useApi } from '../api/client'
 import { canEdit, isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { ShareProjectModal } from '@shared/components/ShareProjectModal'
 import { MembersBar } from '@shared/components/MembersBar'
+import { ProjectVisibilityToggle } from '@shared/components/ProjectVisibilityToggle'
 import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleContext'
 import { HighlightsPanel } from '@shared/components/HighlightsPanel'
 import { AddHighlightModal } from '@shared/components/AddHighlightModal'
@@ -62,6 +63,8 @@ type Project = {
   // Caller's effective access tier on this project. Null on pre-collab
   // backends or anonymous callers — treat null as OWNER for back-compat.
   role: ProjectRole | null
+  // Non-null = project is publicly readable (owner toggle).
+  publicReadAt?: string | null
 }
 
 type Provider = 'ANTHROPIC' | 'OPENAI' | 'BEDROCK'
@@ -897,6 +900,13 @@ function PageHeader({
             </select>
           )}
           {projectId && <MembersBar projectId={projectId} />}
+          {project && callerIsOwner && (
+            <ProjectVisibilityToggle
+              projectId={project.id}
+              initialPublicReadAt={project.publicReadAt ?? null}
+              accent="amber"
+            />
+          )}
           {project && callerIsOwner && (
             <button
               type="button"

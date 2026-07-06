@@ -6,6 +6,7 @@ import { useApi } from '@shared/api/client'
 import { isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { ShareProjectModal } from '@shared/components/ShareProjectModal'
 import { MembersBar } from '@shared/components/MembersBar'
+import { ProjectVisibilityToggle } from '@shared/components/ProjectVisibilityToggle'
 import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleContext'
 import { HighlightsPanel } from '@shared/components/HighlightsPanel'
 import { AddHighlightModal } from '@shared/components/AddHighlightModal'
@@ -267,6 +268,9 @@ type ProjectSummary = {
   // Caller's role on this project ('OWNER' | 'EDITOR' | 'VIEWER').
   // Null on pre-collab backends — treat as OWNER for back-compat.
   role?: ProjectRole | null
+  // Non-null = project is publicly readable (owner toggle). Drives the
+  // visibility control in the header.
+  publicReadAt?: string | null
 }
 
 type ViewMode = 'pseudo' | 'disasm' | 'deobf'
@@ -988,6 +992,13 @@ function Header({
         >
           📸
         </button>
+        {callerIsOwner && (
+          <ProjectVisibilityToggle
+            projectId={project.id}
+            initialPublicReadAt={project.publicReadAt ?? null}
+            accent="amber"
+          />
+        )}
         {callerIsOwner && (
           <button
             type="button"

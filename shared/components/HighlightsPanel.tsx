@@ -5,7 +5,6 @@ import {
   type HighlightType,
   type CreateHighlightRequest,
   HIGHLIGHT_TYPE_META,
-  mediaUrl,
 } from '@shared/api/highlights'
 
 // The Highlights board: a curated evidence layer over the project's shared
@@ -30,12 +29,19 @@ type Props = {
   defaultTarget?: { type: 'FUNCTION' | 'FILE'; ref: string } | null
   /** Click an anchored card to jump to its target in the main view. */
   onNavigate?: (h: Highlight) => void
+  /**
+   * API base for this project. Defaults to the authenticated
+   * /api/projects/{id}; pass /api/public/projects/{id} for the anonymous
+   * read-only public view (always with canEdit=false).
+   */
+  pathBase?: string
 }
 
 export function HighlightsPanel({
-  projectId, canEdit, Img, refreshKey = 0, defaultTarget, onNavigate,
+  projectId, canEdit, Img, refreshKey = 0, defaultTarget, onNavigate, pathBase,
 }: Props) {
   const api = useApi()
+  const base = pathBase ?? `/api/projects/${projectId}`
   const [items, setItems] = useState<Highlight[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tagFilter, setTagFilter] = useState<string | null>(null)
@@ -44,11 +50,11 @@ export function HighlightsPanel({
   const load = useCallback(async () => {
     setError(null)
     try {
-      setItems(await api<Highlight[]>(`/api/projects/${projectId}/highlights`))
+      setItems(await api<Highlight[]>(`${base}/highlights`))
     } catch (e) {
       setError((e as Error).message)
     }
-  }, [api, projectId])
+  }, [api, base])
 
   useEffect(() => { void load() }, [load, refreshKey])
 
@@ -66,7 +72,7 @@ export function HighlightsPanel({
   async function remove(id: string) {
     if (!window.confirm('Remove this highlight? The underlying screenshot stays in the Gallery.')) return
     try {
-      await api(`/api/projects/${projectId}/highlights/${id}`, { method: 'DELETE' })
+      await api(`${base}/highlights/${id}`, { method: 'DELETE' })
       setItems(prev => prev?.filter(h => h.id !== id) ?? null)
     } catch (e) {
       setError((e as Error).message)
@@ -74,7 +80,7 @@ export function HighlightsPanel({
   }
 
   async function patch(id: string, body: { tag?: string | null; note?: string | null; position?: number }) {
-    const updated = await api<Highlight>(`/api/projects/${projectId}/highlights/${id}`, {
+    const updated = await api<Highlight>(`${base}/highlights/${id}`, {
       method: 'PATCH', body: JSON.stringify(body),
     })
     setItems(prev => prev?.map(h => (h.id === id ? updated : h)) ?? null)
@@ -91,8 +97,8 @@ export function HighlightsPanel({
     const a = items[idx], b = items[swapIdx]
     try {
       await Promise.all([
-        api(`/api/projects/${projectId}/highlights/${a.id}`, { method: 'PATCH', body: JSON.stringify({ position: b.position }) }),
-        api(`/api/projects/${projectId}/highlights/${b.id}`, { method: 'PATCH', body: JSON.stringify({ position: a.position }) }),
+        api(`${base}/highlights/${a.id}`, { method: 'PATCH', body: JSON.stringify({ position: b.position }) }),
+        api(`${base}/highlights/${b.id}`, { method: 'PATCH', body: JSON.stringify({ position: a.position }) }),
       ])
       await load()
     } catch (e) {
@@ -150,7 +156,7 @@ export function HighlightsPanel({
               <HighlightCard
                 key={h.id}
                 h={h}
-                projectId={projectId}
+                mediaBase={base}
                 canEdit={canEdit}
                 Img={Img}
                 onNavigate={onNavigate}
@@ -183,10 +189,10 @@ function FilterChip({ active, onClick, children }: { active: boolean; onClick: (
 }
 
 function HighlightCard({
-  h, projectId, canEdit, Img, onNavigate, onDelete, onSave, onMoveUp, onMoveDown,
+  h, mediaBase, canEdit, Img, onNavigate, onDelete, onSave, onMoveUp, onMoveDown,
 }: {
   h: Highlight
-  projectId: string
+  mediaBase: string
   canEdit: boolean
   Img: ComponentType<{ src: string; className?: string }>
   onNavigate?: (h: Highlight) => void
@@ -241,7 +247,7 @@ function HighlightCard({
 
       {h.mediaKey && (
         <div className="mt-2 overflow-hidden rounded border border-zinc-800 bg-zinc-950">
-          <Img src={mediaUrl(projectId, h.mediaKey)} className="block max-h-48 w-full object-contain" />
+          <Img src={`${mediaBase}/media/${h.mediaKey}`} className="block max-h-48 w-full object-contain" />
         </div>
       )}
 

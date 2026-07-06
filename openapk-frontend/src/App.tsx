@@ -15,6 +15,7 @@ import { ReportTemplates } from './pages/ReportTemplates'
 import { Usage } from './pages/Usage'
 import { Community } from './pages/Community'
 import { CommunityReport } from './pages/CommunityReport'
+import { PublicProject } from './pages/PublicProject'
 import { AuthorProfilePage } from './pages/AuthorProfilePage'
 import { FollowListPage } from './pages/FollowListPage'
 import { ResearcherSearch } from './pages/ResearcherSearch'
@@ -35,6 +36,8 @@ export default function App() {
           <Route path="/community" element={<Community />} />
           <Route path="/community/researchers" element={<ResearcherSearch />} />
           <Route path="/community/reports/:id" element={<CommunityReport />} />
+          {/* Anonymous read-only project view — shareable public link. */}
+          <Route path="/public/projects/:id" element={<PublicProject />} />
           {/* Public researcher profile. Mirrors /community in that it's
               accessible anonymously and shareable as a link. */}
           <Route path="/u/:id" element={<AuthorProfilePage />} />
