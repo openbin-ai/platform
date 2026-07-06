@@ -5,6 +5,7 @@ import ai.openapk.core.auth.UserRepository;
 import ai.openapk.core.notifications.NotificationService;
 import ai.openapk.core.projects.dto.AddCollaboratorRequest;
 import ai.openapk.core.projects.dto.CollaboratorResponse;
+import ai.openapk.core.projects.dto.ProjectMemberResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -12,8 +13,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Manages {@link ProjectCollaborator} rows: list, add, remove. All
@@ -35,19 +40,62 @@ public class ProjectCollaboratorService {
 
     private final ProjectAccessGuard guard;
     private final ProjectCollaboratorRepository collabRepo;
+    private final ProjectPresenceRepository presenceRepo;
     private final UserRepository userRepo;
     private final NotificationService notifications;
 
     public ProjectCollaboratorService(
             ProjectAccessGuard guard,
             ProjectCollaboratorRepository collabRepo,
+            ProjectPresenceRepository presenceRepo,
             UserRepository userRepo,
             NotificationService notifications
     ) {
         this.guard = guard;
         this.collabRepo = collabRepo;
+        this.presenceRepo = presenceRepo;
         this.userRepo = userRepo;
         this.notifications = notifications;
+    }
+
+    /**
+     * Full in-project roster: OWNER (from {@code projects.user_id}) plus every
+     * collaborator, each with last-active presence. Any member (VIEWER+) can
+     * read it — you can see who else is working the project you're on.
+     */
+    @Transactional(readOnly = true)
+    public List<ProjectMemberResponse> members(User caller, UUID projectId) {
+        Project project = guard.requireRead(caller, projectId);
+        Map<UUID, Instant> lastActive = presenceRepo.findAllByProjectId(projectId).stream()
+                .collect(Collectors.toMap(p -> p.getId().getUserId(), ProjectPresence::getLastActiveAt));
+        UUID callerId = caller.getId();
+
+        List<ProjectMemberResponse> out = new ArrayList<>();
+        User owner = project.getUser();
+        out.add(new ProjectMemberResponse(
+                owner.getId(), owner.getEmail(), owner.getDisplayName(),
+                ProjectRole.OWNER, project.getCreatedAt(), lastActive.get(owner.getId()),
+                false, owner.getId().equals(callerId)));
+        for (ProjectCollaborator c : collabRepo.findAllByProjectId(projectId)) {
+            User u = c.getUser();
+            out.add(new ProjectMemberResponse(
+                    u.getId(), u.getEmail(), u.getDisplayName(),
+                    c.getRole(), c.getCreatedAt(), lastActive.get(u.getId()),
+                    false, u.getId().equals(callerId)));
+        }
+        return out;
+    }
+
+    /**
+     * Record that the caller is active in the project right now. Gated at the
+     * read tier — you must already have access to register presence, so this
+     * can't be used to probe project existence. Called by a client heartbeat
+     * on project open + periodically.
+     */
+    @Transactional
+    public void heartbeat(User caller, UUID projectId) {
+        guard.requireRead(caller, projectId);
+        presenceRepo.touch(projectId, caller.getId());
     }
 
     /** Owner + collaborators see the roster. */

@@ -5,6 +5,7 @@ import { Network } from 'lucide-react'
 import { useApi } from '@shared/api/client'
 import { isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { ShareProjectModal } from '@shared/components/ShareProjectModal'
+import { MembersBar } from '@shared/components/MembersBar'
 import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleContext'
 import { useStreamingApi } from '@shared/api/streaming'
 import { highlightC } from '../syntax/highlight'
@@ -945,6 +946,7 @@ function Header({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        <MembersBar projectId={project.id} />
         <button
           onClick={onPickScreenshot}
           title="Paste / drop / browse an image — saves to Gallery"

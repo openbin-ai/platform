@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useApi } from '../api/client'
 import { canEdit, isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { ShareProjectModal } from '@shared/components/ShareProjectModal'
+import { MembersBar } from '@shared/components/MembersBar'
 import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleContext'
 import { AskPanel } from '../components/AskPanel'
 import { estimateCost } from '../lib/llmCost'
@@ -870,6 +871,7 @@ function PageHeader({
               ))}
             </select>
           )}
+          {projectId && <MembersBar projectId={projectId} />}
           {project && callerIsOwner && (
             <button
               type="button"

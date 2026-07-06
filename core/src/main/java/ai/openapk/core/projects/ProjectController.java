@@ -3,6 +3,7 @@ package ai.openapk.core.projects;
 import ai.openapk.core.auth.CurrentUserService;
 import ai.openapk.core.projects.dto.AddCollaboratorRequest;
 import ai.openapk.core.projects.dto.CollaboratorResponse;
+import ai.openapk.core.projects.dto.ProjectMemberResponse;
 import ai.openapk.core.projects.dto.FileContentResponse;
 import ai.openapk.core.projects.dto.FileNode;
 import ai.openapk.core.projects.dto.ProjectResponse;
@@ -115,6 +116,27 @@ public class ProjectController {
                 .contentLength(raw.sizeBytes())
                 .header("Content-Disposition", "attachment; filename=\"" + raw.filename() + "\"")
                 .body(new InputStreamResource(raw.body()));
+    }
+
+    /**
+     * Full in-project member roster: owner + collaborators, each with role and
+     * last-active presence. Visible to any member. This is what the project
+     * view renders for "who's working this project"; {@code /collaborators}
+     * (below) stays the collaborators-only list the share modal uses.
+     */
+    @GetMapping("/{id}/members")
+    public List<ProjectMemberResponse> members(@PathVariable UUID id) {
+        return collaboratorService.members(currentUser.current(), id);
+    }
+
+    /**
+     * Presence heartbeat — record that the caller is active in this project.
+     * Pinged by the client on project open and periodically. Read-tier gated.
+     */
+    @PostMapping("/{id}/presence")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void presence(@PathVariable UUID id) {
+        collaboratorService.heartbeat(currentUser.current(), id);
     }
 
     /**
