@@ -6,6 +6,7 @@ import ai.openapk.core.highlights.dto.HighlightResponse;
 import ai.openapk.core.highlights.dto.UpdateHighlightRequest;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectAccessGuard;
+import ai.openapk.core.projects.ProjectPublicGuard;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,16 +24,29 @@ import java.util.UUID;
 public class ProjectHighlightService {
 
     private final ProjectAccessGuard guard;
+    private final ProjectPublicGuard publicGuard;
     private final ProjectHighlightRepository repo;
 
-    public ProjectHighlightService(ProjectAccessGuard guard, ProjectHighlightRepository repo) {
+    public ProjectHighlightService(ProjectAccessGuard guard, ProjectPublicGuard publicGuard, ProjectHighlightRepository repo) {
         this.guard = guard;
+        this.publicGuard = publicGuard;
         this.repo = repo;
     }
 
     @Transactional(readOnly = true)
     public List<HighlightResponse> list(User caller, UUID projectId) {
         guard.requireRead(caller, projectId);
+        return listOrdered(projectId);
+    }
+
+    /** Anonymous public variant — gated on {@code public_read_at}. */
+    @Transactional(readOnly = true)
+    public List<HighlightResponse> listPublic(UUID projectId) {
+        publicGuard.requirePublic(projectId);
+        return listOrdered(projectId);
+    }
+
+    private List<HighlightResponse> listOrdered(UUID projectId) {
         return repo.findAllByProjectIdOrdered(projectId).stream().map(ProjectHighlightService::toResponse).toList();
     }
 

@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -82,6 +83,21 @@ public class ProjectController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id) {
         service.delete(currentUser.current(), id);
+    }
+
+    /**
+     * Make the project publicly readable at /api/public/projects/{id}
+     * (owner-only). Separate from report community-publish. Idempotent.
+     */
+    @PutMapping("/{id}/public")
+    public ProjectResponse makePublic(@PathVariable UUID id) {
+        return service.setPublic(currentUser.current(), id, true);
+    }
+
+    /** Revoke anonymous public read (owner-only). Idempotent. */
+    @DeleteMapping("/{id}/public")
+    public ProjectResponse makePrivate(@PathVariable UUID id) {
+        return service.setPublic(currentUser.current(), id, false);
     }
 
     @GetMapping("/{id}/files")

@@ -5,6 +5,7 @@ import ai.openapk.core.analysis.dto.AnalysisResponse;
 import ai.openapk.core.auth.User;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectAccessGuard;
+import ai.openapk.core.projects.ProjectPublicGuard;
 import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.WorkflowStatus;
@@ -84,6 +85,7 @@ public class ProjectReportService {
     private final ProjectStorage storage;
     private final ai.openapk.core.notifications.NotificationService notifications;
     private final ProjectAccessGuard guard;
+    private final ProjectPublicGuard publicGuard;
     private final ReportContributorService contributors;
 
     public ProjectReportService(
@@ -93,6 +95,7 @@ public class ProjectReportService {
             ProjectStorage storage,
             ai.openapk.core.notifications.NotificationService notifications,
             ProjectAccessGuard guard,
+            ProjectPublicGuard publicGuard,
             ReportContributorService contributors
     ) {
         this.projectRepo = projectRepo;
@@ -101,6 +104,7 @@ public class ProjectReportService {
         this.storage = storage;
         this.notifications = notifications;
         this.guard = guard;
+        this.publicGuard = publicGuard;
         this.contributors = contributors;
     }
 
@@ -112,6 +116,25 @@ public class ProjectReportService {
         Project project = guard.requireRead(user, projectId);
         ProjectReport report = reportRepo.findByProjectId(projectId).orElseGet(() -> createDefault(project));
         return toResponse(report);
+    }
+
+    /**
+     * Anonymous public read of a project's report. Gated on
+     * {@code public_read_at}. Unlike {@link #getOrCreate} this NEVER persists a
+     * default (the anonymous caller can't own state), so a project without a
+     * report yet returns an empty read-only template instead of writing one.
+     */
+    @Transactional(readOnly = true)
+    public ReportResponse getPublicReport(UUID projectId) {
+        Project project = publicGuard.requirePublic(projectId);
+        return reportRepo.findByProjectId(projectId)
+                .map(this::toResponse)
+                .orElseGet(() -> new ReportResponse(
+                        null,
+                        project.getId(),
+                        defaultTitle(project),
+                        defaultSections(project),
+                        null, null, null, null, null, List.of()));
     }
 
     @Transactional

@@ -110,6 +110,16 @@ public class Project {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /**
+     * Non-null = the project's READ workspace (analysis, highlights, report)
+     * is exposed to anonymous viewers via /api/public/projects/{id}/** as of
+     * this instant. NULL = private (default). Independent of the report's
+     * community_published_at — a project can be publicly browsable without a
+     * report being in the community feed, and vice versa.
+     */
+    @Column(name = "public_read_at")
+    private Instant publicReadAt;
+
     @Column(name = "decompiled_at")
     private Instant decompiledAt;
 

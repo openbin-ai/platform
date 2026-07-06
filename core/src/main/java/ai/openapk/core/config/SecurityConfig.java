@@ -42,6 +42,14 @@ public class SecurityConfig {
                         // under /api/projects/{id}/report/community/** which
                         // is still authenticated.
                         .requestMatchers("/api/community/**").permitAll()
+                        // /api/public/** is the anonymous read surface for
+                        // projects the owner flagged public_read_at (analysis,
+                        // highlights, report, media). Gated per-request by
+                        // ProjectPublicGuard, which 404s private/missing
+                        // projects identically (no existence leak). Only READ
+                        // endpoints live under it — every write/LLM path stays
+                        // under the authenticated /api/projects/**.
+                        .requestMatchers("/api/public/**").permitAll()
                         // /api/tos.md is the markdown body the acceptance
                         // modal renders. Must be readable BEFORE the user
                         // has signed in (the gate blocks all other /api/**)

@@ -46,7 +46,12 @@ public record ProjectResponse(
         // response is built outside an authenticated request context
         // (e.g. internal worker code paths) — frontend treats null as
         // "assume owner" for back-compat with pre-collab clients.
-        ProjectRole role
+        ProjectRole role,
+        // Non-null = the project is publicly readable at /api/public/projects/{id}
+        // as of this instant (owner-controlled). Null = private. Lets the owner
+        // UI reflect the toggle state; anonymous public reads never populate a
+        // signed analysisDownloadUrl (that path passes a null signer).
+        Instant publicReadAt
 ) {
     /**
      * Convenience variant for code paths that don't have a URL signer or
@@ -105,7 +110,8 @@ public record ProjectResponse(
                 p.getDecompileStartedAt(),
                 signedUrl,
                 size,
-                role
+                role,
+                p.getPublicReadAt()
         );
     }
 }

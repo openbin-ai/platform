@@ -45,6 +45,7 @@ public class TosAcceptanceFilter implements HandlerInterceptor {
             "/api/me/tos",          // status + accept endpoints
             "/api/tos.md",          // public TOS markdown
             "/api/community/",      // anonymous-read public feed
+            "/api/public/",         // anonymous-read public projects
             "/actuator/"            // Spring Actuator (health, info)
     );
 

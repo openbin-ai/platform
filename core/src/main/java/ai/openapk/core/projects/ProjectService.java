@@ -78,6 +78,7 @@ public class ProjectService {
      */
     private final ProjectService self;
     private final ProjectAccessGuard guard;
+    private final ProjectPublicGuard publicGuard;
 
     public ProjectService(
             @Lazy ProjectService self,
@@ -93,7 +94,8 @@ public class ProjectService {
             NotificationService notifications,
             @Autowired(required = false) AnalysisStorageService analysisStorage,
             BinaryAnalysisLoader analysisLoader,
-            ProjectAccessGuard guard
+            ProjectAccessGuard guard,
+            ProjectPublicGuard publicGuard
     ) {
         this.self = self;
         this.repo = repo;
@@ -109,6 +111,7 @@ public class ProjectService {
         this.analysisStorage = analysisStorage;
         this.analysisLoader = analysisLoader;
         this.guard = guard;
+        this.publicGuard = publicGuard;
     }
 
     /**
@@ -146,6 +149,37 @@ public class ProjectService {
         var row = repo.findAccessibleByIdAndUserId(id, user.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
         return ProjectResponse.from(row.getProject(), urlSigner(), ProjectRole.valueOf(row.getRole()));
+    }
+
+    /**
+     * Owner-only toggle of the project's anonymous public-read visibility.
+     * Sets/clears {@code public_read_at}; independent of report community
+     * publish. Returns the refreshed summary (with a signed URL, since the
+     * caller is the authenticated owner) so the UI reflects the new state.
+     */
+    @Transactional
+    public ProjectResponse setPublic(User user, UUID id, boolean makePublic) {
+        Project project = guard.requireOwner(user, id);
+        if (makePublic && project.getPublicReadAt() == null) {
+            project.setPublicReadAt(Instant.now());
+            repo.save(project);
+        } else if (!makePublic && project.getPublicReadAt() != null) {
+            project.setPublicReadAt(null);
+            repo.save(project);
+        }
+        return ProjectResponse.from(project, urlSigner(), ProjectRole.OWNER);
+    }
+
+    /**
+     * Anonymous public-read summary. Gated purely on {@code public_read_at};
+     * deliberately passes a NULL url signer so no short-TTL CloudFront bearer
+     * capability is minted for an anonymous caller — the public frontend reads
+     * the analysis through {@link #getBinaryAnalysisJsonPublic} instead. Role
+     * is null (anonymous).
+     */
+    @Transactional(readOnly = true)
+    public ProjectResponse getPublic(UUID id) {
+        return ProjectResponse.from(publicGuard.requirePublic(id), null, null);
     }
 
     @Transactional
@@ -635,7 +669,21 @@ public class ProjectService {
      */
     @Transactional(readOnly = true)
     public String getBinaryAnalysisJson(User user, UUID id) {
-        var project = guard.requireRead(user, id);
+        return binaryAnalysisJsonFor(guard.requireRead(user, id), id);
+    }
+
+    /**
+     * Anonymous public variant — identical payload (renames applied), gated on
+     * {@code public_read_at} instead of the authenticated read guard. Shares
+     * {@link #binaryAnalysisJsonFor} so the public path can never diverge from
+     * the authenticated one.
+     */
+    @Transactional(readOnly = true)
+    public String getBinaryAnalysisJsonPublic(UUID id) {
+        return binaryAnalysisJsonFor(publicGuard.requirePublic(id), id);
+    }
+
+    private String binaryAnalysisJsonFor(Project project, UUID id) {
         if (project.getKind() != ProjectKind.BIN) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "not a binary project (kind=" + project.getKind() + ")");

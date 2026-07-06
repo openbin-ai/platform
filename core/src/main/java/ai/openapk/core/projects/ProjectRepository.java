@@ -53,4 +53,13 @@ public interface ProjectRepository extends JpaRepository<Project, UUID> {
         ORDER BY p.createdAt DESC
     """)
     List<ProjectAccessRow> findAllAccessibleByUserId(@Param("userId") UUID userId);
+
+    /**
+     * Anonymous public-read resolution: a project is returned ONLY when it has
+     * been made publicly readable ({@code public_read_at IS NOT NULL}). Used by
+     * {@link ProjectPublicGuard} for the /api/public/projects/** surface — a
+     * private (or nonexistent) project yields empty, which the guard turns into
+     * an identical 404 so anonymous probing can't distinguish the two.
+     */
+    Optional<Project> findByIdAndPublicReadAtIsNotNull(UUID id);
 }
