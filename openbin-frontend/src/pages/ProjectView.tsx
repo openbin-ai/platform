@@ -7,10 +7,14 @@ import { isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { ShareProjectModal } from '@shared/components/ShareProjectModal'
 import { MembersBar } from '@shared/components/MembersBar'
 import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleContext'
+import { HighlightsPanel } from '@shared/components/HighlightsPanel'
+import { AddHighlightModal } from '@shared/components/AddHighlightModal'
+import { mediaKeyFromUrl } from '@shared/api/highlights'
 import { useStreamingApi } from '@shared/api/streaming'
 import { highlightC } from '../syntax/highlight'
 import { ReportEditor } from './Report'
 import { Gallery } from '../components/Gallery'
+import { AuthenticatedImg } from '../components/AuthenticatedImg'
 import { ScreenshotModal } from '../components/ScreenshotModal'
 import { captureScreen } from '../components/captureScreen'
 import { estimateCost } from '../lib/llmCost'
@@ -268,7 +272,7 @@ type ProjectSummary = {
 type ViewMode = 'pseudo' | 'disasm' | 'deobf'
 type SidePanelKind =
   | 'xrefs' | 'chain' | 'network' | 'ask' | 'ai' | 'crypto'
-  | 'renames' | 'report' | 'gallery'
+  | 'renames' | 'report' | 'gallery' | 'highlights'
   | 'strings' | 'imports'
 // Tab in the LEFT sidebar (next to the Call Graph button). Default is the
 // existing function list; the rest are symbol-navigation views surfaced
@@ -417,6 +421,11 @@ export function ProjectView() {
   const [shot, setShot] = useState<ShotState>(null)
   const [galleryKey, setGalleryKey] = useState(0)
   const [captureErr, setCaptureErr] = useState<string | null>(null)
+  // After a screenshot saves, offer to pin it to the Highlights board. Holds
+  // the freshly-uploaded media key until the user accepts or skips. Bumping
+  // highlightsKey forces a mounted Highlights panel to refetch.
+  const [highlightPrompt, setHighlightPrompt] = useState<string | null>(null)
+  const [highlightsKey, setHighlightsKey] = useState(0)
 
   const startCapture = useCallback(async () => {
     setCaptureErr(null)
@@ -428,10 +437,12 @@ export function ProjectView() {
     }
   }, [])
 
-  const onScreenshotSaved = useCallback(() => {
+  const onScreenshotSaved = useCallback((url: string) => {
     setShot(null)
     setGalleryKey((k) => k + 1)
     setSidePanel('gallery')
+    const key = mediaKeyFromUrl(url)
+    if (key) setHighlightPrompt(key)
   }, [])
 
   // Panel chrome — left collapsible, right collapsible + resizable. Initial
@@ -834,6 +845,8 @@ export function ProjectView() {
             onStartResize={startResizeRight}
             onRenameMutation={(newName) => void reload(newName)}
             galleryKey={galleryKey}
+            selectedName={selectedName}
+            highlightsKey={highlightsKey}
           />
         ) : (
           <PanelRail
@@ -850,6 +863,20 @@ export function ProjectView() {
           cropFirst={shot.mode === 'capture'}
           onClose={() => setShot(null)}
           onInsert={onScreenshotSaved}
+        />
+      )}
+      {highlightPrompt && (
+        <AddHighlightModal
+          projectId={id}
+          mediaKey={highlightPrompt}
+          defaultTarget={selectedName ? { type: 'FUNCTION', ref: selectedName } : null}
+          Img={AuthenticatedImg}
+          onClose={() => setHighlightPrompt(null)}
+          onCreated={() => {
+            setHighlightPrompt(null)
+            setHighlightsKey((k) => k + 1)
+            setSidePanel('highlights')
+          }}
         />
       )}
       {captureErr && (
@@ -2627,6 +2654,8 @@ function SidePanel({
   onStartResize,
   onRenameMutation,
   galleryKey,
+  selectedName,
+  highlightsKey,
 }: {
   panel: SidePanelKind
   onPanelChange: (p: SidePanelKind) => void
@@ -2644,7 +2673,14 @@ function SidePanel({
   // refetches; passing the literal number is enough — Gallery resets its
   // useEffect deps on the new value.
   galleryKey: number
+  // Currently-open function name — offered as the default anchor when adding
+  // a highlight from the board's "+ Add" form.
+  selectedName: string | null
+  // Bumped when the screenshot flow pins a new highlight, so a mounted board
+  // refetches to show it.
+  highlightsKey: number
 }) {
+  const canEditHighlights = useCanEdit()
   // Tabs that have ever been opened. Each one stays mounted (just visually
   // hidden when inactive) so its internal state — AskPanel threads,
   // CryptoPanel result map, ChainPanel narrations, ReportEditor dirty
@@ -2697,6 +2733,9 @@ function SidePanel({
           </SideTab>
           <SideTab active={panel === 'gallery'} onClick={() => onPanelChange('gallery')}>
             Gallery
+          </SideTab>
+          <SideTab active={panel === 'highlights'} onClick={() => onPanelChange('highlights')}>
+            Highlights
           </SideTab>
           <SideTab active={panel === 'strings'} onClick={() => onPanelChange('strings')}>
             Strings
@@ -2785,6 +2824,18 @@ function SidePanel({
         {activated.has('gallery') && (
           <div className={panel === 'gallery' ? '' : 'hidden'}>
             <Gallery projectId={projectId} refreshKey={galleryKey} />
+          </div>
+        )}
+        {activated.has('highlights') && (
+          <div className={`h-full ${panel === 'highlights' ? '' : 'hidden'}`}>
+            <HighlightsPanel
+              projectId={projectId}
+              canEdit={canEditHighlights}
+              Img={AuthenticatedImg}
+              refreshKey={highlightsKey}
+              defaultTarget={selectedName ? { type: 'FUNCTION', ref: selectedName } : null}
+              onNavigate={(h) => { if (h.type === 'FUNCTION' && h.targetRef) onSelect(h.targetRef) }}
+            />
           </div>
         )}
         {activated.has('strings') && (

@@ -5,6 +5,10 @@ import { canEdit, isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { ShareProjectModal } from '@shared/components/ShareProjectModal'
 import { MembersBar } from '@shared/components/MembersBar'
 import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleContext'
+import { HighlightsPanel } from '@shared/components/HighlightsPanel'
+import { AddHighlightModal } from '@shared/components/AddHighlightModal'
+import { mediaKeyFromUrl } from '@shared/api/highlights'
+import { AuthenticatedImg } from '../components/AuthenticatedImg'
 import { AskPanel } from '../components/AskPanel'
 import { estimateCost } from '../lib/llmCost'
 import { detectLang, highlight } from '../syntax/highlight'
@@ -80,7 +84,7 @@ type AnalysisResponse = {
   outputTokens: number
 }
 
-type RightTab = 'analysis' | 'ask' | 'report' | 'gallery' | 'renames' | 'crypto' | 'callchain' | 'network' | 'dbs' | 'entrypoints' | 'native'
+type RightTab = 'analysis' | 'ask' | 'report' | 'gallery' | 'highlights' | 'renames' | 'crypto' | 'callchain' | 'network' | 'dbs' | 'entrypoints' | 'native'
 
 type ShotState = null | { mode: 'pick' } | { mode: 'capture'; blob: Blob }
 
@@ -178,6 +182,9 @@ export function ProjectView() {
   const [shot, setShot] = useState<ShotState>(null)
   const [galleryKey, setGalleryKey] = useState(0)
   const [captureErr, setCaptureErr] = useState<string | null>(null)
+  // After a screenshot saves, offer to pin it to the Highlights board.
+  const [highlightPrompt, setHighlightPrompt] = useState<string | null>(null)
+  const [highlightsKey, setHighlightsKey] = useState(0)
 
   // AI rename suggestions
   const [renamesKey, setRenamesKey] = useState(0)
@@ -274,10 +281,12 @@ export function ProjectView() {
     }
   }
 
-  function onScreenshotSaved() {
+  function onScreenshotSaved(url: string) {
     setShot(null)
     setGalleryKey(k => k + 1)
     setActiveTab('gallery')
+    const key = mediaKeyFromUrl(url)
+    if (key) setHighlightPrompt(key)
   }
   const [panelWidth, setPanelWidth] = useState<number>(() => {
     const stored = typeof window !== 'undefined' ? window.localStorage.getItem(PANEL_WIDTH_KEY) : null
@@ -691,6 +700,8 @@ export function ProjectView() {
           activeTab={activeTab}
           onTab={setActiveTab}
           galleryKey={galleryKey}
+          highlightsKey={highlightsKey}
+          selectedFilePath={selected}
           renamesKey={renamesKey}
           onRenameMutation={() => {
             // Renames are applied at read time on the server, so every cached
@@ -730,6 +741,20 @@ export function ProjectView() {
           cropFirst={shot.mode === 'capture'}
           onClose={() => setShot(null)}
           onInsert={onScreenshotSaved}
+        />
+      )}
+      {highlightPrompt && (
+        <AddHighlightModal
+          projectId={id}
+          mediaKey={highlightPrompt}
+          defaultTarget={selected ? { type: 'FILE', ref: selected } : null}
+          Img={AuthenticatedImg}
+          onClose={() => setHighlightPrompt(null)}
+          onCreated={() => {
+            setHighlightPrompt(null)
+            setHighlightsKey(k => k + 1)
+            setActiveTab('highlights')
+          }}
         />
       )}
     </div>
@@ -948,7 +973,7 @@ type AskTabProps = {
 }
 
 function RightPanel({
-  open, onToggle, onStartResize, projectId, activeTab, onTab, galleryKey, renamesKey, onRenameMutation, onOpenFile,
+  open, onToggle, onStartResize, projectId, activeTab, onTab, galleryKey, highlightsKey, selectedFilePath, renamesKey, onRenameMutation, onOpenFile,
   credentials, credentialId, onCredentialChange,
   model, onModelChange, modelOptions,
   analysisProps, askProps, chainStart,
@@ -960,6 +985,10 @@ function RightPanel({
   activeTab: RightTab
   onTab: (t: RightTab) => void
   galleryKey: number
+  // Bumped when the screenshot flow pins a new highlight so a mounted board refetches.
+  highlightsKey: number
+  // Currently-open file — offered as the default FILE anchor when adding a highlight.
+  selectedFilePath: string | null
   renamesKey: number
   onRenameMutation: () => void
   onOpenFile: (path: string, line?: number) => void
@@ -973,6 +1002,7 @@ function RightPanel({
   askProps: AskTabProps
   chainStart: CallChainStart | null
 }) {
+  const callerCanEdit = useCanEdit()
   if (!open) {
     return (
       <aside className="flex flex-col items-center border-l border-zinc-800 py-3">
@@ -1061,6 +1091,9 @@ function RightPanel({
           <TabButton active={activeTab === 'gallery'} onClick={() => onTab('gallery')}>
             Gallery
           </TabButton>
+          <TabButton active={activeTab === 'highlights'} onClick={() => onTab('highlights')}>
+            Highlights
+          </TabButton>
           <TabButton active={activeTab === 'renames'} onClick={() => onTab('renames')}>
             Renames
           </TabButton>
@@ -1119,6 +1152,16 @@ function RightPanel({
         </div>
         <div className={activeTab === 'gallery' ? '' : 'hidden'}>
           <Gallery projectId={projectId} refreshKey={galleryKey} />
+        </div>
+        <div className={`h-full ${activeTab === 'highlights' ? '' : 'hidden'}`}>
+          <HighlightsPanel
+            projectId={projectId}
+            canEdit={callerCanEdit}
+            Img={AuthenticatedImg}
+            refreshKey={highlightsKey}
+            defaultTarget={selectedFilePath ? { type: 'FILE', ref: selectedFilePath } : null}
+            onNavigate={(h) => { if (h.type === 'FILE' && h.targetRef) onOpenFile(h.targetRef) }}
+          />
         </div>
         <div className={activeTab === 'renames' ? '' : 'hidden'}>
           <Renames projectId={projectId} refreshKey={renamesKey} onMutation={onRenameMutation} />
