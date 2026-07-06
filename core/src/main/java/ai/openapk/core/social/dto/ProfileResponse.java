@@ -19,5 +19,9 @@ public record ProfileResponse(
         long followerCount,
         long followingCount,
         boolean amFollowing,
-        List<CommunityReportSummary> reports
+        // Reports where this user is the LEAD (project owner).
+        List<CommunityReportSummary> reports,
+        // Reports where this user is a credited CONTRIBUTOR but not the lead.
+        // Empty for legacy reports published before the byline existed.
+        List<CommunityReportSummary> collaborativeReports
 ) {}

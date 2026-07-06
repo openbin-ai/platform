@@ -35,19 +35,14 @@ public class UserController {
     @GetMapping
     @Transactional(readOnly = true)
     public UserResponse me() {
-        User u = currentUser.current();
-        return new UserResponse(
-                u.getId(),
-                u.getDisplayName(),
-                u.getEmail(),
-                CommunityService.md5Hex(u.getEmail())
-        );
+        return toResponse(currentUser.current());
     }
 
     /**
-     * Update display name. Blank or null clears it back to "use whatever
-     * the JWT claim says" — handled because {@link CurrentUserService}
-     * re-seeds from the JWT when display_name is null/blank.
+     * Update self-profile: display name and/or the public-credit opt-out.
+     * Blank/null display name clears it back to "use whatever the JWT claim
+     * says" ({@link CurrentUserService} re-seeds from the JWT when it's
+     * null/blank). A null {@code creditPublicly} leaves the flag unchanged.
      */
     @PatchMapping
     @Transactional
@@ -55,12 +50,20 @@ public class UserController {
         User u = currentUser.current();
         String dn = req.displayName();
         u.setDisplayName(dn == null || dn.isBlank() ? null : dn.trim());
+        if (req.creditPublicly() != null) {
+            u.setCreditPublicly(req.creditPublicly());
+        }
         users.save(u);
+        return toResponse(u);
+    }
+
+    private static UserResponse toResponse(User u) {
         return new UserResponse(
                 u.getId(),
                 u.getDisplayName(),
                 u.getEmail(),
-                CommunityService.md5Hex(u.getEmail())
+                CommunityService.md5Hex(u.getEmail()),
+                u.isCreditPublicly()
         );
     }
 }

@@ -22,6 +22,24 @@ export type CommunityReportSummary = {
   preview: string
   voteCount: number
   votedByMe: boolean
+  // Frozen byline (LEAD first). Empty for reports published before bylines
+  // existed — fall back to the author* fields, which carry the lead.
+  contributors: Contributor[]
+}
+
+/**
+ * One entry in a report's contributor byline. Mirrors
+ * ai.openapk.core.reports.dto.Contributor. `credit` is LEAD (the owner who
+ * published) or CONTRIBUTOR. `userId` is null when the credited account was
+ * deleted (the snapshotted displayName still renders). `isBot` flags synthetic
+ * authors like BINNY.
+ */
+export type Contributor = {
+  userId: string | null
+  displayName: string
+  emailMd5: string
+  credit: 'LEAD' | 'CONTRIBUTOR'
+  isBot: boolean
 }
 
 export type CommunityReportDetail = {
@@ -46,6 +64,8 @@ export type CommunityReportDetail = {
   voteCount: number
   votedByMe: boolean
   amFollowingAuthor: boolean
+  // Frozen byline (LEAD first); empty for legacy reports.
+  contributors: Contributor[]
 }
 
 export type CommunityFeedParams = {

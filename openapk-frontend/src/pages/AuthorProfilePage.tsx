@@ -110,6 +110,40 @@ export function AuthorProfilePage() {
               ))}
             </ul>
           )}
+
+          {profile.collaborativeReports && profile.collaborativeReports.length > 0 && (
+            <>
+              <h2 className="mb-3 mt-8 text-sm font-medium uppercase tracking-wide text-zinc-400">
+                Collaborative reports
+              </h2>
+              <p className="mb-3 -mt-1 text-xs text-zinc-500">
+                Reports this researcher contributed to — led by someone else.
+              </p>
+              <ul className="space-y-3">
+                {profile.collaborativeReports.map((r) => (
+                  <li key={r.reportId}>
+                    <article className="flex items-start justify-between gap-3 rounded border border-zinc-800 bg-zinc-900/40 p-4 transition hover:border-zinc-700 hover:bg-zinc-900/60">
+                      <Link to={`/community/reports/${r.reportId}`} className="min-w-0 flex-1">
+                        <h3 className="truncate text-base font-medium text-zinc-100">{r.title}</h3>
+                        <div className="mt-0.5 text-xs text-zinc-500">
+                          {new Date(r.communityPublishedAt).toLocaleDateString()} · <span className="font-mono">{r.projectName}</span>
+                          {' · led by '}<span className="text-zinc-400">{r.authorDisplayName}</span>
+                        </div>
+                        {r.preview && (
+                          <p className="mt-2 line-clamp-2 text-sm text-zinc-400">{r.preview}</p>
+                        )}
+                      </Link>
+                      <UpvoteButton
+                        reportId={r.reportId}
+                        initialCount={r.voteCount}
+                        initialVoted={r.votedByMe}
+                      />
+                    </article>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </main>
       )}
     </Chrome>

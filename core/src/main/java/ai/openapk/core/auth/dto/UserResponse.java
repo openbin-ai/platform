@@ -18,5 +18,8 @@ public record UserResponse(
         UUID userId,
         String displayName,
         String email,
-        String emailMd5
+        String emailMd5,
+        // Global "credit me publicly" flag. When false, the user is omitted
+        // from the contributor byline of reports they helped with.
+        boolean creditPublicly
 ) {}

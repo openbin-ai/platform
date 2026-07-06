@@ -334,6 +334,36 @@ public class SocialService {
         List<Object[]> rows = nq.getResultList();
         var reports = mapRows(rows);
 
+        // Collaborative reports: published reports where this user is a
+        // credited CONTRIBUTOR (not the lead/owner). Driven by the byline
+        // snapshot, so only reports (re)published after bylines existed appear.
+        var collabQuery = em.createNativeQuery("""
+                SELECT r.id, r.project_id, r.title, r.malware_type, r.tags, r.sections_jsonb,
+                       r.community_published_at,
+                       p.name AS project_name, p.sha256,
+                       u.id AS author_id, u.display_name, u.email,
+                       (SELECT COUNT(*) FROM report_votes v WHERE v.report_id = r.id) AS vote_count,
+                       :viewerKnown AND EXISTS (SELECT 1 FROM report_votes v2
+                               WHERE v2.report_id = r.id AND v2.user_id = :viewer) AS voted_by_me
+                FROM report_contributors rc
+                JOIN project_reports r ON rc.report_id = r.id
+                JOIN projects p ON r.project_id = p.id
+                JOIN users u ON p.user_id = u.id
+                WHERE rc.user_id = :author
+                  AND rc.credit = 'CONTRIBUTOR'
+                  AND r.community_published_at IS NOT NULL
+                  AND p.kind = :kind
+                ORDER BY r.community_published_at DESC
+                LIMIT 50
+                """);
+        collabQuery.setParameter("author", u.getId());
+        collabQuery.setParameter("kind", kind.name());
+        collabQuery.setParameter("viewerKnown", viewerOrNull != null);
+        collabQuery.setParameter("viewer", viewerOrNull != null ? viewerOrNull.getId() : u.getId());
+        @SuppressWarnings("unchecked")
+        List<Object[]> collabRows = collabQuery.getResultList();
+        var collaborativeReports = mapRows(collabRows);
+
         boolean amFollowing = viewerOrNull != null && !viewerOrNull.getId().equals(u.getId())
                 && followRepo.existsByFollowerIdAndFolloweeId(viewerOrNull.getId(), u.getId());
 
@@ -345,7 +375,8 @@ public class SocialService {
                 followRepo.countByFolloweeId(u.getId()),
                 followRepo.countByFollowerId(u.getId()),
                 amFollowing,
-                reports
+                reports,
+                collaborativeReports
         );
     }
 

@@ -11,7 +11,7 @@ import { Gravatar } from '@shared/components/Gravatar'
 //
 // The display name is the ONE thing community readers see attached to
 // your published work; the rest of your profile is private.
-type Me = { userId: string; displayName: string | null; email: string | null; emailMd5: string }
+type Me = { userId: string; displayName: string | null; email: string | null; emailMd5: string; creditPublicly: boolean }
 
 export function Profile() {
   const api = useApi()
@@ -53,6 +53,23 @@ export function Profile() {
       setSaving(false)
     }
   }, [api, draft])
+
+  // Toggle the public-credit opt-out. Sends the current display name too so
+  // the PATCH (which resets a null/absent name) doesn't wipe it.
+  const setCredit = useCallback(async (next: boolean) => {
+    if (!me) return
+    setErr(null)
+    try {
+      const updated = await api<Me>('/api/users/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ displayName: me.displayName, creditPublicly: next }),
+      })
+      setMe(updated)
+      setMeCache(updated)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Save failed')
+    }
+  }, [api, me])
 
   // Clear the "saved" toast after 2 seconds.
   useEffect(() => {
@@ -123,6 +140,28 @@ export function Profile() {
           </div>
         </div>
         {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
+      </section>
+
+      <section className="mt-6 rounded border border-zinc-800 bg-zinc-900/40 p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-medium text-zinc-200">Public credit</h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Credit me in the contributor byline of reports I help with. Turn off to stay
+              off public bylines — your work still counts, you just won't be listed.
+              Reports you own and publish always credit you as lead.
+            </p>
+          </div>
+          <button
+            role="switch"
+            aria-checked={me.creditPublicly}
+            onClick={() => void setCredit(!me.creditPublicly)}
+            className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition ${me.creditPublicly ? 'bg-purple-600' : 'bg-zinc-700'}`}
+            title={me.creditPublicly ? 'Public credit on' : 'Public credit off'}
+          >
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition ${me.creditPublicly ? 'left-5.5' : 'left-0.5'}`} />
+          </button>
+        </div>
       </section>
 
       <EmailPreferences accent="purple" />

@@ -18,7 +18,10 @@ export type ProfileResponse = {
   followerCount: number
   followingCount: number
   amFollowing: boolean // always false for anonymous viewers
-  reports: CommunityReportSummary[]
+  reports: CommunityReportSummary[] // where this user is the LEAD (owner)
+  // Reports where this user is a credited CONTRIBUTOR but not the lead.
+  // Empty for legacy reports; optional so an older backend response parses.
+  collaborativeReports?: CommunityReportSummary[]
 }
 
 export type ProjectKindParam = 'apk' | 'bin'

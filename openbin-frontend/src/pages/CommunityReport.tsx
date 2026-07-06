@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import { API_BASE, useApi } from '@shared/api/client'
 import type { CommunityReportDetail } from '@shared/api/community'
 import { Gravatar } from '@shared/components/Gravatar'
+import { ContributorByline } from '@shared/components/ContributorByline'
 import { UpvoteButton } from '@shared/components/UpvoteButton'
 import { FollowButton } from '@shared/components/FollowButton'
 import { CommentsThread } from '@shared/components/CommentsThread'
@@ -99,6 +100,14 @@ export function CommunityReport() {
                 Report abuse
               </button>
             </div>
+            {report.contributors.length > 1 && (
+              <div className="mt-3">
+                <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                  Contributors
+                </div>
+                <ContributorByline contributors={report.contributors} accent="amber" />
+              </div>
+            )}
             <ProjectMeta report={report} />
             {(report.malwareType || report.tags.length > 0) && (
               <div className="mt-4 flex flex-wrap gap-1.5">

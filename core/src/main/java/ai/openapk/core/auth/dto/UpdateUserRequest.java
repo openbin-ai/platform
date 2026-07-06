@@ -8,5 +8,8 @@ import jakarta.validation.constraints.Size;
  * Blank/null display_name resets back to the JWT-derived fallback.
  */
 public record UpdateUserRequest(
-        @Size(max = 60, message = "display name max 60 chars") String displayName
+        @Size(max = 60, message = "display name max 60 chars") String displayName,
+        // Null = leave unchanged (PATCH semantics). Toggles the public-credit
+        // opt-out — see users.credit_publicly.
+        Boolean creditPublicly
 ) {}
