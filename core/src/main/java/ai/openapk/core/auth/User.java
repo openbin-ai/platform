@@ -53,6 +53,15 @@ public class User {
     @Column(name = "tos_accepted_at")
     private Instant tosAcceptedAt;
 
+    /**
+     * Global "credit me publicly" flag. When false, the user is omitted from
+     * the public contributor byline of reports they helped with (their work
+     * still counts internally). Defaults true. The project OWNER is exempt —
+     * publishing to the community feed is their explicit act.
+     */
+    @Column(name = "credit_publicly", nullable = false)
+    private boolean creditPublicly = true;
+
     @PrePersist
     void prePersist() {
         var now = Instant.now();

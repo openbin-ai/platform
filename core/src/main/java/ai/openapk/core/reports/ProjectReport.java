@@ -1,5 +1,6 @@
 package ai.openapk.core.reports;
 
+import ai.openapk.core.auth.User;
 import ai.openapk.core.projects.Project;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -8,6 +9,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
@@ -81,6 +83,16 @@ public class ProjectReport {
     @Column(name = "tags", columnDefinition = "text[]", nullable = false)
     @JdbcTypeCode(SqlTypes.ARRAY)
     private String[] tags = new String[0];
+
+    /**
+     * Most recent editor of the report body, for the contributor byline.
+     * A single column only captures the last editor (good enough — the
+     * richer per-contribution signal comes from highlights + renames); null
+     * on reports predating attribution. SET NULL on the FK.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "updated_by")
+    private User updatedBy;
 
     @PrePersist
     void prePersist() {

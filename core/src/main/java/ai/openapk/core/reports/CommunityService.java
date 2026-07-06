@@ -69,12 +69,13 @@ public class CommunityService {
     private final CurrentUserService currentUser;
     private final FollowRepository followRepo;
     private final ReportVoteRepository voteRepo;
+    private final ReportContributorService contributors;
 
     public CommunityService(ProjectReportRepository reportRepo, ObjectMapper mapper,
                             EmailService email, MediaService mediaService,
                             ai.openapk.core.notifications.NotificationService notifications,
                             CurrentUserService currentUser, FollowRepository followRepo,
-                            ReportVoteRepository voteRepo) {
+                            ReportVoteRepository voteRepo, ReportContributorService contributors) {
         this.reportRepo = reportRepo;
         this.mapper = mapper;
         this.email = email;
@@ -83,6 +84,7 @@ public class CommunityService {
         this.currentUser = currentUser;
         this.followRepo = followRepo;
         this.voteRepo = voteRepo;
+        this.contributors = contributors;
     }
 
     /**
@@ -182,6 +184,8 @@ public class CommunityService {
 
         @SuppressWarnings("unchecked")
         List<Object[]> rows = nq.getResultList();
+        var reportIds = rows.stream().map(r -> (UUID) r[0]).toList();
+        var contribByReport = contributors.forReports(reportIds);
         var out = new ArrayList<CommunityReportSummary>(rows.size());
         for (Object[] r : rows) {
             UUID reportId = (UUID) r[0];
@@ -207,7 +211,8 @@ public class CommunityService {
                     md5Hex(emailAddr),
                     extractPreview(sectionsJson),
                     voteCount,
-                    votedByMe
+                    votedByMe,
+                    contribByReport.getOrDefault(reportId, List.of())
             ));
         }
         return out;
@@ -266,7 +271,8 @@ public class CommunityService {
                 md5Hex(p.getUser().getEmail()),
                 voteCount,
                 votedByMe,
-                amFollowingAuthor
+                amFollowingAuthor,
+                contributors.forReport(report.getId())
         );
     }
 
@@ -470,7 +476,7 @@ public class CommunityService {
      * part of the email; else "anonymous researcher". Never leaks the
      * full email address publicly.
      */
-    private static String displayNameOrFallback(String displayName, String emailAddr) {
+    public static String displayNameOrFallback(String displayName, String emailAddr) {
         if (displayName != null && !displayName.isBlank()) return displayName;
         if (emailAddr != null && emailAddr.contains("@")) {
             return emailAddr.substring(0, emailAddr.indexOf('@'));

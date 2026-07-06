@@ -32,5 +32,7 @@ public record CommunityReportDetail(
         String authorEmailMd5,
         long voteCount,
         boolean votedByMe,
-        boolean amFollowingAuthor
+        boolean amFollowingAuthor,
+        // Frozen contributor byline (LEAD first); empty for legacy reports.
+        List<Contributor> contributors
 ) {}

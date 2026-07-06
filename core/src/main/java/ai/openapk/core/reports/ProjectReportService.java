@@ -84,6 +84,7 @@ public class ProjectReportService {
     private final ProjectStorage storage;
     private final ai.openapk.core.notifications.NotificationService notifications;
     private final ProjectAccessGuard guard;
+    private final ReportContributorService contributors;
 
     public ProjectReportService(
             ProjectRepository projectRepo,
@@ -91,7 +92,8 @@ public class ProjectReportService {
             ObjectMapper mapper,
             ProjectStorage storage,
             ai.openapk.core.notifications.NotificationService notifications,
-            ProjectAccessGuard guard
+            ProjectAccessGuard guard,
+            ReportContributorService contributors
     ) {
         this.projectRepo = projectRepo;
         this.reportRepo = reportRepo;
@@ -99,6 +101,7 @@ public class ProjectReportService {
         this.storage = storage;
         this.notifications = notifications;
         this.guard = guard;
+        this.contributors = contributors;
     }
 
     @Transactional
@@ -118,6 +121,7 @@ public class ProjectReportService {
         requireNotPublished(report);
         report.setTitle(req.title());
         report.setSectionsJson(serializeSections(req.sections()));
+        report.setUpdatedBy(user);
         advanceWorkflowOnEdit(project);
         return toResponse(reportRepo.save(report));
     }
@@ -146,6 +150,7 @@ public class ProjectReportService {
                         : s)
                 .toList();
         report.setSectionsJson(serializeSections(sections));
+        report.setUpdatedBy(user);
         advanceWorkflowOnEdit(project);
         return toResponse(reportRepo.save(report));
     }
@@ -223,6 +228,10 @@ public class ProjectReportService {
             projectRepo.save(project);
         }
         ProjectReport saved = reportRepo.save(report);
+        // Freeze the contributor byline from the current attributed state.
+        // Rebuilt on every (re)publish so the owner can re-curate credits by
+        // republishing after roster/contribution changes.
+        contributors.snapshot(saved);
         if (firstPublishToCommunity) {
             notifications.notifyReportPublished(user, saved);
         }

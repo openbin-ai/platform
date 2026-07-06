@@ -30,5 +30,9 @@ public record CommunityReportSummary(
         // for the feed-card preview line.
         String preview,
         long voteCount,
-        boolean votedByMe
+        boolean votedByMe,
+        // Frozen contributor byline (LEAD first). Empty for reports published
+        // before bylines existed — the frontend falls back to the author*
+        // fields above, which still carry the owner/lead.
+        List<Contributor> contributors
 ) {}

@@ -246,6 +246,7 @@ public class RenameService {
         row.setSuggested(req.suggested());
         row.setScope(req.scope());
         row.setStatus(RenameStatus.APPLIED);
+        row.setAppliedBy(user);
         if (row.getConfidence() == null) row.setConfidence("manual");
         invalidateSymbolIndex(project);
         return RenameDto.from(renameRepo.save(row));
@@ -396,6 +397,7 @@ public class RenameService {
             ProjectRename row = renameRepo.findByProjectIdAndOriginal(projectId, original).orElse(null);
             if (row == null) continue;
             row.setStatus(RenameStatus.APPLIED);
+            row.setAppliedBy(user);
             applied.add(RenameDto.from(renameRepo.save(row)));
         }
         if (!applied.isEmpty()) invalidateSymbolIndex(project);

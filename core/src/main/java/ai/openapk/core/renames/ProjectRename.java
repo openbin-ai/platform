@@ -1,5 +1,6 @@
 package ai.openapk.core.renames;
 
+import ai.openapk.core.auth.User;
 import ai.openapk.core.projects.Project;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -64,6 +65,16 @@ public class ProjectRename {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    /**
+     * Who applied this rename, for the contributor byline. Set when a row
+     * flips to APPLIED (apply / manualRename); null on SUGGESTED-only rows and
+     * on renames predating attribution. SET NULL on the FK so the credit
+     * survives the author leaving.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "applied_by")
+    private User appliedBy;
 
     @PrePersist
     void prePersist() {

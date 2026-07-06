@@ -7,7 +7,9 @@ import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.reports.CommunityService;
 import ai.openapk.core.reports.ProjectReport;
 import ai.openapk.core.reports.ProjectReportRepository;
+import ai.openapk.core.reports.ReportContributorService;
 import ai.openapk.core.reports.dto.CommunityReportSummary;
+import ai.openapk.core.reports.dto.Contributor;
 import ai.openapk.core.social.dto.ProfileResponse;
 import ai.openapk.core.social.dto.SocialUserSummary;
 import ai.openapk.core.social.dto.ToggleResponse;
@@ -25,6 +27,7 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -50,17 +53,20 @@ public class SocialService {
     private final ProjectReportRepository reportRepo;
     private final CommunityService communityService;
     private final NotificationService notifications;
+    private final ReportContributorService contributors;
 
     public SocialService(FollowRepository followRepo, ReportVoteRepository voteRepo,
                          UserRepository userRepo, ProjectReportRepository reportRepo,
                          CommunityService communityService,
-                         NotificationService notifications) {
+                         NotificationService notifications,
+                         ReportContributorService contributors) {
         this.followRepo = followRepo;
         this.voteRepo = voteRepo;
         this.userRepo = userRepo;
         this.reportRepo = reportRepo;
         this.communityService = communityService;
         this.notifications = notifications;
+        this.contributors = contributors;
     }
 
     // ─── follows ────────────────────────────────────────────────────────
@@ -190,11 +196,7 @@ public class SocialService {
 
         @SuppressWarnings("unchecked")
         List<Object[]> rows = nq.getResultList();
-        var out = new ArrayList<CommunityReportSummary>(rows.size());
-        for (Object[] r : rows) {
-            out.add(mapRow(r));
-        }
-        return out;
+        return mapRows(rows);
     }
 
     // ─── follower / following lists ─────────────────────────────────────
@@ -330,8 +332,7 @@ public class SocialService {
 
         @SuppressWarnings("unchecked")
         List<Object[]> rows = nq.getResultList();
-        var reports = new ArrayList<CommunityReportSummary>(rows.size());
-        for (Object[] r : rows) reports.add(mapRow(r));
+        var reports = mapRows(rows);
 
         boolean amFollowing = viewerOrNull != null && !viewerOrNull.getId().equals(u.getId())
                 && followRepo.existsByFollowerIdAndFolloweeId(viewerOrNull.getId(), u.getId());
@@ -350,7 +351,7 @@ public class SocialService {
 
     // ─── helpers ────────────────────────────────────────────────────────
 
-    private CommunityReportSummary mapRow(Object[] r) {
+    private CommunityReportSummary mapRow(Object[] r, Map<UUID, List<Contributor>> contribByReport) {
         UUID reportId = (UUID) r[0];
         UUID projectId = (UUID) r[1];
         String title = (String) r[2];
@@ -374,8 +375,18 @@ public class SocialService {
                 CommunityService.md5Hex(emailAddr),
                 communityService.previewFromSections(sectionsJson),
                 voteCount,
-                votedByMe
+                votedByMe,
+                contribByReport.getOrDefault(reportId, List.of())
         );
+    }
+
+    /** Batch the byline lookup for a result set, then map each row. */
+    private List<CommunityReportSummary> mapRows(List<Object[]> rows) {
+        var reportIds = rows.stream().map(r -> (UUID) r[0]).toList();
+        var contribByReport = contributors.forReports(reportIds);
+        var out = new ArrayList<CommunityReportSummary>(rows.size());
+        for (Object[] r : rows) out.add(mapRow(r, contribByReport));
+        return out;
     }
 
     private static Instant toInstant(Object raw) {
