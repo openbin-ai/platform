@@ -3,6 +3,7 @@ package ai.openapk.core.projects;
 import ai.openapk.core.auth.CurrentUserService;
 import ai.openapk.core.projects.dto.AddCollaboratorRequest;
 import ai.openapk.core.projects.dto.CollaboratorResponse;
+import ai.openapk.core.projects.dto.DedupMatch;
 import ai.openapk.core.projects.dto.ProjectMemberResponse;
 import ai.openapk.core.projects.dto.FileContentResponse;
 import ai.openapk.core.projects.dto.FileNode;
@@ -36,18 +37,33 @@ public class ProjectController {
     private final ProjectService service;
     private final ProjectCollaboratorService collaboratorService;
     private final CurrentUserService currentUser;
+    private final DedupService dedupService;
 
     public ProjectController(ProjectService service,
                              ProjectCollaboratorService collaboratorService,
-                             CurrentUserService currentUser) {
+                             CurrentUserService currentUser,
+                             DedupService dedupService) {
         this.service = service;
         this.collaboratorService = collaboratorService;
         this.currentUser = currentUser;
+        this.dedupService = dedupService;
     }
 
     @GetMapping
     public List<ProjectResponse> list() {
         return service.list(currentUser.current());
+    }
+
+    /**
+     * Hash-dedup lookup: PUBLIC projects with this sha256, most-upvoted first.
+     * The CLI calls this before decompiling to offer forking an existing public
+     * analysis. A literal path segment, so it takes precedence over /{id}.
+     * Public-data-only, but kept on the authenticated surface (the CLI is
+     * signed in and forks via the authenticated fork endpoint).
+     */
+    @GetMapping("/dedup")
+    public List<DedupMatch> dedup(@RequestParam("sha256") String sha256) {
+        return dedupService.findPublicByHash(sha256);
     }
 
     @PostMapping
