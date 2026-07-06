@@ -62,4 +62,14 @@ public interface ProjectRepository extends JpaRepository<Project, UUID> {
      * an identical 404 so anonymous probing can't distinguish the two.
      */
     Optional<Project> findByIdAndPublicReadAtIsNotNull(UUID id);
+
+    /**
+     * How many projects reference this analysis blob. Used to refcount the
+     * shared sha256-keyed blob on delete — only the last referencing project
+     * may delete the object. Includes the row being deleted until commit.
+     */
+    long countByBinaryAnalysisS3Key(String binaryAnalysisS3Key);
+
+    /** Direct forks of a project (lineage walk / fork list). */
+    List<Project> findAllByForkedFromIdOrderByCreatedAtDesc(UUID forkedFromId);
 }

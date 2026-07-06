@@ -51,7 +51,11 @@ public record ProjectResponse(
         // as of this instant (owner-controlled). Null = private. Lets the owner
         // UI reflect the toggle state; anonymous public reads never populate a
         // signed analysisDownloadUrl (that path passes a null signer).
-        Instant publicReadAt
+        Instant publicReadAt,
+        // Source project id when this is a fork (null otherwise) — drives the
+        // "forked from" attribution link. forkCount = direct forks of this one.
+        UUID forkedFromId,
+        int forkCount
 ) {
     /**
      * Convenience variant for code paths that don't have a URL signer or
@@ -111,7 +115,9 @@ public record ProjectResponse(
                 signedUrl,
                 size,
                 role,
-                p.getPublicReadAt()
+                p.getPublicReadAt(),
+                p.getForkedFrom() != null ? p.getForkedFrom().getId() : null,
+                p.getForkCount()
         );
     }
 }

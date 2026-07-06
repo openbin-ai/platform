@@ -613,8 +613,114 @@ public class ProjectService {
         // EDITOR. Storage path uses the OWNER's user id, which always
         // equals user.getId() here because requireOwner just enforced it.
         var project = guard.requireOwner(user, id);
+
+        // Refcount the shared analysis blob. A fork SHARES its source's
+        // binary_analysis_s3_key, so we may only delete the S3 object when
+        // THIS is the last project referencing it. Count BEFORE repo.delete
+        // (the row still counts) — refs <= 1 means "only me". The actual S3
+        // delete runs after commit so a rolled-back delete can't destroy a
+        // live blob. (This also fixes a pre-existing bug: delete never used
+        // to remove the analysis blob at all, orphaning it in the bucket.)
+        String blobKey = project.getBinaryAnalysisS3Key();
+        long blobRefs = (blobKey != null && !blobKey.isBlank())
+                ? repo.countByBinaryAnalysisS3Key(blobKey) : 0;
+        Project parent = project.getForkedFrom();
+
         storage.deleteProject(project.getUser().getId(), project.getId());
         repo.delete(project);
+
+        // Deleting a fork frees a slot on its source's fork_count.
+        if (parent != null) {
+            parent.setForkCount(Math.max(0, parent.getForkCount() - 1));
+            repo.save(parent);
+        }
+
+        if (analysisStorage != null && blobKey != null && !blobKey.isBlank() && blobRefs <= 1) {
+            final String key = blobKey;
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    analysisStorage.deleteObject(key);
+                }
+            });
+        }
+    }
+
+    /**
+     * Fork a project: a new project owned by the caller that SHARES the
+     * source's immutable analysis blob read-only and starts with an empty
+     * renames/highlights/report layer ("forked from X" attribution). No worker
+     * runs and no quota is charged — the fork reuses the existing analysis.
+     *
+     * <p>Forkable when the caller can read the source (owner/editor/viewer) OR
+     * it's public. BIN-only + must be READY (its blob is finalized/ready-tagged).
+     * The forker can later re-decompile via the CLI to materialize an
+     * independent blob (a new key overwrites the shared pointer).
+     */
+    @Transactional
+    public ProjectResponse fork(User caller, UUID sourceId) {
+        Project source = resolveForkable(caller, sourceId);
+        if (source.getKind() != ProjectKind.BIN) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "only binary projects can be forked");
+        }
+        if (source.getStatus() != ProjectStatus.READY) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "source analysis is not ready to fork");
+        }
+        boolean hasBlob = (source.getBinaryAnalysisS3Key() != null && !source.getBinaryAnalysisS3Key().isBlank())
+                || (source.getBinaryAnalysisJson() != null && !source.getBinaryAnalysisJson().isBlank());
+        if (!hasBlob) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "source has no analysis to fork");
+        }
+
+        Project fork = new Project();
+        fork.setUser(caller);
+        fork.setKind(source.getKind());
+        fork.setName(forkName(source.getName()));
+        fork.setOriginalFilename(source.getOriginalFilename());
+        fork.setSizeBytes(source.getSizeBytes());
+        fork.setSha256(source.getSha256());
+        fork.setArch(source.getArch());
+        fork.setExecutableFormat(source.getExecutableFormat());
+        fork.setCompiler(source.getCompiler());
+        fork.setLanguageId(source.getLanguageId());
+        fork.setImageBase(source.getImageBase());
+        fork.setAnalysisMode(source.getAnalysisMode());
+        // Analysis payload: legacy inline gets a row-local copy; the S3 path is
+        // a SHARED pointer (refcounted on delete). Working-layer + derived
+        // caches (renames/highlights/report/digest/symbol/tree) start empty.
+        fork.setBinaryAnalysisJson(source.getBinaryAnalysisJson());
+        fork.setBinaryAnalysisS3Key(source.getBinaryAnalysisS3Key());
+        fork.setBinaryAnalysisS3Etag(source.getBinaryAnalysisS3Etag());
+        fork.setBinaryAnalysisSizeBytes(source.getBinaryAnalysisSizeBytes());
+        fork.setDecompiledAt(source.getDecompiledAt());
+        fork.setStatus(ProjectStatus.READY);
+        fork.setForkedFrom(source);
+        Project saved = repo.save(fork);
+
+        source.setForkCount(source.getForkCount() + 1);
+        repo.save(source);
+
+        return ProjectResponse.from(saved, urlSigner(), ProjectRole.OWNER);
+    }
+
+    /** A project is forkable if the caller can read it, or it's public. */
+    private Project resolveForkable(User caller, UUID id) {
+        try {
+            return guard.requireRead(caller, id);
+        } catch (ResponseStatusException e) {
+            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                return publicGuard.requirePublic(id);
+            }
+            throw e;
+        }
+    }
+
+    private static String forkName(String sourceName) {
+        String base = (sourceName == null || sourceName.isBlank()) ? "project" : sourceName;
+        return base.endsWith("(fork)") ? base : base + " (fork)";
     }
 
     @Transactional(readOnly = true)

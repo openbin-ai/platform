@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
@@ -161,6 +162,23 @@ public class AnalysisStorageService {
                         .tagSet(Tag.builder().key("status").value("ready").build())
                         .build())
                 .build());
+    }
+
+    /**
+     * Delete an analysis blob. Best-effort + logged so a transient S3 failure
+     * never fails the surrounding DB transaction (the caller decides refcount
+     * safety — this only deletes when it's the last reference). A missing
+     * object is a no-op (S3 delete is idempotent).
+     */
+    public void deleteObject(String key) {
+        try {
+            s3.deleteObject(DeleteObjectRequest.builder()
+                    .bucket(cfg.bucket())
+                    .key(key)
+                    .build());
+        } catch (Exception e) {
+            log.warn("failed to delete analysis blob {} (leaving orphaned): {}", key, e.toString());
+        }
     }
 
     /** Mints a CloudFront signed GET URL for the frontend. */

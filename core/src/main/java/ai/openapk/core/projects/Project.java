@@ -120,6 +120,21 @@ public class Project {
     @Column(name = "public_read_at")
     private Instant publicReadAt;
 
+    /**
+     * Source project this was forked from, or null for an original. A fork
+     * SHARES the source's {@code binary_analysis_s3_key} read-only and starts
+     * with an empty renames/highlights/report layer. ON DELETE SET NULL (see
+     * V35): deleting the source orphans forks into roots rather than destroying
+     * them; the shared blob survives via refcounting in {@code ProjectService.delete}.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "forked_from")
+    private Project forkedFrom;
+
+    /** Denormalized count of direct forks; maintained by fork/delete. */
+    @Column(name = "fork_count", nullable = false)
+    private int forkCount = 0;
+
     @Column(name = "decompiled_at")
     private Instant decompiledAt;
 

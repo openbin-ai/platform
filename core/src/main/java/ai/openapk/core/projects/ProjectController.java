@@ -100,6 +100,17 @@ public class ProjectController {
         return service.setPublic(currentUser.current(), id, false);
     }
 
+    /**
+     * Fork a project into a new one owned by the caller, sharing the source's
+     * analysis blob read-only. Source must be readable-by-caller or public,
+     * BIN, and READY. Returns the new fork (201).
+     */
+    @PostMapping("/{id}/fork")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ProjectResponse fork(@PathVariable UUID id) {
+        return service.fork(currentUser.current(), id);
+    }
+
     @GetMapping("/{id}/files")
     public FileNode tree(@PathVariable UUID id) {
         return service.fileTree(currentUser.current(), id);
