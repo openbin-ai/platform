@@ -15,13 +15,16 @@ export type CommentResponse = {
   // True only when the viewer authenticated as this comment's author.
   // Drives the inline delete affordance.
   mine: boolean
-  // Always present (possibly empty). Replies only appear on top-level
-  // comments — schema is depth-1.
+  // Always present (possibly empty). Threads nest to arbitrary depth; these
+  // are this comment's direct children.
   replies: CommentResponse[]
 }
 
-export const commentsPath = (reportId: string) =>
-  `/api/community/reports/${reportId}/comments`
+// Root-comment ordering. Replies within a thread are always chronological.
+export type CommentSort = 'hot' | 'new' | 'top'
+
+export const commentsPath = (reportId: string, sort: CommentSort = 'hot') =>
+  `/api/community/reports/${reportId}/comments?sort=${sort}`
 
 export const postCommentPath = () => `/api/social/comments`
 export const deleteCommentPath = (commentId: string) => `/api/social/comments/${commentId}`

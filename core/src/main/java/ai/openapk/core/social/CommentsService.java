@@ -23,10 +23,10 @@ import java.util.UUID;
  * with opportunistic personalization (the {@code mine} flag on each
  * response); writes require auth and a community-visible report.
  *
- * <p>Threading depth is hard-capped at one level — a reply to a reply gets
- * its parent re-pointed to the original top-level comment so visually
- * deep chains can't form. This matches the V28 schema's implicit contract
- * (no cycle detection because depth is always 0 or 1).
+ * <p>Threads nest to arbitrary depth (Reddit-style); the frontend caps the
+ * visual indent and offers "continue thread" beyond it. Root comments are
+ * ordered by the requested sort (new / top / hot); replies within a thread
+ * stay chronological.
  */
 @Service
 public class CommentsService {
@@ -49,18 +49,18 @@ public class CommentsService {
      * "private report" from "doesn't exist".
      */
     @Transactional(readOnly = true)
-    public List<CommentResponse> list(UUID reportId, User viewerOrNull) {
+    public List<CommentResponse> list(UUID reportId, User viewerOrNull, String sort) {
         ProjectReport report = reportRepo.findById(reportId).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "report not found"));
         if (report.getCommunityPublishedAt() == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "report not found");
         }
 
+        // Fetch chronologically so replies attach + render oldest-first within
+        // each thread regardless of the root-level sort.
         List<ReportComment> flat = repo.findAllByReportIdOrderByCreatedAtAsc(reportId);
         UUID viewerId = viewerOrNull == null ? null : viewerOrNull.getId();
 
-        // Index by id for parent lookup; track top-level rows in order so
-        // the response preserves chronological ordering at the root level.
         Map<UUID, CommentResponse> byId = new HashMap<>(flat.size());
         Map<UUID, List<CommentResponse>> repliesByParent = new HashMap<>();
         List<CommentResponse> roots = new ArrayList<>();
@@ -68,21 +68,54 @@ public class CommentsService {
         for (ReportComment c : flat) {
             CommentResponse resp = toResponse(c, viewerId, new ArrayList<>());
             byId.put(c.getId(), resp);
-            if (c.getParent() == null) {
+            UUID parentId = c.getParent() == null ? null : c.getParent().getId();
+            if (parentId == null) {
                 roots.add(resp);
             } else {
-                repliesByParent.computeIfAbsent(c.getParent().getId(), k -> new ArrayList<>()).add(resp);
+                repliesByParent.computeIfAbsent(parentId, k -> new ArrayList<>()).add(resp);
             }
         }
-        // Wire children — we mutated the response's reply list reference
-        // when we constructed it, so attaching here keeps the public DTO
-        // shape (record) safely immutable from the outside.
+        // Attach children to their parent at any depth (arbitrary nesting).
         for (var entry : repliesByParent.entrySet()) {
             CommentResponse parent = byId.get(entry.getKey());
             if (parent != null) parent.replies().addAll(entry.getValue());
         }
 
+        sortRoots(roots, sort);
         return roots;
+    }
+
+    /**
+     * Order the root comments. "new" = newest first; "top" = busiest thread
+     * (most total descendants) first; "hot" (default) = engagement decayed by
+     * age, HN-style, so a fresh active thread outranks an old busy one.
+     * Replies within a thread stay chronological. Comment-level voting would
+     * sharpen these signals — deferred; descendant count is the proxy today.
+     */
+    private void sortRoots(List<CommentResponse> roots, String sort) {
+        String s = sort == null ? "hot" : sort.toLowerCase(java.util.Locale.ROOT);
+        java.util.Comparator<CommentResponse> cmp = switch (s) {
+            case "new" -> java.util.Comparator.comparing(
+                    (CommentResponse c) -> c.createdAt(), java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())).reversed();
+            case "top" -> java.util.Comparator.comparingLong((CommentResponse c) -> descendantCount(c)).reversed()
+                    .thenComparing(c -> c.createdAt(), java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder()));
+            default -> java.util.Comparator.comparingDouble((CommentResponse c) -> hotScore(c)).reversed();
+        };
+        roots.sort(cmp);
+    }
+
+    private static long descendantCount(CommentResponse c) {
+        long n = 0;
+        for (CommentResponse r : c.replies()) n += 1 + descendantCount(r);
+        return n;
+    }
+
+    /** HN-style: (engagement + 1) decayed by age^1.5. */
+    private static double hotScore(CommentResponse c) {
+        double engagement = descendantCount(c) + 1.0;
+        double ageHours = c.createdAt() == null ? 0.0
+                : Math.max(0.0, (System.currentTimeMillis() - c.createdAt().toEpochMilli()) / 3_600_000.0);
+        return engagement / Math.pow(ageHours + 2.0, 1.5);
     }
 
     /**
@@ -114,11 +147,10 @@ public class CommentsService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "parent comment belongs to a different report");
             }
-            // Flatten the depth — a reply to a reply gets re-pointed at
-            // the original top-level so the thread never exceeds depth 1.
-            if (parent.getParent() != null) {
-                parent = parent.getParent();
-            }
+            // Arbitrary nesting depth (Reddit-style). No cycle risk: the new
+            // comment can't yet be anyone's ancestor, and the parent is
+            // confirmed to belong to this report. The frontend caps the
+            // *visual* indent and offers "continue thread" past that.
         }
 
         ReportComment c = new ReportComment();

@@ -168,8 +168,10 @@ public class CommunityController {
      * since those operations require auth.
      */
     @GetMapping("/reports/{id}/comments")
-    public List<CommentResponse> reportComments(@PathVariable("id") UUID id) {
-        return comments.list(id, currentUser.currentOrNull());
+    public List<CommentResponse> reportComments(
+            @PathVariable("id") UUID id,
+            @RequestParam(value = "sort", required = false, defaultValue = "hot") String sort) {
+        return comments.list(id, currentUser.currentOrNull(), sort);
     }
 
     /**
