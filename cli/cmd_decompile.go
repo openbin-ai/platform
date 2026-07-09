@@ -12,9 +12,11 @@ import (
 )
 
 var (
-	decompileArch  string
-	decompileName  string
-	decompileImage string
+	decompileArch    string
+	decompileName    string
+	decompileImage   string
+	decompileFork    bool
+	decompileNoDedup bool
 )
 
 var decompileCmd = &cobra.Command{
@@ -79,6 +81,29 @@ Examples:
 			return err
 		}
 
+		// Token resolver, shared by the dedup check + both ingest calls. It's
+		// re-invoked before each backend hit because a slow decompile or S3
+		// PUT can outlast a 5-min access token.
+		tokenLookup := func() (string, error) {
+			tok, err := ensureValidAccessToken(cfg)
+			if err != nil {
+				return "", fmt.Errorf("refresh access token: %w", err)
+			}
+			return tok, nil
+		}
+
+		// Pre-decompile hash dedup (Slice 7): if a public analysis of this
+		// exact binary already exists, offer to fork it over its shared
+		// analysis blob instead of burning minutes on a local Ghidra run.
+		// --no-dedup skips the check; --fork auto-takes the top match without
+		// prompting (handy in scripts). Any failure falls through to decompiling.
+		if !decompileNoDedup {
+			if forkURL := offerForkOnDedup(cfg, tokenLookup, sha, decompileFork); forkURL != "" {
+				fmt.Println("Done!", forkURL)
+				return nil
+			}
+		}
+
 		fmt.Printf("Decompiling %s (%.1f MB, sha256=%s) locally...\n",
 			filename, float64(size)/(1024*1024), sha[:12])
 		start := time.Now()
@@ -91,16 +116,7 @@ Examples:
 
 		// Schema-2.0 ingest: gzip the worker JSON, POST /initiate to get a
 		// presigned S3 PUT URL, stream the gzip to S3 directly, POST
-		// /finalize. The body never crosses our backend. Token is
-		// re-resolved before BOTH backend calls — a slow S3 PUT between
-		// initiate and finalize can easily outlast a 5-min access token.
-		tokenLookup := func() (string, error) {
-			tok, err := ensureValidAccessToken(cfg)
-			if err != nil {
-				return "", fmt.Errorf("refresh access token: %w", err)
-			}
-			return tok, nil
-		}
+		// /finalize. The body never crosses our backend.
 		ir, err := ingestProjectV2(cfg, tokenLookup, name, filename, arch, sha, size, workerJSON)
 		if err != nil {
 			return err
@@ -124,6 +140,10 @@ func init() {
 		"project display name (default: binary filename)")
 	decompileCmd.Flags().StringVar(&decompileImage, "image", "",
 		"override the ghidra-worker Docker image (default: built-in)")
+	decompileCmd.Flags().BoolVar(&decompileFork, "fork", false,
+		"if a public analysis of this binary already exists, fork it instead of decompiling (no prompt)")
+	decompileCmd.Flags().BoolVar(&decompileNoDedup, "no-dedup", false,
+		"skip the pre-decompile hash-dedup check and always decompile locally")
 	rootCmd.AddCommand(decompileCmd)
 }
 

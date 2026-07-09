@@ -305,6 +305,46 @@ func postJSONRetry(url, token string, body any) ([]byte, error) {
 	return nil, lastErr
 }
 
+// getJSONRetry GETs a URL with a Bearer token, retrying on 5xx / network
+// errors (mirrors postJSONRetry's policy). Returns the response body on the
+// first 2xx; 4xx is a caller error and isn't retried.
+func getJSONRetry(url, token string) ([]byte, error) {
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			lastErr = err
+			backoff := time.Duration(attempt) * 2 * time.Second
+			fmt.Fprintf(os.Stderr, "  GET %s failed (attempt %d/%d): %v; retrying in %s\n",
+				url, attempt, maxAttempts, err, backoff)
+			time.Sleep(backoff)
+			continue
+		}
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return respBody, nil
+		}
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			return nil, fmt.Errorf("status=%d body=%s",
+				resp.StatusCode, abbreviate(string(respBody), 500))
+		}
+		lastErr = fmt.Errorf("status=%d body=%s",
+			resp.StatusCode, abbreviate(string(respBody), 500))
+		if attempt < maxAttempts {
+			backoff := time.Duration(attempt) * 2 * time.Second
+			fmt.Fprintf(os.Stderr, "  GET %s returned %d (attempt %d/%d); retrying in %s\n",
+				url, resp.StatusCode, attempt, maxAttempts, backoff)
+			time.Sleep(backoff)
+		}
+	}
+	return nil, lastErr
+}
+
 // putToS3Retry PUTs the gzip file at gzPath to the presigned URL with the
 // headers the backend signed into the URL (Content-Type, Content-Encoding,
 // x-amz-tagging). Reopens the file on each attempt because http.Client
