@@ -3,6 +3,7 @@ package ai.openapk.core.analysis;
 import ai.openapk.core.auth.User;
 import ai.openapk.core.credentials.LlmCredential;
 import ai.openapk.core.credentials.LlmCredentialPayload;
+import ai.openapk.core.credentials.LlmProvider;
 import ai.openapk.core.usage.LlmUsageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,7 +88,7 @@ public class StreamingLlmInvoker {
         String model;
         LlmCredentialPayload payload;
         try {
-            model = invoker.resolveModel(cred.getProvider(), requestedModel);
+            model = invoker.resolveModel(cred, requestedModel);
             payload = invoker.decodePayload(cred);
         } catch (ResponseStatusException e) {
             callback.onError(e);
@@ -116,9 +117,9 @@ public class StreamingLlmInvoker {
         };
 
         try {
-            switch (cred.getProvider()) {
+            switch (cred.getProvider().kind()) {
                 case ANTHROPIC -> streamAnthropic((LlmCredentialPayload.Anthropic) payload, model, systemPrompt, userPrompt, maxTokens, auditing);
-                case OPENAI -> streamOpenAi((LlmCredentialPayload.OpenAI) payload, model, systemPrompt, userPrompt, maxTokens, auditing);
+                case OPENAI -> streamOpenAi((LlmCredentialPayload.OpenAI) payload, cred.getProvider(), model, systemPrompt, userPrompt, maxTokens, auditing);
                 case BEDROCK -> streamBedrock((LlmCredentialPayload.Bedrock) payload, model, systemPrompt, userPrompt, maxTokens, auditing);
             }
         } catch (Exception e) {
@@ -186,7 +187,7 @@ public class StreamingLlmInvoker {
     }
 
     private void streamOpenAi(
-            LlmCredentialPayload.OpenAI p, String model, String systemPrompt, String userPrompt, int maxTokens,
+            LlmCredentialPayload.OpenAI p, LlmProvider provider, String model, String systemPrompt, String userPrompt, int maxTokens,
             StreamCallback cb
     ) throws Exception {
         String json = mapper.writeValueAsString(Map.of(
@@ -200,7 +201,7 @@ public class StreamingLlmInvoker {
                 )
         ));
         var req = HttpRequest.newBuilder()
-                .uri(URI.create("https://api.openai.com/v1/chat/completions"))
+                .uri(URI.create(LlmInvoker.openAiChatUrl(provider, p)))
                 .header("Authorization", "Bearer " + p.apiKey())
                 .header("content-type", "application/json")
                 .header("accept", "text/event-stream")

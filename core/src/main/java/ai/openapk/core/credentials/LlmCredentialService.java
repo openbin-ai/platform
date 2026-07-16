@@ -20,17 +20,20 @@ public class LlmCredentialService {
     private final LlmCredentialEncryptionService crypto;
     private final LlmCredentialPayloadCodec codec;
     private final LlmCredentialTester tester;
+    private final LlmModelCatalog modelCatalog;
 
     public LlmCredentialService(
             LlmCredentialRepository repo,
             LlmCredentialEncryptionService crypto,
             LlmCredentialPayloadCodec codec,
-            LlmCredentialTester tester
+            LlmCredentialTester tester,
+            LlmModelCatalog modelCatalog
     ) {
         this.repo = repo;
         this.crypto = crypto;
         this.codec = codec;
         this.tester = tester;
+        this.modelCatalog = modelCatalog;
     }
 
     @Transactional(readOnly = true)
@@ -58,6 +61,18 @@ public class LlmCredentialService {
         return CredentialResponse.from(repo.save(entity));
     }
 
+    /**
+     * Live model IDs available to this credential (queried from the provider +
+     * cached). Powers the frontend model picker, so we never hardcode a list.
+     * Returns empty if the provider's {@code /models} can't be reached.
+     */
+    @Transactional(readOnly = true)
+    public List<String> listModels(User user, UUID id) {
+        var c = repo.findByIdAndUserId(id, user.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "credential not found"));
+        return modelCatalog.listModels(c);
+    }
+
     @Transactional
     public void delete(User user, UUID id) {
         var c = repo.findByIdAndUserId(id, user.getId())
@@ -79,14 +94,23 @@ public class LlmCredentialService {
     }
 
     private LlmCredentialPayload buildPayload(CreateCredentialRequest req) {
-        return switch (req.provider()) {
+        return switch (req.provider().kind()) {
             case ANTHROPIC -> {
                 requireField(req.apiKey(), "apiKey");
                 yield new LlmCredentialPayload.Anthropic(req.apiKey());
             }
             case OPENAI -> {
                 requireField(req.apiKey(), "apiKey");
-                yield new LlmCredentialPayload.OpenAI(req.apiKey());
+                // Named OpenAI-compatible providers get their base URL from the
+                // enum (baseUrl stays null); the generic OPENAI_COMPAT provider
+                // requires the user to supply one.
+                String baseUrl = req.baseUrl();
+                if (req.provider() == LlmProvider.OPENAI_COMPAT) {
+                    requireField(baseUrl, "baseUrl");
+                } else {
+                    baseUrl = null;
+                }
+                yield new LlmCredentialPayload.OpenAI(req.apiKey(), baseUrl);
             }
             case BEDROCK -> {
                 requireField(req.accessKeyId(), "accessKeyId");

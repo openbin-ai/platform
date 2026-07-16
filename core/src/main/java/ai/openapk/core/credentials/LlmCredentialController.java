@@ -51,4 +51,13 @@ public class LlmCredentialController {
     public TestResultResponse test(@PathVariable UUID id) {
         return service.test(currentUser.current(), id);
     }
+
+    /**
+     * Live model IDs available to this credential (queried from the provider +
+     * cached). The model picker populates from here instead of a hardcoded list.
+     */
+    @GetMapping("/{id}/models")
+    public List<String> models(@PathVariable UUID id) {
+        return service.listModels(currentUser.current(), id);
+    }
 }

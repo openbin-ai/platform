@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, useApi } from '../api/client'
 
-type Provider = 'ANTHROPIC' | 'OPENAI' | 'BEDROCK'
+type Provider =
+  | 'ANTHROPIC'
+  | 'OPENAI'
+  | 'GEMINI'
+  | 'DEEPSEEK'
+  | 'QWEN'
+  | 'KIMI'
+  | 'OPENAI_COMPAT'
+  | 'BEDROCK'
 
 type Credential = {
   id: string
@@ -19,6 +27,11 @@ type TestResult = { status: string; message: string }
 const PROVIDER_LABELS: Record<Provider, string> = {
   ANTHROPIC: 'Anthropic',
   OPENAI: 'OpenAI',
+  GEMINI: 'Google Gemini',
+  DEEPSEEK: 'DeepSeek',
+  QWEN: 'Qwen (Alibaba)',
+  KIMI: 'Kimi (Moonshot)',
+  OPENAI_COMPAT: 'OpenAI-compatible (custom)',
   BEDROCK: 'AWS Bedrock',
 }
 
@@ -84,7 +97,7 @@ export function ApiKeys() {
       <div>
         <h1 className="text-2xl font-semibold text-zinc-100">API Keys</h1>
         <p className="mt-1 text-zinc-400">
-          Bring your own keys for Anthropic, OpenAI, or AWS Bedrock. Keys are encrypted at rest with AES-256-GCM.
+          Bring your own keys for Anthropic, OpenAI, Google Gemini, DeepSeek, Qwen, Kimi, any OpenAI-compatible endpoint, or AWS Bedrock. Keys are encrypted at rest with AES-256-GCM.
         </p>
       </div>
 
@@ -164,6 +177,7 @@ function AddCredentialForm({ onCreated }: { onCreated: () => void }) {
   const [provider, setProvider] = useState<Provider>('ANTHROPIC')
   const [label, setLabel] = useState('')
   const [apiKey, setApiKey] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
   const [accessKeyId, setAccessKeyId] = useState('')
   const [secretAccessKey, setSecretAccessKey] = useState('')
   const [sessionToken, setSessionToken] = useState('')
@@ -182,9 +196,12 @@ function AddCredentialForm({ onCreated }: { onCreated: () => void }) {
         if (sessionToken) body.sessionToken = sessionToken
       } else {
         body.apiKey = apiKey
+        // Only the generic OpenAI-compatible provider needs a base URL; named
+        // providers get theirs from the backend.
+        if (provider === 'OPENAI_COMPAT') body.baseUrl = baseUrl
       }
       await api('/api/credentials', { method: 'POST', body: JSON.stringify(body) })
-      setLabel(''); setApiKey(''); setAccessKeyId(''); setSecretAccessKey(''); setSessionToken('')
+      setLabel(''); setApiKey(''); setBaseUrl(''); setAccessKeyId(''); setSecretAccessKey(''); setSessionToken('')
       onCreated()
     } catch (e) {
       if (e instanceof ApiError) setError(e.message)
@@ -211,6 +228,11 @@ function AddCredentialForm({ onCreated }: { onCreated: () => void }) {
           >
             <option value="ANTHROPIC">Anthropic</option>
             <option value="OPENAI">OpenAI</option>
+            <option value="GEMINI">Google Gemini</option>
+            <option value="DEEPSEEK">DeepSeek</option>
+            <option value="QWEN">Qwen (Alibaba)</option>
+            <option value="KIMI">Kimi (Moonshot)</option>
+            <option value="OPENAI_COMPAT">OpenAI-compatible (custom)</option>
             <option value="BEDROCK">AWS Bedrock</option>
           </select>
         </Field>
@@ -226,17 +248,32 @@ function AddCredentialForm({ onCreated }: { onCreated: () => void }) {
         </Field>
 
         {provider !== 'BEDROCK' ? (
-          <Field label="API key" wide>
-            <input
-              type="password"
-              required
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={provider === 'ANTHROPIC' ? 'sk-ant-…' : 'sk-…'}
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100"
-              autoComplete="off"
-            />
-          </Field>
+          <>
+            <Field label="API key" wide={provider !== 'OPENAI_COMPAT'}>
+              <input
+                type="password"
+                required
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={provider === 'ANTHROPIC' ? 'sk-ant-…' : 'sk-…'}
+                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100"
+                autoComplete="off"
+              />
+            </Field>
+            {provider === 'OPENAI_COMPAT' && (
+              <Field label="Base URL">
+                <input
+                  type="url"
+                  required
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder="https://host/v1"
+                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100"
+                  autoComplete="off"
+                />
+              </Field>
+            )}
+          </>
         ) : (
           <>
             <Field label="Access key ID">

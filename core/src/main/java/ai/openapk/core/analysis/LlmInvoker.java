@@ -5,6 +5,7 @@ import ai.openapk.core.credentials.LlmCredential;
 import ai.openapk.core.credentials.LlmCredentialEncryptionService;
 import ai.openapk.core.credentials.LlmCredentialPayload;
 import ai.openapk.core.credentials.LlmCredentialPayloadCodec;
+import ai.openapk.core.credentials.LlmModelCatalog;
 import ai.openapk.core.credentials.LlmProvider;
 import ai.openapk.core.usage.LlmUsageService;
 import org.slf4j.Logger;
@@ -31,7 +32,6 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Calls the user's chosen LLM provider with their decrypted BYOK key. Raw HTTP via
@@ -44,66 +44,27 @@ public class LlmInvoker {
 
     private static final Logger log = LoggerFactory.getLogger(LlmInvoker.class);
 
-    public static final String ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6";
-    public static final String OPENAI_DEFAULT_MODEL = "gpt-5.1";
-    // Sonnet 3.5 v2 is broadly available and doesn't require a cross-region
-    // inference profile, so it's a safe default. Users on accounts with newer
-    // models can override via the picker.
-    public static final String BEDROCK_DEFAULT_MODEL = "anthropic.claude-3-5-sonnet-20241022-v2:0";
-
-    /**
-     * Allowlist of model IDs we accept from the client. Prevents arbitrary model
-     * strings being passed through to the provider, and keeps the picker honest.
-     */
-    public static final Map<LlmProvider, Set<String>> ALLOWED_MODELS = Map.of(
-            LlmProvider.ANTHROPIC, Set.of(
-                    "claude-opus-4-7",
-                    "claude-sonnet-4-6",
-                    "claude-haiku-4-5"
-            ),
-            LlmProvider.OPENAI, Set.of(
-                    "gpt-5.1",
-                    "gpt-5",
-                    "gpt-5-mini",
-                    "gpt-5-nano",
-                    "gpt-4o",
-                    "gpt-4o-mini"
-            ),
-            // Bedrock model IDs differ from native: include both per-region IDs
-            // (no prefix) for Sonnet/Haiku 3.5 + Nova + Llama, and `us.`-prefixed
-            // cross-region inference profile IDs for Claude 4 family. Users need
-            // model access enabled in their account for each.
-            LlmProvider.BEDROCK, Set.of(
-                    "anthropic.claude-3-5-sonnet-20241022-v2:0",
-                    "anthropic.claude-3-5-haiku-20241022-v1:0",
-                    "anthropic.claude-3-opus-20240229-v1:0",
-                    "us.anthropic.claude-sonnet-4-20250514-v1:0",
-                    "us.anthropic.claude-opus-4-20250514-v1:0",
-                    "amazon.nova-pro-v1:0",
-                    "amazon.nova-lite-v1:0",
-                    "amazon.nova-micro-v1:0",
-                    "meta.llama3-3-70b-instruct-v1:0"
-            )
-    );
-
     public record CompletionResult(String text, String model, int inputTokens, int outputTokens) {}
 
     private final LlmCredentialEncryptionService crypto;
     private final LlmCredentialPayloadCodec codec;
     private final ObjectMapper mapper;
     private final LlmUsageService usage;
+    private final LlmModelCatalog modelCatalog;
     private final RestClient http;
 
     public LlmInvoker(
             LlmCredentialEncryptionService crypto,
             LlmCredentialPayloadCodec codec,
             ObjectMapper mapper,
-            LlmUsageService usage
+            LlmUsageService usage,
+            LlmModelCatalog modelCatalog
     ) {
         this.crypto = crypto;
         this.codec = codec;
         this.mapper = mapper;
         this.usage = usage;
+        this.modelCatalog = modelCatalog;
         var factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout((int) Duration.ofSeconds(15).toMillis());
         factory.setReadTimeout((int) Duration.ofSeconds(180).toMillis());
@@ -121,13 +82,13 @@ public class LlmInvoker {
             String requestedModel
     ) {
         usage.checkBudget(user);
-        String model = resolveModel(credential.getProvider(), requestedModel);
         var payload = decode(credential);
+        String model = resolveModel(credential, requestedModel);
         String providerStr = credential.getProvider().name();
         try {
-            CompletionResult result = switch (credential.getProvider()) {
+            CompletionResult result = switch (credential.getProvider().kind()) {
                 case ANTHROPIC -> callAnthropic((LlmCredentialPayload.Anthropic) payload, model, systemPrompt, userPrompt, maxTokens);
-                case OPENAI -> callOpenAi((LlmCredentialPayload.OpenAI) payload, model, systemPrompt, userPrompt, maxTokens);
+                case OPENAI -> callOpenAi((LlmCredentialPayload.OpenAI) payload, credential.getProvider(), model, systemPrompt, userPrompt, maxTokens);
                 case BEDROCK -> callBedrock((LlmCredentialPayload.Bedrock) payload, model, systemPrompt, userPrompt, maxTokens);
             };
             usage.record(user, projectId, providerStr, result.model(), purpose,
@@ -143,17 +104,29 @@ public class LlmInvoker {
         }
     }
 
-    public String resolveModel(LlmProvider provider, String requested) {
-        String defaultModel = switch (provider) {
-            case ANTHROPIC -> ANTHROPIC_DEFAULT_MODEL;
-            case OPENAI -> OPENAI_DEFAULT_MODEL;
-            case BEDROCK -> BEDROCK_DEFAULT_MODEL;
-        };
-        if (requested == null || requested.isBlank()) return defaultModel;
-        Set<String> allowed = ALLOWED_MODELS.getOrDefault(provider, Set.of());
-        if (!allowed.contains(requested)) {
+    /**
+     * Resolve + validate the requested model. Blank → the provider's default
+     * (or a 400 for the generic OPENAI_COMPAT, which has none). Otherwise we
+     * validate against the credential's LIVE model list (queried + cached by
+     * {@link LlmModelCatalog}) instead of a hardcoded allowlist — so we never
+     * need to edit a list when a provider ships a new model. If the live list
+     * can't be fetched (empty), we pass the requested model through rather than
+     * block a valid call on a flaky {@code /models} endpoint.
+     */
+    public String resolveModel(LlmCredential cred, String requested) {
+        LlmProvider provider = cred.getProvider();
+        if (requested == null || requested.isBlank()) {
+            String def = provider.defaultModel();
+            if (def == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Select a model for provider " + provider + " (no default available).");
+            }
+            return def;
+        }
+        List<String> available = modelCatalog.listModels(cred);
+        if (!available.isEmpty() && !available.contains(requested)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Model '" + requested + "' not allowed for provider " + provider + ". Allowed: " + allowed);
+                    "Model '" + requested + "' is not available for this " + provider + " credential.");
         }
         return requested;
     }
@@ -194,7 +167,7 @@ public class LlmInvoker {
         }
     }
 
-    private CompletionResult callOpenAi(LlmCredentialPayload.OpenAI p, String model, String systemPrompt, String userPrompt, int maxTokens) {
+    private CompletionResult callOpenAi(LlmCredentialPayload.OpenAI p, LlmProvider provider, String model, String systemPrompt, String userPrompt, int maxTokens) {
         var body = Map.of(
                 "model", model,
                 "max_completion_tokens", maxTokens,
@@ -204,7 +177,7 @@ public class LlmInvoker {
                 )
         );
         String responseText = http.post()
-                .uri("https://api.openai.com/v1/chat/completions")
+                .uri(openAiChatUrl(provider, p))
                 .header("Authorization", "Bearer " + p.apiKey())
                 .header("content-type", "application/json")
                 .body(body)
@@ -279,6 +252,20 @@ public class LlmInvoker {
     }
 
     public LlmProvider provider(LlmCredential c) { return c.getProvider(); }
+
+    /**
+     * OpenAI-compatible chat-completions URL for this provider/credential —
+     * the per-credential base URL (OPENAI_COMPAT) or the enum default, plus
+     * {@code /chat/completions}. Shared with {@link StreamingLlmInvoker}.
+     */
+    public static String openAiChatUrl(LlmProvider provider, LlmCredentialPayload.OpenAI p) {
+        String base = provider.resolveBaseUrl(p.baseUrl());
+        if (base == null || base.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "No base URL configured for provider " + provider);
+        }
+        return base.replaceAll("/+$", "") + "/chat/completions";
+    }
 
     private static String abbreviate(String s) {
         if (s == null) return "unknown error";

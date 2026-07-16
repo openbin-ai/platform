@@ -14,9 +14,6 @@ import software.amazon.awssdk.services.bedrockruntime.model.InferenceConfigurati
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
 import software.amazon.awssdk.services.bedrockruntime.model.SystemContentBlock;
 
-import java.util.List;
-import java.util.Map;
-
 @Component
 public class LlmCredentialTester {
 
@@ -26,9 +23,9 @@ public class LlmCredentialTester {
 
     public TestResultResponse test(LlmProvider provider, LlmCredentialPayload payload) {
         try {
-            return switch (provider) {
+            return switch (provider.kind()) {
                 case ANTHROPIC -> testAnthropic((LlmCredentialPayload.Anthropic) payload);
-                case OPENAI -> testOpenAi((LlmCredentialPayload.OpenAI) payload);
+                case OPENAI -> testOpenAiCompatible(provider, (LlmCredentialPayload.OpenAI) payload);
                 case BEDROCK -> testBedrock((LlmCredentialPayload.Bedrock) payload);
             };
         } catch (Exception e) {
@@ -37,37 +34,31 @@ public class LlmCredentialTester {
         }
     }
 
+    // Test via GET /models rather than a 1-token completion: it validates the
+    // key + base URL + connectivity, costs nothing, and needs no model name —
+    // which matters for the generic OPENAI_COMPAT provider where we can't guess
+    // a valid model.
     private TestResultResponse testAnthropic(LlmCredentialPayload.Anthropic p) {
-        var body = Map.of(
-                "model", "claude-haiku-4-5",
-                "max_tokens", 1,
-                "messages", List.of(Map.of("role", "user", "content", "hi"))
-        );
-        var resp = http.post()
-                .uri("https://api.anthropic.com/v1/messages")
+        var resp = http.get()
+                .uri(LlmProvider.ANTHROPIC.baseUrl() + "/v1/models")
                 .header("x-api-key", p.apiKey())
                 .header("anthropic-version", "2023-06-01")
-                .header("content-type", "application/json")
-                .body(body)
                 .retrieve()
                 .toEntity(String.class);
         return new TestResultResponse("ok", "Anthropic responded HTTP " + resp.getStatusCode().value());
     }
 
-    private TestResultResponse testOpenAi(LlmCredentialPayload.OpenAI p) {
-        var body = Map.of(
-                "model", "gpt-4o-mini",
-                "max_tokens", 1,
-                "messages", List.of(Map.of("role", "user", "content", "hi"))
-        );
-        var resp = http.post()
-                .uri("https://api.openai.com/v1/chat/completions")
+    private TestResultResponse testOpenAiCompatible(LlmProvider provider, LlmCredentialPayload.OpenAI p) {
+        String base = provider.resolveBaseUrl(p.baseUrl());
+        if (base == null || base.isBlank()) {
+            return new TestResultResponse("error", "No base URL configured for provider " + provider);
+        }
+        var resp = http.get()
+                .uri(base.replaceAll("/+$", "") + "/models")
                 .header("Authorization", "Bearer " + p.apiKey())
-                .header("content-type", "application/json")
-                .body(body)
                 .retrieve()
                 .toEntity(String.class);
-        return new TestResultResponse("ok", "OpenAI responded HTTP " + resp.getStatusCode().value());
+        return new TestResultResponse("ok", provider + " responded HTTP " + resp.getStatusCode().value());
     }
 
     /**

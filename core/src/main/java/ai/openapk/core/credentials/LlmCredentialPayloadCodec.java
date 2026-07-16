@@ -17,7 +17,10 @@ public class LlmCredentialPayloadCodec {
     }
 
     public LlmCredentialPayload fromJson(byte[] bytes, LlmProvider provider) {
-        Class<? extends LlmCredentialPayload> type = switch (provider) {
+        // Keyed on the wire-protocol kind so every OpenAI-compatible provider
+        // (OpenAI, Gemini, DeepSeek, Qwen, Kimi, generic) shares one payload
+        // shape and a new one needs no change here.
+        Class<? extends LlmCredentialPayload> type = switch (provider.kind()) {
             case ANTHROPIC -> LlmCredentialPayload.Anthropic.class;
             case OPENAI -> LlmCredentialPayload.OpenAI.class;
             case BEDROCK -> LlmCredentialPayload.Bedrock.class;
