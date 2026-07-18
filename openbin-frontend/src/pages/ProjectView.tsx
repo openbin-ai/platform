@@ -11,6 +11,7 @@ import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleC
 import { HighlightsPanel } from '@shared/components/HighlightsPanel'
 import { AddHighlightModal } from '@shared/components/AddHighlightModal'
 import { mediaKeyFromUrl } from '@shared/api/highlights'
+import { ModelSelect } from '@shared/components/ModelSelect'
 import { useStreamingApi } from '@shared/api/streaming'
 import { highlightC } from '../syntax/highlight'
 import { ReportEditor } from './Report'
@@ -2369,6 +2370,7 @@ function DeobfView({
   const callerCanEdit = useCanEdit()
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
   const [credentialId, setCredentialId] = useState<string>('')
+  const [model, setModel] = useState<string>('')
   const [busy, setBusy] = useState<'generate' | 'delete' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [html, setHtml] = useState<string | null>(null)
@@ -2442,7 +2444,7 @@ function DeobfView({
     try {
       const resp = await api<Deobfuscation>(`/api/projects/${projectId}/deobfuscations`, {
         method: 'POST',
-        body: JSON.stringify({ functionName: fn.name, credentialId }),
+        body: JSON.stringify({ functionName: fn.name, credentialId, model: model || undefined }),
       })
       onDeobfChange(resp.originalName, resp)
     } catch (e) {
@@ -2577,6 +2579,18 @@ function DeobfView({
               </option>
             ))}
           </select>
+        </label>
+
+        <label className="mt-2 block">
+          <span className="mb-1 block text-[10px] uppercase tracking-wider text-zinc-500">
+            Model
+          </span>
+          <ModelSelect
+            credentialId={credentialId}
+            value={model}
+            onChange={setModel}
+            className="w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-zinc-200"
+          />
         </label>
 
         <button
@@ -3108,6 +3122,7 @@ function ChainPanel({
   // narrations come back after a refresh / tab switch / function jump.
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
   const [credentialId, setCredentialId] = useState<string>('')
+  const [model, setModel] = useState<string>('')
   const [narrations, setNarrations] = useState<Map<string, string>>(new Map())
   const [busy, setBusy] = useState<'narrate' | 'report' | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -3173,7 +3188,7 @@ function ChainPanel({
         model: string
       }>(`/api/projects/${projectId}/callchains/narrate-bin`, {
         method: 'POST',
-        body: JSON.stringify({ functionNames: chainNames, credentialId }),
+        body: JSON.stringify({ functionNames: chainNames, credentialId, model: model || undefined }),
       })
       const next = new Map(narrations)
       for (const s of resp.summaries) next.set(s.name, s.narration)
@@ -3310,6 +3325,19 @@ function ChainPanel({
               </option>
             ))}
           </select>
+        )}
+        {!noCreds && (
+          <label className="mt-2 block">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-zinc-500">
+              Model
+            </span>
+            <ModelSelect
+              credentialId={credentialId}
+              value={model}
+              onChange={setModel}
+              className="w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-zinc-200"
+            />
+          </label>
         )}
         <div className="flex items-center gap-2">
           <button
@@ -3595,6 +3623,7 @@ function RenamesPanel({
   const [items, setItems] = useState<Rename[] | null>(null)
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
   const [credentialId, setCredentialId] = useState<string>('')
+  const [model, setModel] = useState<string>('')
   const [busy, setBusy] = useState<'suggest' | 'apply' | 'unapply' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [hint, setHint] = useState<string | null>(null)
@@ -3656,7 +3685,7 @@ function RenamesPanel({
         model: string
       }>(`/api/projects/${projectId}/renames/suggest-function`, {
         method: 'POST',
-        body: JSON.stringify({ functionName: fn.name, credentialId }),
+        body: JSON.stringify({ functionName: fn.name, credentialId, model: model || undefined }),
       })
       setHint(
         `${resp.suggestions.length} suggestion${resp.suggestions.length === 1 ? '' : 's'} ` +
@@ -3758,6 +3787,19 @@ function RenamesPanel({
               </option>
             ))}
           </select>
+        )}
+        {credentialId && (
+          <label className="mt-2 block">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-zinc-500">
+              Model
+            </span>
+            <ModelSelect
+              credentialId={credentialId}
+              value={model}
+              onChange={setModel}
+              className="w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-zinc-200"
+            />
+          </label>
         )}
         <button
           onClick={() => void suggest()}
@@ -3982,6 +4024,7 @@ function CryptoPanel({
   const callerCanEdit = useCanEdit()
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
   const [credentialId, setCredentialId] = useState<string>('')
+  const [model, setModel] = useState<string>('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Map per function so the user can flip back to a previously-generated
@@ -4047,7 +4090,7 @@ function CryptoPanel({
     try {
       const resp = await api<BinDecryptor>(`/api/projects/${projectId}/crypto/generate-bin`, {
         method: 'POST',
-        body: JSON.stringify({ functionName: fn.name, credentialId }),
+        body: JSON.stringify({ functionName: fn.name, credentialId, model: model || undefined }),
       })
       resultsRef.current.set(fn.name, resp)
       saveStringRecord(cryptoStorageKey(projectId), resultsRef.current)
@@ -4116,6 +4159,14 @@ function CryptoPanel({
             </option>
           ))}
         </select>
+        {credentialId && (
+          <ModelSelect
+            credentialId={credentialId}
+            value={model}
+            onChange={setModel}
+            className="w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-zinc-200"
+          />
+        )}
         <button
           onClick={() => void generate()}
           disabled={!callerCanEdit || busy || fnDisabled}
@@ -4751,6 +4802,7 @@ function AskPanel({
 
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
   const [credentialId, setCredentialId] = useState<string>('')
+  const [model, setModel] = useState<string>('')
 
   // ── sessions ──────────────────────────────────────────────────────────
   // Seed sessions + activeId atomically so we never land in a "have sessions
@@ -4907,7 +4959,7 @@ function AskPanel({
 
     await streamingApi(
       `/api/projects/${projectId}/ask-function/stream`,
-      { functionName: fn.name, question: trimmed, credentialId, priorTurns },
+      { functionName: fn.name, question: trimmed, credentialId, model: model || undefined, priorTurns },
       {
         onChunk: (text) => {
           updateActive((s) => {
@@ -5150,6 +5202,16 @@ function AskPanel({
               ))}
             </select>
           </div>
+          {credentialId && (
+            <div className="mb-2">
+              <ModelSelect
+                credentialId={credentialId}
+                value={model}
+                onChange={setModel}
+                className="w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-zinc-200"
+              />
+            </div>
+          )}
           <div className="flex items-end gap-2">
             <textarea
               value={question}
@@ -5193,6 +5255,7 @@ function AIPanel({
 
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
   const [credentialId, setCredentialId] = useState<string>('')
+  const [model, setModel] = useState<string>('')
   const [mode, setMode] = useState<AnalysisMode>('MALWARE')
 
   const [result, setResult] = useState<AnalysisResponse | null>(null)
@@ -5237,7 +5300,7 @@ function AIPanel({
     try {
       const resp = await api<AnalysisResponse>(`/api/projects/${projectId}/analyze`, {
         method: 'POST',
-        body: JSON.stringify({ mode, credentialId }),
+        body: JSON.stringify({ mode, credentialId, model: model || undefined }),
       })
       setResult(resp)
     } catch (e) {
@@ -5298,6 +5361,17 @@ function AIPanel({
               </option>
             ))}
           </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[10px] uppercase tracking-wider text-zinc-500">
+            Model
+          </span>
+          <ModelSelect
+            credentialId={credentialId}
+            value={model}
+            onChange={setModel}
+            className="w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-zinc-200"
+          />
         </label>
         <button
           onClick={() => void run()}

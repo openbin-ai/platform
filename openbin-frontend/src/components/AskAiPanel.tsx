@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import { useApi } from '@shared/api/client'
 import { useStreamingApi } from '@shared/api/streaming'
 import { SCRIPT_PATHS } from '@shared/api/scripts'
+import { ModelSelect } from '@shared/components/ModelSelect'
 
 type Credential = { id: string; provider: string; label: string }
 type ChatTurn = {
@@ -42,6 +43,7 @@ export function AskAiPanel({
 
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
   const [credentialId, setCredentialId] = useState<string>('')
+  const [model, setModel] = useState<string>('')
   const [turns, setTurns] = useState<ChatTurn[]>([])
   const [question, setQuestion] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -133,6 +135,7 @@ export function AskAiPanel({
         deobfuscated: sourceMode === 'deobfuscated',
         question: trimmed,
         credentialId,
+        model: model || undefined,
         priorTurns,
       },
       {
@@ -170,7 +173,7 @@ export function AskAiPanel({
         },
       },
     )
-  }, [filePath, credentialId, question, fileBytes, turns, projectId, sourceMode, streamingApi])
+  }, [filePath, credentialId, model, question, fileBytes, turns, projectId, sourceMode, streamingApi])
 
   return (
     <div className="flex h-full flex-col">
@@ -193,6 +196,14 @@ export function AskAiPanel({
               </option>
             ))}
           </select>
+        )}
+        {credentialId && (
+          <ModelSelect
+            credentialId={credentialId}
+            value={model}
+            onChange={setModel}
+            className="min-w-0 flex-1 truncate rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-zinc-100"
+          />
         )}
         {turns.length > 0 && (
           <button

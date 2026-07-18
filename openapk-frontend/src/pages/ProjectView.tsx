@@ -9,6 +9,7 @@ import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleC
 import { HighlightsPanel } from '@shared/components/HighlightsPanel'
 import { AddHighlightModal } from '@shared/components/AddHighlightModal'
 import { mediaKeyFromUrl } from '@shared/api/highlights'
+import { useCredentialModels } from '@shared/components/ModelSelect'
 import { AuthenticatedImg } from '../components/AuthenticatedImg'
 import { AskPanel } from '../components/AskPanel'
 import { estimateCost } from '../lib/llmCost'
@@ -70,7 +71,9 @@ type Project = {
   forkCount?: number
 }
 
-type Provider = 'ANTHROPIC' | 'OPENAI' | 'BEDROCK'
+type Provider =
+  | 'ANTHROPIC' | 'OPENAI' | 'GEMINI' | 'DEEPSEEK'
+  | 'QWEN' | 'KIMI' | 'OPENAI_COMPAT' | 'BEDROCK'
 
 type Credential = { id: string; provider: Provider; label: string }
 
@@ -98,33 +101,6 @@ const PANEL_WIDTH_KEY = 'openapk.panelWidth'
 const PANEL_WIDTH_DEFAULT = 460
 const PANEL_WIDTH_MIN = 320
 const PANEL_WIDTH_MAX = 900
-
-const MODELS_BY_PROVIDER: Record<Provider, { id: string; label: string }[]> = {
-  ANTHROPIC: [
-    { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6 (balanced)' },
-    { id: 'claude-haiku-4-5', label: 'Haiku 4.5 (fast, cheap)' },
-    { id: 'claude-opus-4-7', label: 'Opus 4.7 (smartest, slow)' },
-  ],
-  OPENAI: [
-    { id: 'gpt-5.1', label: 'GPT-5.1' },
-    { id: 'gpt-5', label: 'GPT-5' },
-    { id: 'gpt-5-mini', label: 'GPT-5 mini' },
-    { id: 'gpt-5-nano', label: 'GPT-5 nano (cheap)' },
-    { id: 'gpt-4o', label: 'GPT-4o' },
-    { id: 'gpt-4o-mini', label: 'GPT-4o mini' },
-  ],
-  BEDROCK: [
-    { id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', label: 'Claude Sonnet 3.5 v2' },
-    { id: 'anthropic.claude-3-5-haiku-20241022-v1:0', label: 'Claude Haiku 3.5' },
-    { id: 'anthropic.claude-3-opus-20240229-v1:0', label: 'Claude Opus 3' },
-    { id: 'us.anthropic.claude-sonnet-4-20250514-v1:0', label: 'Claude Sonnet 4 (us inference profile)' },
-    { id: 'us.anthropic.claude-opus-4-20250514-v1:0', label: 'Claude Opus 4 (us inference profile)' },
-    { id: 'amazon.nova-pro-v1:0', label: 'Nova Pro' },
-    { id: 'amazon.nova-lite-v1:0', label: 'Nova Lite' },
-    { id: 'amazon.nova-micro-v1:0', label: 'Nova Micro (cheap)' },
-    { id: 'meta.llama3-3-70b-instruct-v1:0', label: 'Llama 3.3 70B' },
-  ],
-}
 
 /**
  * True when the selected file is a native library JADX dumped under
@@ -174,6 +150,9 @@ export function ProjectView() {
   const [mode, setMode] = useState<Mode>('MALWARE')
   const [credentialId, setCredentialId] = useState<string | null>(null)
   const [model, setModel] = useState<string>('')
+  // Live model list for the selected credential — replaces the old hardcoded
+  // MODELS_BY_PROVIDER map; drives the model picker in RightPanel.
+  const { models: dynamicModels } = useCredentialModels(credentialId)
 
   // Analysis
   const [analyzing, setAnalyzing] = useState(false)
@@ -349,7 +328,7 @@ export function ProjectView() {
         setCredentials(usable)
         if (usable.length > 0 && !credentialId) {
           setCredentialId(usable[0].id)
-          setModel(MODELS_BY_PROVIDER[usable[0].provider][0]?.id ?? '')
+          setModel('') // backend default; the dynamic list drives the picker
         }
       })
       .catch(e => { if (!cancelled) setError((e as Error).message) })
@@ -487,8 +466,8 @@ export function ProjectView() {
 
   function onCredentialChange(newCredId: string) {
     setCredentialId(newCredId)
-    const cred = credentials.find(c => c.id === newCredId)
-    if (cred) setModel(MODELS_BY_PROVIDER[cred.provider][0]?.id ?? '')
+    // Reset to backend default; the picker re-fetches the new credential's models.
+    setModel('')
   }
 
   async function runAnalysis() {
@@ -519,9 +498,7 @@ export function ProjectView() {
 
   if (!id) return <p className="p-8">Missing project id.</p>
 
-  const currentProvider: Provider | null =
-    credentials.find(c => c.id === credentialId)?.provider ?? null
-  const modelOptions = currentProvider ? MODELS_BY_PROVIDER[currentProvider] : []
+  const modelOptions = dynamicModels.map(m => ({ id: m, label: m }))
 
   return (
     <ProjectRoleProvider role={project?.role ?? null}>
@@ -1085,9 +1062,10 @@ function RightPanel({
           <select
             value={model}
             onChange={e => onModelChange(e.target.value)}
-            disabled={noCreds || modelOptions.length === 0}
+            disabled={noCreds}
             className="mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-100 disabled:opacity-50"
           >
+            <option value="">Default</option>
             {modelOptions.map(m => (
               <option key={m.id} value={m.id}>{m.label}</option>
             ))}
