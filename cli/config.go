@@ -43,7 +43,7 @@ const (
 	// lockstep with the `--tag` in .github/workflows/release-cli.yml.
 	//   :bundled — v1 (pre-2026-06-15; decompiled + disassembly only)
 	//   :2       — adds line_map + vars for Ghidra-style cross-highlighting
-	ghidraWorkerImage  = "openbin/ghidra-worker:2"
+	ghidraWorkerImage  = "openbin/ghidra-worker:3"
 	ghidraImageTarball = "ghidra-worker.tar.gz"
 
 	// Same bundling scheme for the JADX worker (APK decompiles). The image is

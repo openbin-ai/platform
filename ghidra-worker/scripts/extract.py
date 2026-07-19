@@ -88,10 +88,21 @@ MAX_XREFS_PER_DIRECTION = 50
 MAX_LINEMAP_ADDRS = 64
 MAX_VARS_PER_FUNCTION = 512
 MAX_VAR_ADDRS = 256
-# Data-symbol value preview: how many bytes of the underlying data to
-# include in each record's `value` field. Enough to identify magic
-# constants, small structs, and short strings without bloating the JSON.
-MAX_DATA_VALUE_BYTES = 64
+# Data-symbol byte capture. Raised from 64 so an embedded config/table (a
+# 2KB global_conf, an RC4 sbox, a cert blob) is captured whole — enough for the
+# analysis/AI layer to decode a small hardcoded secret straight from the JSON
+# without the raw sample. Bounded three ways so a big .data section can't
+# unbound result.json:
+#   - MAX_DATA_VALUE_BYTES        per-symbol cap (a single giant blob truncates)
+#   - MIN_DATA_VALUE_BYTES        floor kept for EVERY symbol once the global
+#                                 budget is spent (UI/nav never goes blank)
+#   - MAX_TOTAL_DATA_PREVIEW_BYTES global budget across all symbols; past it,
+#                                 remaining symbols fall back to the floor
+# Worst case data-symbol contribution ≈ budget + floor×remaining, well under the
+# function-body budget that already dominates the JSON.
+MAX_DATA_VALUE_BYTES = 4096
+MIN_DATA_VALUE_BYTES = 64
+MAX_TOTAL_DATA_PREVIEW_BYTES = 512 * 1024
 
 
 def _safe(thunk, default=None):
@@ -462,6 +473,7 @@ try:
     # renames of global data should remain navigable too.
     data_symbols = []
     seen_data_addrs = set()
+    total_data_bytes = 0  # running sum of captured preview bytes (global budget)
     try:
         data_iter = listing.getDefinedData(True)
         while data_iter.hasNext():
@@ -497,7 +509,13 @@ try:
             try:
                 d_len = d.getLength()
                 if d_len > 0:
-                    n = d_len if d_len < MAX_DATA_VALUE_BYTES else MAX_DATA_VALUE_BYTES
+                    # Per-symbol cap drops to the floor once the global budget is
+                    # spent, so a large .data section can't unbound the JSON;
+                    # every symbol still keeps at least the floor for the UI.
+                    cap = MAX_DATA_VALUE_BYTES
+                    if total_data_bytes >= MAX_TOTAL_DATA_PREVIEW_BYTES:
+                        cap = MIN_DATA_VALUE_BYTES
+                    n = d_len if d_len < cap else cap
                     raw = d.getBytes()
                     if raw is not None:
                         hex_parts = []
@@ -505,8 +523,9 @@ try:
                             # Java bytes are signed; mask to unsigned before formatting.
                             hex_parts.append("%02x" % (raw[i] & 0xff))
                         bytes_preview = " ".join(hex_parts)
-                        if d_len > MAX_DATA_VALUE_BYTES:
+                        if d_len > n:
                             bytes_preview += " ..."
+                        total_data_bytes += n
             except:
                 bytes_preview = ""
             # Caller count -- lets the UI flag "hot" globals at a glance.
