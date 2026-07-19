@@ -77,9 +77,24 @@ jobs:
             ghidra-worker.tar.gz
           retention-days: 1
 
+  create-release:
+    name: Create the GitHub release (once)
+    runs-on: ubuntu-latest
+    steps:
+      # Create the release ONCE, up front, so every asset-upload job below only
+      # ever UPDATES an existing release. Previously each of the four CLI matrix
+      # jobs raced to create it concurrently and all but one died with
+      # "Validation Failed: already_exists (tag_name)". This job owns creation +
+      # release notes; the matrix / image / VERSION jobs just attach files.
+      - name: Create release (empty, notes generated)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+
   release:
     name: Build CLI ${{ matrix.os }}/${{ matrix.arch }}
-    needs: build-images
+    needs: [build-images, create-release]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -127,12 +142,14 @@ jobs:
           tar czf "$pkg.tar.gz" "$pkg/"
           ls -lh "$pkg.tar.gz"
 
+      # The release already exists (create-release job) → this only uploads the
+      # asset. No generate_release_notes here: notes are owned by create-release,
+      # and regenerating them from four parallel jobs is what caused the race.
       - name: Attach CLI tarball to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: openbin-*.tar.gz
-          generate_release_notes: true
           fail_on_unmatched_files: true
 
   attach-images:
