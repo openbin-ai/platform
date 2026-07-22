@@ -1182,7 +1182,7 @@ function LeftSidebar({
           kind="exports"
           items={analysis.exports}
           lookups={lookups}
-          emptyHint="No exports detected. For an executable this is normal; for a DLL or .so it usually means the export table wasn't parseable."
+          emptyHint="No exports detected. Analyses run before the worker-:4 fix always show empty exports — update the CLI (openbin update) and re-decompile. For a fresh analysis of a plain executable, empty is normal; for a DLL or .so it means the export table wasn't parseable."
           onJump={onJump}
         />
       )}

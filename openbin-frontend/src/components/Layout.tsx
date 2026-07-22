@@ -80,7 +80,7 @@ export function Layout() {
 // notice (not version-aware) — dismissible, and re-shown for the NEXT
 // announcement by bumping the key suffix. Bump in lockstep with a meaningful
 // worker/CLI release the user should pick up.
-const CLI_BANNER_KEY = 'openbin.cliUpdateBanner.dismissed.v2'
+const CLI_BANNER_KEY = 'openbin.cliUpdateBanner.dismissed.v3'
 
 function CliUpdateBanner() {
   const [dismissed, setDismissed] = useState(true)
@@ -91,13 +91,14 @@ function CliUpdateBanner() {
   return (
     <div className="border-b border-amber-900/50 bg-amber-950/40">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-6 py-2 text-xs text-amber-200">
-        <span aria-hidden>⬆️</span>
+        <span aria-hidden>🛠️</span>
         <span className="flex-1">
-          <strong>New:</strong> side-by-side disassembly + Ghidra-style cross-highlighting.
-          Using the CLI? Update it —{' '}
-          <code className="rounded bg-amber-900/40 px-1 py-0.5 font-mono text-amber-100">curl -fsSL https://openbin.ai/install.sh | sh</code>{' '}
-          (or <code className="rounded bg-amber-900/40 px-1 py-0.5 font-mono text-amber-100">openbin update</code> on recent builds) —
-          to pull the latest worker. Older CLIs keep working, just without the new follow-along view.
+          <strong>Fixed:</strong> the Entry and Exports panels were empty on every analysis due to a
+          worker bug — now resolved. Run{' '}
+          <code className="rounded bg-amber-900/40 px-1 py-0.5 font-mono text-amber-100">openbin update</code>{' '}
+          (or reinstall via{' '}
+          <code className="rounded bg-amber-900/40 px-1 py-0.5 font-mono text-amber-100">curl -fsSL https://openbin.ai/install.sh | sh</code>)
+          and re-decompile a project to populate its entry points and exports. Existing analyses stay as-is until re-run.
         </span>
         <button
           onClick={() => {
