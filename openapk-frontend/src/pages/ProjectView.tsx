@@ -29,6 +29,7 @@ import { DbSchemas } from '../components/DbSchemas'
 import { EntryPoints } from '../components/EntryPoints'
 import { NativeViewer } from '../components/Native'
 import { NativeBridge } from '../components/NativeBridge'
+import { StringTools } from '@shared/components/StringTools'
 
 // =========================================================================
 // Types
@@ -93,7 +94,7 @@ type AnalysisResponse = {
   outputTokens: number
 }
 
-type RightTab = 'analysis' | 'ask' | 'report' | 'gallery' | 'highlights' | 'renames' | 'crypto' | 'callchain' | 'network' | 'dbs' | 'entrypoints' | 'native'
+type RightTab = 'analysis' | 'ask' | 'report' | 'gallery' | 'highlights' | 'renames' | 'crypto' | 'callchain' | 'network' | 'dbs' | 'entrypoints' | 'native' | 'tools'
 
 type ShotState = null | { mode: 'pick' } | { mode: 'capture'; blob: Blob }
 
@@ -525,7 +526,9 @@ export function ProjectView() {
       >
         {/* Left: search + (symbols | tree). Priority: search > symbols > tree. */}
         <aside className="flex flex-col overflow-hidden border-r border-zinc-800">
-          <div className="border-b border-zinc-800 p-2">
+          {/* When search is active its results fill the sidebar and scroll
+              (flex-1 + min-h-0); when idle it's just the pinned input row. */}
+          <div className={`border-b border-zinc-800 p-2 ${searchActive ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'shrink-0'}`}>
             {id && (
               <Search
                 projectId={id}
@@ -647,7 +650,7 @@ export function ProjectView() {
             </div>
           )}
           <div
-            className="flex-1 overflow-auto"
+            className="min-h-0 flex-1 overflow-auto"
             onClick={handleViewerClick}
             onContextMenu={handleViewerContextMenu}
           >
@@ -1115,6 +1118,9 @@ function RightPanel({
           <TabButton active={activeTab === 'native'} onClick={() => onTab('native')}>
             Native
           </TabButton>
+          <TabButton active={activeTab === 'tools'} onClick={() => onTab('tools')}>
+            Tools
+          </TabButton>
         </div>
         <button
           onClick={onToggle}
@@ -1194,6 +1200,9 @@ function RightPanel({
         </div>
         <div className={`h-full ${activeTab === 'native' ? '' : 'hidden'}`}>
           <NativeBridge projectId={projectId} onOpenFile={(f, l) => onOpenFile(f, l)} />
+        </div>
+        <div className={`flex h-full flex-col ${activeTab === 'tools' ? '' : 'hidden'}`}>
+          <StringTools />
         </div>
       </div>
     </aside>
@@ -1374,7 +1383,7 @@ function HighlightedCode({
   return (
     <div
       ref={hostRef}
-      className="shiki-host overflow-auto p-4 font-mono"
+      className="shiki-host p-4 font-mono"
       dangerouslySetInnerHTML={{ __html: html }}
     />
   )

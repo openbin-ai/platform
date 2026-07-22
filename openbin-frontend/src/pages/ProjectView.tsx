@@ -10,6 +10,7 @@ import { ProjectVisibilityToggle } from '@shared/components/ProjectVisibilityTog
 import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleContext'
 import { HighlightsPanel } from '@shared/components/HighlightsPanel'
 import { AddHighlightModal } from '@shared/components/AddHighlightModal'
+import { StringTools } from '@shared/components/StringTools'
 import { mediaKeyFromUrl } from '@shared/api/highlights'
 import { ModelSelect } from '@shared/components/ModelSelect'
 import { useStreamingApi } from '@shared/api/streaming'
@@ -281,7 +282,7 @@ type ViewMode = 'pseudo' | 'disasm' | 'deobf'
 type SidePanelKind =
   | 'xrefs' | 'chain' | 'network' | 'ask' | 'ai' | 'crypto'
   | 'renames' | 'report' | 'gallery' | 'highlights'
-  | 'strings' | 'imports'
+  | 'strings' | 'imports' | 'tools'
 // Tab in the LEFT sidebar (next to the Call Graph button). Default is the
 // existing function list; the rest are symbol-navigation views surfaced
 // from the v2 worker output. Lives on the LEFT because they share the
@@ -2782,6 +2783,9 @@ function SidePanel({
           <SideTab active={panel === 'imports'} onClick={() => onPanelChange('imports')}>
             Imports
           </SideTab>
+          <SideTab active={panel === 'tools'} onClick={() => onPanelChange('tools')}>
+            Tools
+          </SideTab>
         </div>
         <button
           onClick={onCollapse}
@@ -2885,6 +2889,11 @@ function SidePanel({
         {activated.has('imports') && (
           <div className={panel === 'imports' ? '' : 'hidden'}>
             <ImportsPanel imports={analysis.imports} />
+          </div>
+        )}
+        {activated.has('tools') && (
+          <div className={`flex h-full flex-col ${panel === 'tools' ? '' : 'hidden'}`}>
+            <StringTools />
           </div>
         )}
       </div>
