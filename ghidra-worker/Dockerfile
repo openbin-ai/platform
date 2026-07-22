@@ -10,10 +10,13 @@ ARG GHIDRA_BUILD=20241105
 # --build-arg GHIDRA_SHA256=<hex>. Defaults to empty (no verification).
 ARG GHIDRA_SHA256=
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+# Acquire::Retries hardens apt against flaky GitHub-runner ↔ Ubuntu-mirror
+# connections — a single dropped download otherwise kills the whole (15-40min)
+# build. curl already retries via --retry below.
+RUN apt-get -o Acquire::Retries=5 update \
+ && apt-get -o Acquire::Retries=5 install -y --no-install-recommends curl unzip ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && curl -fsSL -o /tmp/ghidra.zip \
+ && curl -fsSL --retry 5 --retry-all-errors -o /tmp/ghidra.zip \
         "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${GHIDRA_VERSION}_build/ghidra_${GHIDRA_VERSION}_PUBLIC_${GHIDRA_BUILD}.zip" \
  && if [ -n "${GHIDRA_SHA256}" ]; then \
         echo "${GHIDRA_SHA256}  /tmp/ghidra.zip" | sha256sum -c - ; \
@@ -26,8 +29,8 @@ RUN apt-get update \
 FROM eclipse-temurin:21-jdk-jammy
 
 # Python + multipart-friendly libs. file is handy for sniffing uploads in logs.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
+RUN apt-get -o Acquire::Retries=5 update \
+ && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
         python3 python3-pip python3-venv \
         file libxrender1 libxtst6 libxi6 \
  && rm -rf /var/lib/apt/lists/*

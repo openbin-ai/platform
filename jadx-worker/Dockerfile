@@ -12,10 +12,13 @@ ARG JADX_VERSION=1.5.5
 # --build-arg JADX_SHA256=<hex>. Defaults to empty (no verification).
 ARG JADX_SHA256=
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+# Acquire::Retries hardens apt against flaky GitHub-runner ↔ Ubuntu-mirror
+# connections — a single dropped download otherwise kills the build. curl
+# retries the jadx zip download the same way.
+RUN apt-get -o Acquire::Retries=5 update \
+ && apt-get -o Acquire::Retries=5 install -y --no-install-recommends curl unzip ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && curl -fsSL -o /tmp/jadx.zip \
+ && curl -fsSL --retry 5 --retry-all-errors -o /tmp/jadx.zip \
         "https://github.com/skylot/jadx/releases/download/v${JADX_VERSION}/jadx-${JADX_VERSION}.zip" \
  && if [ -n "${JADX_SHA256}" ]; then \
         echo "${JADX_SHA256}  /tmp/jadx.zip" | sha256sum -c - ; \
@@ -34,8 +37,8 @@ FROM eclipse-temurin:21-jre-jammy
 #   - prlimit (util-linux): per-request memory + CPU ceilings on the JADX
 #     subprocess so a malicious APK can't OOM the worker container
 #   - file: handy for sniffing uploads in logs
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
+RUN apt-get -o Acquire::Retries=5 update \
+ && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
         python3 python3-pip python3-venv \
         tar gzip util-linux file \
  && rm -rf /var/lib/apt/lists/*
