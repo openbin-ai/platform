@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -138,6 +139,14 @@ func pipePrefixed(r io.ReadCloser, prefix string) {
 // No `docker pull` and no registry auth — the image ships as a release asset
 // and the CLI `docker load`s it.
 func ensureDockerImage(image, tarballName string) error {
+	// Fail fast with an actionable message if Docker isn't usable. Without
+	// this, a missing `docker` surfaces as a raw
+	// `exec: "docker": executable file not found in $PATH` halfway through
+	// the run (or Docker's terse daemon-socket error), which reads like a
+	// crash rather than "you need to install/start Docker".
+	if err := dockerPreflight(); err != nil {
+		return err
+	}
 	if dockerImageExists(image) {
 		return nil
 	}
@@ -177,6 +186,82 @@ func loadImageTarball(image, tarball, msg string) error {
 			tarball, image)
 	}
 	return nil
+}
+
+// dockerPreflight verifies Docker is both installed AND its daemon is
+// reachable before we try to load or run a worker image. openbin runs the
+// decompiler entirely in a local container, so Docker is a hard dependency
+// for every local-worker command (apk / decompile / attach-native). The two
+// failure modes get distinct, platform-tailored guidance instead of a raw
+// exec / socket error.
+func dockerPreflight() error {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return fmt.Errorf("%s", dockerMissingMessage())
+	}
+	// `docker info` round-trips to the daemon; a non-zero exit means the CLI
+	// is installed but the daemon isn't answering (Docker Desktop not
+	// started, dockerd down, or — on Linux — the user isn't in the `docker`
+	// group). Bounded so a wedged socket can't hang the command.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "docker", "info").CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(out))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return fmt.Errorf("%s\n\nDocker reported:\n%s", dockerDaemonDownMessage(), indentLines(detail, "    "))
+	}
+	return nil
+}
+
+// dockerMissingMessage returns install guidance for the current OS.
+func dockerMissingMessage() string {
+	var install string
+	switch runtime.GOOS {
+	case "darwin":
+		install = "  Install Docker Desktop for Mac:\n" +
+			"    https://www.docker.com/products/docker-desktop/"
+	case "windows":
+		install = "  Install Docker Desktop for Windows (uses the WSL 2 backend):\n" +
+			"    https://www.docker.com/products/docker-desktop/"
+	default:
+		install = "  Install Docker Engine:\n" +
+			"    https://docs.docker.com/engine/install/\n" +
+			"  and add your user to the docker group so it runs without sudo:\n" +
+			"    https://docs.docker.com/engine/install/linux-postinstall/"
+	}
+	return "Docker is required to run the local analysis worker, but the `docker`\n" +
+		"command wasn't found on your PATH.\n\n" +
+		install + "\n\n" +
+		"Then re-run this command. Your files never leave your machine — the\n" +
+		"decompiler runs in a container locally."
+}
+
+// dockerDaemonDownMessage returns "daemon isn't running" guidance for the OS.
+func dockerDaemonDownMessage() string {
+	var start string
+	switch runtime.GOOS {
+	case "darwin", "windows":
+		start = "  Start Docker Desktop and wait until it reports \"running\", then\n" +
+			"  re-run this command."
+	default:
+		start = "  Start the Docker daemon, then re-run this command:\n" +
+			"    sudo systemctl start docker\n" +
+			"  If you get a permission error, make sure your user is in the\n" +
+			"  `docker` group: https://docs.docker.com/engine/install/linux-postinstall/"
+	}
+	return "Docker is installed but its daemon isn't responding.\n\n" + start
+}
+
+// indentLines prefixes every line of s with prefix — used to visually nest
+// Docker's own error output under our message.
+func indentLines(s, prefix string) string {
+	lines := strings.Split(s, "\n")
+	for i, ln := range lines {
+		lines[i] = prefix + ln
+	}
+	return strings.Join(lines, "\n")
 }
 
 func dockerImageExists(image string) bool {
