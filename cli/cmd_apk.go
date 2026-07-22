@@ -94,8 +94,7 @@ Examples:
 
 		projectURL := ir.URL
 		if projectURL == "" {
-			projectURL = fmt.Sprintf("%s/projects/%s",
-				strings.TrimRight(cfg.apiBase, "/"), ir.ID)
+			projectURL = projectWebURL(cfg, projectKindApk, ir.ID)
 		}
 		fmt.Println("Done!", projectURL)
 		if nativeLibs > 0 {

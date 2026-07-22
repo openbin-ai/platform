@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -125,8 +124,7 @@ Examples:
 		// Trim any trailing slash; prefer the backend-supplied URL when present.
 		projectURL := ir.URL
 		if projectURL == "" {
-			projectURL = fmt.Sprintf("%s/projects/%s",
-				strings.TrimRight(cfg.apiBase, "/"), ir.ID)
+			projectURL = projectWebURL(cfg, projectKindBin, ir.ID)
 		}
 		fmt.Println("Done!", projectURL)
 		return nil

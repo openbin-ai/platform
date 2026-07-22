@@ -120,7 +120,8 @@ func offerForkOnDedup(cfg config, tokenLookup func() (string, error), sha256Hex 
 		fmt.Fprintf(os.Stderr, "  fork failed (%v); decompiling locally instead...\n", err)
 		return ""
 	}
-	return fmt.Sprintf("%s/projects/%s", strings.TrimRight(cfg.apiBase, "/"), newID)
+	// Dedup/fork only runs from `openbin decompile` (BIN projects).
+	return projectWebURL(cfg, projectKindBin, newID)
 }
 
 // stdinIsTerminal reports whether stdin is an interactive TTY (so we only

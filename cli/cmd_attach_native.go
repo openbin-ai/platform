@@ -123,11 +123,9 @@ Required flags:
 			return err
 		}
 
-		// Best-effort: print a URL back to the OpenAPK project. We don't
-		// know the OpenAPK app host from the CLI's perspective (the API
-		// host is shared with openbin), so derive from the API base by
-		// swapping the api. subdomain for app.; fall back to bare text.
-		appURL := guessOpenApkAppURL(cfg.apiBase, attachNativeProjectID)
+		// attach-native always targets an APK project — link to its page
+		// with the Native tab pre-selected.
+		appURL := projectWebURL(cfg, projectKindApk, attachNativeProjectID) + "?tab=native"
 		fmt.Println("Done!", appURL)
 		return nil
 	},
@@ -165,18 +163,4 @@ func inferArchFromLibPath(libPath string) string {
 	default:
 		return ""
 	}
-}
-
-// guessOpenApkAppURL transforms api.openapk.ai → app.openapk.ai. Falls back
-// to a bare project URL string if the host doesn't look like a standard
-// api.* subdomain.
-func guessOpenApkAppURL(apiBase, projectID string) string {
-	base := strings.TrimRight(apiBase, "/")
-	// e.g. https://api.openapk.ai → https://app.openapk.ai
-	if strings.HasPrefix(base, "https://api.") {
-		base = "https://app." + strings.TrimPrefix(base, "https://api.")
-	} else if strings.HasPrefix(base, "http://api.") {
-		base = "http://app." + strings.TrimPrefix(base, "http://api.")
-	}
-	return base + "/projects/" + projectID + "?tab=native"
 }

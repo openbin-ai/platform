@@ -114,3 +114,36 @@ func envOr(key, fallback string) string {
 	}
 	return fallback
 }
+
+// Project kinds, matching the backend's ProjectKind enum. Used to pick the
+// right web-app host in projectWebURL.
+const (
+	projectKindBin = "BIN"
+	projectKindApk = "APK"
+)
+
+// projectWebURL returns the browser URL for a finished project — the link the
+// CLI prints as "Done! <url>". The web app differs by product: BIN (native)
+// projects open on app.openbin.ai, APK projects on openapk.ai. This mirrors
+// the backend's EmailService.projectUrlFor so the CLI's link and the
+// decompile-complete email always agree.
+//
+// The API host (api.openapk.ai) is NOT a web host — printing it was the bug
+// this replaces. Against a non-prod API (OPENBIN_API_URL override for
+// dev/self-host) there's no known web host, so we best-effort swap an `api.`
+// subdomain to `app.` and otherwise fall back to the API base.
+func projectWebURL(cfg config, kind, projectID string) string {
+	if cfg.apiBase == defaultAPIBaseURL {
+		if kind == projectKindBin {
+			return "https://app.openbin.ai/projects/" + projectID
+		}
+		return "https://openapk.ai/projects/" + projectID
+	}
+	base := strings.TrimRight(cfg.apiBase, "/")
+	if strings.HasPrefix(base, "https://api.") {
+		base = "https://app." + strings.TrimPrefix(base, "https://api.")
+	} else if strings.HasPrefix(base, "http://api.") {
+		base = "http://app." + strings.TrimPrefix(base, "http://api.")
+	}
+	return base + "/projects/" + projectID
+}
