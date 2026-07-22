@@ -46,11 +46,11 @@ jobs:
       - name: Build + save jadx-worker image
         run: |
           docker buildx build --load \
-            --tag openapk/jadx-worker:bundled \
+            --tag openapk/jadx-worker:bundled-2 \
             --cache-from=type=gha,scope=jadx \
             --cache-to=type=gha,mode=max,scope=jadx \
             ./jadx-worker
-          docker save openapk/jadx-worker:bundled | gzip > jadx-worker.tar.gz
+          docker save openapk/jadx-worker:bundled-2 | gzip > jadx-worker.tar.gz
           ls -lh jadx-worker.tar.gz
 
       # The ghidra-worker tag is a versioned cache key — bump it whenever the

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"os"
@@ -14,15 +16,21 @@ import (
 var apkImage string
 
 var apkCmd = &cobra.Command{
-	Use:   "apk <app.apk>",
-	Short: "Decompile an APK locally and upload the result",
+	Use:   "apk <app.apk|app.xapk>",
+	Short: "Decompile an APK or XAPK locally and upload the result",
 	Long: `Runs the bundled jadx-worker Docker image on your machine against the
 given APK, then uploads both the APK and the decompiled source tree to your
 OpenAPK account as a new project. Decompilation happens entirely on your
 own hardware — cloud APK decompile is sunset (see openapk.ai).
 
+Split-APK containers (.xapk / .apks) are handled as one app: the worker
+unpacks the container and feeds every inner split (base + config.*) to
+JADX in a single run, so dex and resources merge into one project instead
+of the inner APKs landing in resources/ as opaque blobs.
+
 Examples:
     openbin apk app-release.apk
+    openbin apk com.vendor.app.xapk
     openbin apk --image openapk/jadx-worker:dev suspicious.apk
 `,
 	Args: cobra.ExactArgs(1),
@@ -53,8 +61,12 @@ Examples:
 		}
 
 		filename := filepath.Base(apkPath)
-		fmt.Printf("Decompiling %s (%.1f MB) locally with JADX...\n",
-			filename, float64(info.Size())/(1024*1024))
+		kindLabel := ""
+		if isSplitContainer(filename) {
+			kindLabel = "split container, "
+		}
+		fmt.Printf("Decompiling %s (%s%.1f MB) locally with JADX...\n",
+			filename, kindLabel, float64(info.Size())/(1024*1024))
 		start := time.Now()
 		treePath, err := runLocalJadx(apkPath, image)
 		if err != nil {
@@ -71,6 +83,10 @@ Examples:
 			}
 			return tok, nil
 		}
+		// Count native libs in the tree BEFORE upload — the temp tar is
+		// removed when we return, and the scan is a cheap header walk.
+		nativeLibs := countTreeNativeLibs(treePath)
+
 		ir, err := uploadApkProject(cfg, tokenLookup, apkPath, treePath)
 		if err != nil {
 			return err
@@ -82,8 +98,57 @@ Examples:
 				strings.TrimRight(cfg.apiBase, "/"), ir.ID)
 		}
 		fmt.Println("Done!", projectURL)
+		if nativeLibs > 0 {
+			fmt.Printf("This app ships %d native librar%s — open the project's Native tab to decompile them with Ghidra.\n",
+				nativeLibs, pluralIes(nativeLibs))
+		}
 		return nil
 	},
+}
+
+// isSplitContainer reports whether the filename looks like a split-APK
+// container. Detection proper happens by content in the worker; this only
+// picks the progress-line label.
+func isSplitContainer(filename string) bool {
+	lower := strings.ToLower(filename)
+	return strings.HasSuffix(lower, ".xapk") || strings.HasSuffix(lower, ".apks")
+}
+
+// countTreeNativeLibs walks the decompiled-tree tar.gz headers and counts
+// resources/lib/<abi>/*.so entries — the libs the Native tab will offer to
+// analyze. Never fails the run: a scan error just returns 0.
+func countTreeNativeLibs(treePath string) int {
+	f, err := os.Open(treePath)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return 0
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	count := 0
+	for {
+		hdr, err := tr.Next()
+		if err != nil {
+			return count // io.EOF or corrupt tail — report what we saw
+		}
+		name := strings.TrimPrefix(hdr.Name, "./")
+		if hdr.Typeflag == tar.TypeReg &&
+			strings.HasPrefix(name, "resources/lib/") &&
+			strings.HasSuffix(name, ".so") {
+			count++
+		}
+	}
+}
+
+func pluralIes(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
 }
 
 func init() {

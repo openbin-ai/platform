@@ -1,8 +1,12 @@
 """FastAPI wrapper around the JADX CLI.
 
-Single endpoint: POST /decompile takes an APK upload, runs the bundled
-jadx binary in a per-request temp dir under prlimit + timeout caps, and
-streams the decompiled tree back as a tar.gz.
+Single endpoint: POST /decompile takes an APK — or a split-APK container
+(.xapk / .apks) — runs the bundled jadx binary in a per-request temp dir
+under prlimit + timeout caps, and streams the decompiled tree back as a
+tar.gz. Split containers are unpacked here and every inner APK is passed
+to jadx as its own input (jadx merges dex + resources across inputs
+natively; handed the container whole it would treat it as an opaque zip
+and dump the inner APKs into resources/).
 
 Synchronous on purpose — the OpenAPK core wraps this call in its own
 @Async executor so it never blocks a Spring request thread. Keeping the
@@ -22,12 +26,14 @@ Containment story:
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 import os
 import shutil
 import subprocess
 import tempfile
 import uuid
+import zipfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
@@ -70,6 +76,12 @@ MAX_UPLOAD_BYTES = int(os.environ.get("JADX_MAX_UPLOAD_BYTES", str(1024 * 1024 *
 # can't send custom headers.
 WORKER_TOKEN = os.environ.get("WORKER_TOKEN", "")
 
+# Split-APK container guards. The upload itself is already capped by
+# MAX_UPLOAD_BYTES; these bound what we're willing to EXPAND out of it, so a
+# crafted container can't zip-bomb the workdir or hand jadx hundreds of inputs.
+MAX_SPLIT_APKS = int(os.environ.get("JADX_MAX_SPLIT_APKS", "64"))
+MAX_SPLIT_TOTAL_BYTES = int(os.environ.get("JADX_MAX_SPLIT_TOTAL_BYTES", str(4 * 1024 * 1024 * 1024)))  # 4 GiB
+
 app = FastAPI(title="jadx-worker", version="0.1.0")
 
 
@@ -78,6 +90,71 @@ def _check_token(provided: str | None) -> None:
         return
     if not provided or not hmac.compare_digest(provided, WORKER_TOKEN):
         raise HTTPException(status_code=401, detail="missing or invalid worker token")
+
+
+def _resolve_inputs(upload_path: Path, work_root: Path, job_id: str) -> list[Path]:
+    """Return the file list to feed jadx: [upload] for a plain APK/dex/jar,
+    or the unpacked inner APKs for a split container (.xapk / .apks).
+
+    Detection is by content, not extension: a real APK is a zip with
+    AndroidManifest.xml at its root; a split container is a zip holding
+    *.apk members instead (XAPK adds a manifest.json describing them).
+    Inner APKs are extracted under flattened, sanitized names — member
+    paths are untrusted input.
+    """
+    if not zipfile.is_zipfile(upload_path):
+        return [upload_path]
+    try:
+        with zipfile.ZipFile(upload_path) as zf:
+            names = zf.namelist()
+            if "AndroidManifest.xml" in names:
+                return [upload_path]  # ordinary APK
+            members = [n for n in names if n.lower().endswith(".apk") and not n.endswith("/")]
+            if not members:
+                return [upload_path]  # some other zip-ish input; let jadx try
+            if len(members) > MAX_SPLIT_APKS:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"split container holds {len(members)} APKs (limit {MAX_SPLIT_APKS})",
+                )
+
+            # Feed jadx the base split first. The XAPK manifest is the
+            # authoritative order when present; otherwise name-sort with
+            # config.* splits pushed after everything else.
+            explicit_order: dict[str, int] = {}
+            if "manifest.json" in names:
+                try:
+                    m = json.loads(zf.read("manifest.json"))
+                    for i, s in enumerate(m.get("split_apks", [])):
+                        explicit_order[s.get("file", "")] = -1 if s.get("id") == "base" else i
+                except Exception:
+                    log.warning("job=%s unparseable xapk manifest.json; falling back to name sort", job_id)
+            members.sort(key=lambda n: (
+                explicit_order.get(n, 10_000),
+                Path(n).name.startswith("config."),
+                n,
+            ))
+
+            splits_dir = work_root / "splits"
+            splits_dir.mkdir()
+            out: list[Path] = []
+            total = 0
+            for i, name in enumerate(members):
+                info = zf.getinfo(name)
+                total += info.file_size
+                if total > MAX_SPLIT_TOTAL_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"split container expands past {MAX_SPLIT_TOTAL_BYTES} bytes",
+                    )
+                dest = splits_dir / f"{i:02d}-{Path(name).name}"
+                with zf.open(info) as src, dest.open("wb") as dst:
+                    shutil.copyfileobj(src, dst, 1024 * 1024)
+                out.append(dest)
+            log.info("job=%s split container unpacked: %s", job_id, [p.name for p in out])
+            return out
+    except zipfile.BadZipFile:
+        return [upload_path]
 
 
 @app.get("/health")
@@ -131,6 +208,10 @@ async def decompile(
 
         log.info("job=%s received apk size=%d bytes", job_id, total)
 
+        # Split containers (.xapk/.apks) expand into one input per inner APK;
+        # plain APKs pass through as a single-element list.
+        inputs = _resolve_inputs(apk_path, work_root, job_id)
+
         # Run jadx under prlimit. Flags mirror the previous in-JVM JadxArgs:
         #   --show-bad-code   = setShowInconsistentCode(true)
         #   (resources + sources both included by default)
@@ -140,7 +221,7 @@ async def decompile(
             str(JADX_BIN),
             "--show-bad-code",
             "-d", str(out_dir),
-            str(apk_path),
+            *[str(p) for p in inputs],
         ]
         log.info("job=%s running: %s", job_id, " ".join(cmd))
 

@@ -43,13 +43,16 @@ const (
 	// lockstep with the `--tag` in .github/workflows/release-cli.yml.
 	//   :bundled — v1 (pre-2026-06-15; decompiled + disassembly only)
 	//   :2       — adds line_map + vars for Ghidra-style cross-highlighting
+	//   :3       — full data-symbol bytes_preview (4KB cap, budgeted)
+	//   :4       — fixes entry_points/exports always empty (wrong API call)
 	ghidraWorkerImage  = "openbin/ghidra-worker:4"
 	ghidraImageTarball = "ghidra-worker.tar.gz"
 
-	// Same bundling scheme for the JADX worker (APK decompiles). The image is
-	// identical to what the cloud jadx-worker ran before the 2026-06 sunset,
-	// so CLI output is byte-identical to the old cloud pipeline.
-	jadxWorkerImage  = "openapk/jadx-worker:bundled"
+	// Same bundling scheme for the JADX worker (APK decompiles).
+	//   :bundled   — v1, byte-identical to the pre-sunset cloud jadx-worker
+	//   :bundled-2 — unpacks split containers (.xapk/.apks) and feeds every
+	//                inner APK to jadx as its own input (merged project)
+	jadxWorkerImage  = "openapk/jadx-worker:bundled-2"
 	jadxImageTarball = "jadx-worker.tar.gz"
 )
 
