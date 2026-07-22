@@ -61,12 +61,58 @@ export function Layout() {
           </nav>
         </div>
       </header>
+      <CliReleaseBanner />
       <DiscordBanner />
       <main className="flex-1 overflow-auto">
         {/* No max-width here — pages opt in via their own container. ProjectView
             takes full width; Dashboard / API Keys / Projects list wrap themselves. */}
         <Outlet />
       </main>
+    </div>
+  )
+}
+
+// CLI release announcement. The `openbin` CLI (shared across openapk +
+// openbin) now ships for Windows plus XAPK/split-APK support. Links to the
+// canonical CLI docs on the openbin app (absolute — that's where the CLI docs
+// live). Bump the key suffix to re-show for a future release.
+const CLI_BANNER_KEY = 'openapk.cliReleaseBanner.dismissed.v1'
+
+function CliReleaseBanner() {
+  const [dismissed, setDismissed] = useState(true)
+  useEffect(() => {
+    try { setDismissed(localStorage.getItem(CLI_BANNER_KEY) === '1') } catch { setDismissed(false) }
+  }, [])
+  if (dismissed) return null
+  return (
+    <div className="border-b border-amber-900/50 bg-amber-950/40">
+      <div className="mx-auto flex max-w-6xl items-center gap-3 px-6 py-2 text-xs text-amber-200">
+        <span aria-hidden>🪟</span>
+        <span className="flex-1">
+          <strong>openbin CLI v0.7.0 — now on Windows.</strong> Plus XAPK / split-APK support:{' '}
+          <code className="rounded bg-amber-900/40 px-1 py-0.5 font-mono text-amber-100">openbin apk app.xapk</code>{' '}
+          decompiles every split into one project. Update with{' '}
+          <code className="rounded bg-amber-900/40 px-1 py-0.5 font-mono text-amber-100">openbin update</code> —{' '}
+          <a
+            href="https://app.openbin.ai/docs/cli"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-amber-100 underline decoration-amber-400/60 underline-offset-2 hover:text-white"
+          >
+            CLI &amp; Docker setup
+          </a>.
+        </span>
+        <button
+          onClick={() => {
+            try { localStorage.setItem(CLI_BANNER_KEY, '1') } catch { /* ignore */ }
+            setDismissed(true)
+          }}
+          className="shrink-0 rounded px-1.5 py-0.5 text-amber-300/70 hover:bg-amber-900/40 hover:text-amber-100"
+          aria-label="Dismiss"
+        >
+          ✕
+        </button>
+      </div>
     </div>
   )
 }

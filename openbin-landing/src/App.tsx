@@ -22,6 +22,7 @@ export default function App() {
         />
       </div>
 
+      <WindowsAnnounceBar />
       <Header />
 
       <main className="relative z-10">
@@ -35,6 +36,26 @@ export default function App() {
         <Footer />
       </main>
     </div>
+  )
+}
+
+/**
+ * Slim top-of-page announcement: openbin now ships a native Windows CLI (it
+ * previously ran on macOS/Linux only). Links to the CLI & Docker setup docs.
+ * Not dismissible — it's a marketing headline on a static page, not a
+ * repeated in-app nag.
+ */
+function WindowsAnnounceBar() {
+  return (
+    <a
+      href="https://app.openbin.ai/docs/cli"
+      className="relative z-20 block border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center text-sm text-amber-200 backdrop-blur transition hover:bg-amber-500/20"
+    >
+      <span aria-hidden className="mr-1">🪟</span>
+      <span className="font-semibold text-amber-100">New:</span> openbin now runs natively on{' '}
+      <span className="font-semibold text-amber-100">Windows</span> — decompile locally on any OS.{' '}
+      <span className="underline decoration-amber-400/50 underline-offset-2">Set up the CLI →</span>
+    </a>
   )
 }
 

@@ -38,6 +38,7 @@ export function Docs() {
             </span>
           </Link>
           <nav className="flex items-center gap-4 text-sm">
+            <Link to="/docs/cli" className="text-zinc-300 hover:text-amber-400">CLI &amp; Docker</Link>
             <Link to="/projects" className="text-zinc-300 hover:text-amber-400">Open app</Link>
             <Link to="/community" className="text-zinc-300 hover:text-amber-400">Community</Link>
             <a
@@ -251,15 +252,17 @@ const STEPS: {
         </p>
         <Clicks
           items={[
-            <>Install it (Linux/macOS): <Cmd>curl -fsSL https://openbin.ai/install.sh | sh</Cmd></>,
+            <>Install it — macOS/Linux: <Cmd>curl -fsSL https://openbin.ai/install.sh | sh</Cmd> …or Windows (PowerShell): <Cmd>irm https://openbin.ai/install.ps1 | iex</Cmd></>,
             <>Sign in once — opens your browser: <Cmd>openbin login</Cmd></>,
-            <>Decompile a binary: <Cmd>openbin decompile ./firmware.elf</Cmd> …or an Android APK: <Cmd>openbin apk ./app.apk</Cmd></>,
+            <>Decompile a binary: <Cmd>openbin decompile ./firmware.elf</Cmd> …or an Android APK/XAPK: <Cmd>openbin apk ./app.apk</Cmd></>,
             <>When it finishes, it prints a <strong>project URL</strong>. Open it — that's your analysis in the web app.</>,
           ]}
         />
         <Tip>
-          The first decompile downloads the worker image (one-time, then cached). Docker must be
-          running. Keep the CLI current with <Cmd>openbin update</Cmd>.
+          The first decompile downloads the worker image (one-time, then cached).{' '}
+          <strong>Docker must be installed and running</strong> — see the{' '}
+          <Link to="/docs/cli" className="text-amber-300 underline-offset-2 hover:underline">full CLI &amp; Docker guide</Link>{' '}
+          for setup on macOS, Linux, and Windows. Keep the CLI current with <Cmd>openbin update</Cmd>.
         </Tip>
       </>
     ),
