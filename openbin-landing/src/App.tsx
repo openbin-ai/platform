@@ -88,6 +88,14 @@ function Header() {
         >
           Source
         </a>
+        <a
+          href="https://discord.gg/HQsCZBHXwc"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-zinc-200 hover:text-amber-400"
+        >
+          Discord
+        </a>
       </nav>
     </header>
   )
@@ -505,6 +513,14 @@ function CTA() {
         >
           GitHub
         </a>
+        <a
+          href="https://discord.gg/HQsCZBHXwc"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-md border border-zinc-700 bg-zinc-900/60 px-6 py-3 text-base text-zinc-100 backdrop-blur hover:bg-zinc-800/60"
+        >
+          Join the Discord →
+        </a>
       </div>
     </section>
   )
@@ -526,6 +542,8 @@ function Footer() {
         <a href="/privacy.html" className="hover:text-amber-400">Privacy</a>
         <span aria-hidden>·</span>
         <a href="https://github.com/openbin-ai/platform" target="_blank" rel="noopener noreferrer" className="hover:text-amber-400">GitHub</a>
+        <span aria-hidden>·</span>
+        <a href="https://discord.gg/HQsCZBHXwc" target="_blank" rel="noopener noreferrer" className="hover:text-amber-400">Discord</a>
         <span aria-hidden>·</span>
         <a href="mailto:husam@openbin.ai" className="hover:text-amber-400">Contact</a>
         <span aria-hidden>·</span>
