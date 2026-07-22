@@ -61,11 +61,11 @@ jobs:
       - name: Build + save ghidra-worker image
         run: |
           docker buildx build --load \
-            --tag openbin/ghidra-worker:3 \
+            --tag openbin/ghidra-worker:4 \
             --cache-from=type=gha,scope=ghidra \
             --cache-to=type=gha,mode=max,scope=ghidra \
             ./ghidra-worker
-          docker save openbin/ghidra-worker:3 | gzip > ghidra-worker.tar.gz
+          docker save openbin/ghidra-worker:4 | gzip > ghidra-worker.tar.gz
           ls -lh ghidra-worker.tar.gz
 
       - name: Upload image artifacts

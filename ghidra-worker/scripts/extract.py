@@ -418,7 +418,7 @@ try:
     exports = []
     seen_exports = set()
     try:
-        ep_iter = sym_table.getExternalEntryPoints()
+        ep_iter = sym_table.getExternalEntryPointIterator()
         while ep_iter.hasNext():
             ep_addr = ep_iter.next()
             ep_sym = sym_table.getPrimarySymbol(ep_addr)
@@ -435,8 +435,11 @@ try:
                 if name not in seen_exports and len(exports) < MAX_EXPORTS:
                     seen_exports.add(name)
                     exports.append({"name": name, "address": str(ep_addr)})
-    except:
-        pass
+    except Exception as e:
+        # A silent `pass` here once hid a nonexistent-API call for weeks
+        # (getExternalEntryPoints vs getExternalEntryPointIterator) — always
+        # leave a trace in the headless log.
+        println("[extract] WARNING: entry/export extraction failed: " + repr(e))
 
     println("[extract] entry_points: " + str(len(entry_points)) +
             " exports: " + str(len(exports)))
