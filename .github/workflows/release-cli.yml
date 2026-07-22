@@ -2,8 +2,9 @@ name: release-cli
 
 # Push a tag matching `openbin-v*` (e.g. `openbin-v0.1.0-alpha`) to cut a
 # release. Produces:
-#   - openbin-<os>-<arch>.tar.gz   per-platform, SLIM: just the CLI binary
+#   - openbin-<os>-<arch>.tar.gz   Linux/macOS, SLIM: just the CLI binary
 #                                  + README (no worker image inside).
+#   - openbin-windows-<arch>.zip   Windows, SLIM: openbin.exe + README.
 #   - jadx-worker.tar.gz           bundled JADX image (APK decompile)
 #   - ghidra-worker.tar.gz         bundled Ghidra image (native binary RE)
 #
@@ -99,14 +100,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Linux + macOS only. Windows is intentionally out — see
-        # [[desktop-client-and-windows-upsell]]; openbin is a Unix-first
-        # tool and we drive Windows users to the paid cloud path instead.
+        # Windows joins Linux + macOS as of the cloud sunset: the cloud path
+        # that Windows users were previously pushed to no longer exists, so
+        # the local CLI (Docker Desktop / WSL 2 backend) is now their only
+        # route. The Windows binary is openbin.exe and ships in a .zip.
         include:
-          - { os: linux,  arch: amd64 }
-          - { os: linux,  arch: arm64 }
-          - { os: darwin, arch: amd64 }
-          - { os: darwin, arch: arm64 }
+          - { os: linux,   arch: amd64, ext: '',     archive: tar }
+          - { os: linux,   arch: arm64, ext: '',     archive: tar }
+          - { os: darwin,  arch: amd64, ext: '',     archive: tar }
+          - { os: darwin,  arch: arm64, ext: '',     archive: tar }
+          - { os: windows, arch: amd64, ext: '.exe', archive: zip }
     steps:
       - uses: actions/checkout@v4
 
@@ -128,29 +131,39 @@ jobs:
           # (~half the size). -X stamps the version for `openbin --version`.
           go build -trimpath \
             -ldflags="-s -w -X main.version=${short_ver}" \
-            -o openbin .
-          ls -lh openbin
+            -o "openbin${{ matrix.ext }}" .
+          ls -lh "openbin${{ matrix.ext }}"
 
-      - name: Assemble slim CLI tarball
+      - name: Assemble slim CLI package
         run: |
           # Version-LESS package name so releases/latest/download/<name> is
-          # a stable URL the installer can hardcode.
+          # a stable URL the installer can hardcode. Windows ships a .zip
+          # (native to Explorer + the install.ps1 one-liner); Unix ships
+          # .tar.gz. The self-updater (cmd_update.go) reads whichever the
+          # running platform produced.
           pkg="openbin-${{ matrix.os }}-${{ matrix.arch }}"
           mkdir "$pkg"
-          mv cli/openbin   "$pkg/"
+          mv "cli/openbin${{ matrix.ext }}" "$pkg/"
           cp cli/README.md "$pkg/"
-          tar czf "$pkg.tar.gz" "$pkg/"
-          ls -lh "$pkg.tar.gz"
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            zip -r "$pkg.zip" "$pkg/"
+            ls -lh "$pkg.zip"
+          else
+            tar czf "$pkg.tar.gz" "$pkg/"
+            ls -lh "$pkg.tar.gz"
+          fi
 
       # The release already exists (create-release job) → this only uploads the
       # asset. No generate_release_notes here: notes are owned by create-release,
       # and regenerating them from four parallel jobs is what caused the race.
-      - name: Attach CLI tarball to release
+      - name: Attach CLI package to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: openbin-*.tar.gz
-          fail_on_unmatched_files: true
+          files: |
+            openbin-*.tar.gz
+            openbin-*.zip
+          fail_on_unmatched_files: false
 
   attach-images:
     name: Attach worker images to release

@@ -32,7 +32,10 @@ os="$(uname -s)"
 case "$os" in
   Linux)  OS=linux ;;
   Darwin) OS=darwin ;;
-  *) die "unsupported OS '$os' — openbin ships for Linux and macOS. Windows users: use the cloud at https://openapk.ai" ;;
+  MINGW*|MSYS*|CYGWIN*) die "this is the Unix installer. On Windows, run in PowerShell:
+    irm https://openbin.ai/install.ps1 | iex" ;;
+  *) die "unsupported OS '$os' — openbin ships for Linux, macOS, and Windows.
+On Windows, run in PowerShell:  irm https://openbin.ai/install.ps1 | iex" ;;
 esac
 
 arch="$(uname -m)"

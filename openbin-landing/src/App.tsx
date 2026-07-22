@@ -199,11 +199,46 @@ function Hero() {
         <span aria-hidden>📖</span>
         New here? Read the 5-step guide →
       </a>
+      <InstallCommands />
       <CloudSunsetNote />
       <p className="mt-8 font-mono text-sm uppercase tracking-[0.15em] text-zinc-300">
         Beta · Free &amp; open source (AGPL v3) · BYOK (Anthropic · OpenAI · Bedrock) · Runs in your browser
       </p>
     </section>
+  )
+}
+
+/**
+ * One-liner install commands for each platform. openbin ships a native CLI
+ * for macOS, Linux, AND Windows (Windows joined at the cloud sunset — the
+ * local CLI is now every platform's path). The Unix installer is POSIX sh;
+ * Windows uses a PowerShell script (install.ps1). Both fetch the slim binary
+ * from the latest GitHub release.
+ */
+function InstallCommands() {
+  return (
+    <div className="mt-8 w-full max-w-2xl text-left">
+      <p className="mb-2 text-center font-mono text-xs uppercase tracking-[0.15em] text-zinc-400">
+        Install the CLI — macOS · Linux · Windows
+      </p>
+      <div className="space-y-2">
+        <div className="rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
+          <div className="mb-1 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">macOS / Linux</div>
+          <code className="block overflow-x-auto whitespace-nowrap font-mono text-sm text-zinc-100">
+            curl -fsSL https://openbin.ai/install.sh | sh
+          </code>
+        </div>
+        <div className="rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
+          <div className="mb-1 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">Windows (PowerShell)</div>
+          <code className="block overflow-x-auto whitespace-nowrap font-mono text-sm text-zinc-100">
+            irm https://openbin.ai/install.ps1 | iex
+          </code>
+        </div>
+      </div>
+      <p className="mt-2 text-center text-xs text-zinc-500">
+        Decompiling runs locally in Docker — Docker Desktop (WSL 2 on Windows) must be installed and running.
+      </p>
+    </div>
   )
 }
 
