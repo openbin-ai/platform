@@ -61,11 +61,55 @@ export function Layout() {
           </nav>
         </div>
       </header>
+      <DiscordBanner />
       <main className="flex-1 overflow-auto">
         {/* No max-width here — pages opt in via their own container. ProjectView
             takes full width; Dashboard / API Keys / Projects list wrap themselves. */}
         <Outlet />
       </main>
+    </div>
+  )
+}
+
+// One-time announcement: the official Discord server. Mirrored in
+// openbin-frontend's Layout.tsx (duplicated components — keep the copies in
+// sync). Dismissal is per-product via localStorage; bump the key suffix to
+// re-show for a future announcement.
+const DISCORD_BANNER_KEY = 'openapk.discordBanner.dismissed.v1'
+
+function DiscordBanner() {
+  const [dismissed, setDismissed] = useState(true)
+  useEffect(() => {
+    try { setDismissed(localStorage.getItem(DISCORD_BANNER_KEY) === '1') } catch { setDismissed(false) }
+  }, [])
+  if (dismissed) return null
+  return (
+    <div className="border-b border-indigo-900/50 bg-indigo-950/40">
+      <div className="mx-auto flex max-w-6xl items-center gap-3 px-6 py-2 text-xs text-indigo-200">
+        <span aria-hidden>💬</span>
+        <span className="flex-1">
+          <strong>Our official Discord server is live!</strong> Join for announcements, help, and to
+          talk reverse engineering with the community —{' '}
+          <a
+            href="https://discord.gg/HQsCZBHXwc"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-indigo-100 underline decoration-indigo-400/60 underline-offset-2 hover:text-white"
+          >
+            discord.gg/HQsCZBHXwc
+          </a>
+        </span>
+        <button
+          onClick={() => {
+            try { localStorage.setItem(DISCORD_BANNER_KEY, '1') } catch { /* ignore */ }
+            setDismissed(true)
+          }}
+          className="shrink-0 rounded px-1.5 py-0.5 text-indigo-300/70 hover:bg-indigo-900/40 hover:text-indigo-100"
+          aria-label="Dismiss"
+        >
+          ✕
+        </button>
+      </div>
     </div>
   )
 }
