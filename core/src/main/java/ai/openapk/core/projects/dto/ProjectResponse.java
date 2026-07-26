@@ -55,7 +55,11 @@ public record ProjectResponse(
         // Source project id when this is a fork (null otherwise) — drives the
         // "forked from" attribution link. forkCount = direct forks of this one.
         UUID forkedFromId,
-        int forkCount
+        int forkCount,
+        // Non-null = this project is a member of a multi-binary bundle. Drives
+        // the projects-list grouping (members hidden from the top level) and
+        // the ProjectView sibling tab bar (only rendered when this is set).
+        UUID bundleId
 ) {
     /**
      * Convenience variant for code paths that don't have a URL signer or
@@ -117,7 +121,8 @@ public record ProjectResponse(
                 role,
                 p.getPublicReadAt(),
                 p.getForkedFrom() != null ? p.getForkedFrom().getId() : null,
-                p.getForkCount()
+                p.getForkCount(),
+                p.getBundle() != null ? p.getBundle().getId() : null
         );
     }
 }

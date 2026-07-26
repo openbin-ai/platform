@@ -72,4 +72,10 @@ public interface ProjectRepository extends JpaRepository<Project, UUID> {
 
     /** Direct forks of a project (lineage walk / fork list). */
     List<Project> findAllByForkedFromIdOrderByCreatedAtDesc(UUID forkedFromId);
+
+    /** Members of a bundle in add-order — drives the overview list + tab bar. */
+    List<Project> findAllByBundleIdOrderByCreatedAtAsc(UUID bundleId);
+
+    /** How many projects still belong to a bundle (auto-remove-when-empty check). */
+    long countByBundleId(UUID bundleId);
 }

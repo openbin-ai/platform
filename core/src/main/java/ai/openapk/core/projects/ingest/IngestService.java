@@ -2,6 +2,8 @@ package ai.openapk.core.projects.ingest;
 
 import ai.openapk.core.analysis.AnalysisMode;
 import ai.openapk.core.auth.User;
+import ai.openapk.core.bundles.Bundle;
+import ai.openapk.core.bundles.BundleService;
 import ai.openapk.core.notifications.NotificationService;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectAccessGuard;
@@ -70,6 +72,7 @@ public class IngestService {
     private final AnalysisStorageService analysisStorage;
     private final AnalysisMetadataExtractor metadataExtractor;
     private final ProjectAccessGuard guard;
+    private final BundleService bundleService;
 
     public IngestService(
             ProjectRepository repo,
@@ -77,7 +80,8 @@ public class IngestService {
             NotificationService notifications,
             @Autowired(required = false) AnalysisStorageService analysisStorage,
             @Autowired(required = false) AnalysisMetadataExtractor metadataExtractor,
-            ProjectAccessGuard guard
+            ProjectAccessGuard guard,
+            BundleService bundleService
     ) {
         this.repo = repo;
         this.mapper = mapper;
@@ -85,6 +89,7 @@ public class IngestService {
         this.analysisStorage = analysisStorage;
         this.metadataExtractor = metadataExtractor;
         this.guard = guard;
+        this.bundleService = bundleService;
     }
 
     /**
@@ -178,6 +183,14 @@ public class IngestService {
         return hint;
     }
 
+    private static UUID parseBundleId(String raw) {
+        try {
+            return UUID.fromString(raw);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "bundleId is not a valid UUID");
+        }
+    }
+
     // ---------- v2.0 S3 ingest flow ------------------------------------------
 
     /**
@@ -208,6 +221,13 @@ public class IngestService {
         p.setWorkflowStatus(WorkflowStatus.NEW);
         p.setAnalysisMode(AnalysisMode.MALWARE);
         p.setArch(normalizeHint(req.archHint()));
+        // Optional bundle membership. requireOwner 404s if the id is bogus or
+        // belongs to another account, so a member can only ever join a bundle
+        // the caller owns.
+        if (req.bundleId() != null && !req.bundleId().isBlank()) {
+            Bundle bundle = bundleService.requireOwner(user, parseBundleId(req.bundleId()));
+            p.setBundle(bundle);
+        }
         repo.save(p);
 
         String key = analysisStorage.buildUploadKey(user.getId(), p.getId());

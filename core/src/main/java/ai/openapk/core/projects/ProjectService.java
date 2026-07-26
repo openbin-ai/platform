@@ -1,6 +1,7 @@
 package ai.openapk.core.projects;
 
 import ai.openapk.core.auth.User;
+import ai.openapk.core.bundles.BundleRepository;
 import ai.openapk.core.config.OpenApkProperties;
 import ai.openapk.core.projects.analysis.AnalysisStorageService;
 import ai.openapk.core.projects.analysis.BinaryAnalysisLoader;
@@ -79,6 +80,10 @@ public class ProjectService {
     private final ProjectService self;
     private final ProjectAccessGuard guard;
     private final ProjectPublicGuard publicGuard;
+    // Used only to auto-remove an emptied bundle when its last member is
+    // deleted. ProjectService never depends on BundleService, so there's no
+    // cycle (BundleService -> ProjectService is the one-way edge).
+    private final BundleRepository bundleRepo;
 
     public ProjectService(
             @Lazy ProjectService self,
@@ -95,7 +100,8 @@ public class ProjectService {
             @Autowired(required = false) AnalysisStorageService analysisStorage,
             BinaryAnalysisLoader analysisLoader,
             ProjectAccessGuard guard,
-            ProjectPublicGuard publicGuard
+            ProjectPublicGuard publicGuard,
+            BundleRepository bundleRepo
     ) {
         this.self = self;
         this.repo = repo;
@@ -112,6 +118,7 @@ public class ProjectService {
         this.analysisLoader = analysisLoader;
         this.guard = guard;
         this.publicGuard = publicGuard;
+        this.bundleRepo = bundleRepo;
     }
 
     /**
@@ -625,6 +632,11 @@ public class ProjectService {
         long blobRefs = (blobKey != null && !blobKey.isBlank())
                 ? repo.countByBinaryAnalysisS3Key(blobKey) : 0;
         Project parent = project.getForkedFrom();
+        // Capture the bundle id BEFORE the delete so we can auto-remove the
+        // wrapper once its last member is gone. Bundle deletion from the
+        // BundleService side also flows through here member-by-member, so the
+        // final member's delete drops the (now-empty) bundle for free.
+        UUID bundleId = project.getBundle() != null ? project.getBundle().getId() : null;
 
         storage.deleteProject(project.getUser().getId(), project.getId());
         repo.delete(project);
@@ -633,6 +645,12 @@ public class ProjectService {
         if (parent != null) {
             parent.setForkCount(Math.max(0, parent.getForkCount() - 1));
             repo.save(parent);
+        }
+
+        // Auto-remove an emptied bundle. countByBundleId runs after repo.delete
+        // (auto-flush before the query), so the just-deleted row is excluded.
+        if (bundleId != null && repo.countByBundleId(bundleId) == 0) {
+            bundleRepo.deleteById(bundleId);
         }
 
         if (analysisStorage != null && blobKey != null && !blobKey.isBlank() && blobRefs <= 1) {

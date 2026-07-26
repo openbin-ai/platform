@@ -2,6 +2,7 @@ package ai.openapk.core.projects;
 
 import ai.openapk.core.analysis.AnalysisMode;
 import ai.openapk.core.auth.User;
+import ai.openapk.core.bundles.Bundle;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -134,6 +135,17 @@ public class Project {
     /** Denormalized count of direct forks; maintained by fork/delete. */
     @Column(name = "fork_count", nullable = false)
     private int forkCount = 0;
+
+    /**
+     * Optional grouping into a multi-binary {@link Bundle}. NULL = a standalone
+     * top-level project (the default and the state of every pre-V37 row). Set by
+     * the CLI ingest path when a sweep / --bundle run tags the file. ON DELETE
+     * SET NULL at the DB level (see V37); bundle deletion removes members
+     * explicitly in {@link ai.openapk.core.bundles.BundleService}.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "bundle_id")
+    private Bundle bundle;
 
     @Column(name = "decompiled_at")
     private Instant decompiledAt;

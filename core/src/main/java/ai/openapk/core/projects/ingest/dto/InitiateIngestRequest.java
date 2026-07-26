@@ -22,5 +22,9 @@ public record InitiateIngestRequest(
         @NotBlank String sha256,
         @NotBlank String schemaVersion,
         String source,
-        @Positive long uploadSizeBytes
+        @Positive long uploadSizeBytes,
+        // Optional: when the CLI is running a sweep / --bundle, the id of the
+        // bundle (get-or-created up front) this file joins. Null = a standalone
+        // top-level project. Validated owner-side in IngestService.initiate.
+        String bundleId
 ) {}
