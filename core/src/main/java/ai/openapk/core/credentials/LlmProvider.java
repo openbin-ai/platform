@@ -27,7 +27,7 @@ public enum LlmProvider {
     GEMINI("gemini", Kind.OPENAI, "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.0-flash"),
     DEEPSEEK("deepseek", Kind.OPENAI, "https://api.deepseek.com/v1", "deepseek-chat"),
     QWEN("qwen", Kind.OPENAI, "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
-    KIMI("kimi", Kind.OPENAI, "https://api.moonshot.ai/v1", "moonshot-v1-8k"),
+    KIMI("kimi", Kind.OPENAI, "https://api.moonshot.ai/v1", "kimi-k3"),
 
     // Generic escape hatch — the user supplies the base URL + a model.
     OPENAI_COMPAT("openai_compat", Kind.OPENAI, null, null);
