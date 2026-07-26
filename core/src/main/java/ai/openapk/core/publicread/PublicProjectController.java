@@ -64,7 +64,14 @@ public class PublicProjectController {
         return projectService.getPublic(id);
     }
 
-    /** BIN analysis JSON (functions, decompiled C, disasm, strings, imports), renames applied. */
+    /**
+     * BIN analysis JSON (functions, decompiled C, disasm, strings, imports),
+     * renames applied. Unlike the rest of this surface, this endpoint requires
+     * an authenticated caller (any account — no project membership needed):
+     * SecurityConfig carves it out of the /api/public/** permitAll. Product
+     * decision 2026-07-26 — the code view is the sign-up hook; report +
+     * highlights stay anonymous.
+     */
     @GetMapping(value = "/binary-analysis", produces = MediaType.APPLICATION_JSON_VALUE)
     public String binaryAnalysis(@PathVariable UUID id) {
         return projectService.getBinaryAnalysisJsonPublic(id);

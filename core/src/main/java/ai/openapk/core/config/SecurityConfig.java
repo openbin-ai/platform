@@ -42,8 +42,14 @@ public class SecurityConfig {
                         // under /api/projects/{id}/report/community/** which
                         // is still authenticated.
                         .requestMatchers("/api/community/**").permitAll()
+                        // The public-project CODE view (decompiled functions)
+                        // requires an account: anonymous visitors get the
+                        // report + highlights teaser, signing in unlocks the
+                        // code. MUST be declared before the /api/public/**
+                        // permitAll below — first match wins.
+                        .requestMatchers("/api/public/projects/*/binary-analysis").authenticated()
                         // /api/public/** is the anonymous read surface for
-                        // projects the owner flagged public_read_at (analysis,
+                        // projects the owner flagged public_read_at (metadata,
                         // highlights, report, media). Gated per-request by
                         // ProjectPublicGuard, which 404s private/missing
                         // projects identically (no existence leak). Only READ
