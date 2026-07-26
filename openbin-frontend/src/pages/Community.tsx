@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { useAuth } from 'react-oidc-context'
 import { useApi } from '@shared/api/client'
 import {
   buildFeedQuery,
@@ -18,7 +17,6 @@ import { UpvoteButton } from '@shared/components/UpvoteButton'
 // OPENBIN amber-accent branding.
 export function Community() {
   const navigate = useNavigate()
-  const auth = useAuth()
   const api = useApi()
   const [search, setSearch] = useSearchParams()
 
@@ -96,8 +94,7 @@ export function Community() {
   const hasFilters = !!(q || malwareType || sha256 || tags.length)
 
   return (
-    <div className="flex h-full flex-col bg-zinc-950 text-zinc-200">
-      <PublicHeader auth={auth} />
+    <div className="flex min-h-full flex-col bg-zinc-950 text-zinc-200">
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
@@ -216,7 +213,9 @@ export function Community() {
           </div>
         )}
       </main>
-      <PublicFooter />
+      <p className="px-6 pb-4 text-center text-[11px] text-zinc-600">
+        Community submissions reflect the views of their authors only.
+      </p>
     </div>
   )
 
@@ -296,39 +295,6 @@ export function Community() {
       </article>
     )
   }
-}
-
-function PublicHeader({ auth }: { auth: ReturnType<typeof useAuth> }) {
-  return (
-    <header className="border-b border-zinc-800 bg-zinc-950">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-        <Link to="/" className="text-sm font-semibold tracking-wide text-zinc-100 hover:opacity-80">
-          OPENBIN<span className="text-amber-400">.AI</span>
-        </Link>
-        <nav className="flex items-center gap-4 text-sm">
-          <Link to="/community" className="text-amber-300">Community</Link>
-          {auth.isAuthenticated ? (
-            <Link to="/" className="text-zinc-300 hover:text-zinc-100">My projects →</Link>
-          ) : (
-            <button
-              onClick={() => void auth.signinRedirect()}
-              className="rounded border border-zinc-700 px-3 py-1 text-zinc-300 hover:bg-zinc-800"
-            >
-              Sign in
-            </button>
-          )}
-        </nav>
-      </div>
-    </header>
-  )
-}
-
-function PublicFooter() {
-  return (
-    <footer className="border-t border-zinc-900 px-6 py-4 text-center text-[11px] text-zinc-600">
-      Community submissions reflect the views of their authors only. <Link to="/terms" className="hover:underline">Terms</Link>.
-    </footer>
-  )
 }
 
 function formatRelative(iso: string): string {

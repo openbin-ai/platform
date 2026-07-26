@@ -1,13 +1,12 @@
 import { useEffect, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import iconUrl from '../assets/icon.png'
 
 /**
  * CLI reference — install per-OS, the Docker requirement (the #1 support
  * question), the core commands, and troubleshooting for the two ways Docker
  * can be missing. Anonymous-readable (declared outside RequireAuth in
- * App.tsx) so prospective users can read it before signing in. Self-contained
- * chrome since the shared Layout is auth-gated. Mirrors Docs.tsx styling.
+ * App.tsx) so prospective users can read it before signing in; the shared
+ * Layout provides the navbar. Mirrors Docs.tsx styling.
  */
 export function CliDocs() {
   useEffect(() => {
@@ -18,20 +17,15 @@ export function CliDocs() {
 
   return (
     <div className="min-h-full bg-zinc-950 text-zinc-100">
-      <header className="sticky top-0 z-20 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
-          <Link to="/" className="flex items-center gap-2 transition hover:opacity-80">
-            <img src={iconUrl} alt="OpenBin" className="h-7 w-7" />
-            <span className="text-sm font-semibold tracking-wide">
-              OPENBIN<span className="text-amber-400">.AI</span>
-            </span>
-            <span className="ml-1 rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-400">
-              CLI Docs
-            </span>
-          </Link>
+      <main className="mx-auto max-w-3xl px-6 py-12">
+        {/* docs-local links live here now that the page shares the app-wide
+            Layout navbar. */}
+        <div className="flex items-center justify-between gap-4">
+          <p className="font-mono text-xs uppercase tracking-[0.25em] text-amber-400/90">
+            CLI reference
+          </p>
           <nav className="flex items-center gap-4 text-sm">
             <Link to="/docs" className="text-zinc-300 hover:text-amber-400">Quick start</Link>
-            <Link to="/projects" className="text-zinc-300 hover:text-amber-400">Open app</Link>
             <a
               href="https://github.com/openbin-ai/platform"
               target="_blank"
@@ -42,12 +36,6 @@ export function CliDocs() {
             </a>
           </nav>
         </div>
-      </header>
-
-      <main className="mx-auto max-w-3xl px-6 py-12">
-        <p className="font-mono text-xs uppercase tracking-[0.25em] text-amber-400/90">
-          CLI reference
-        </p>
         <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
           The OpenBin CLI
         </h1>
@@ -138,6 +126,18 @@ export function CliDocs() {
             </CmdDoc>
             <CmdDoc name="openbin decompile" desc="Decompile a native binary (ELF, PE, Mach-O) locally with Ghidra, then upload the analysis as a project.">
               <Cmd>openbin decompile ./firmware.elf</Cmd>
+              <p className="mt-2 text-sm text-zinc-400">
+                The run is capped at 25&nbsp;minutes by default. On a very large or heavily
+                obfuscated binary the decompile pass can run out of that budget — when it does
+                you still get a <strong>partial result</strong>: every function is listed, and the
+                ones that couldn&rsquo;t be decompiled in time show as stubs (no more silent
+                timeouts). Give a huge binary more room with{' '}
+                <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-[12px] text-zinc-100">--timeout</code>{' '}
+                (whole-run seconds) and{' '}
+                <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-[12px] text-zinc-100">--analysis-timeout</code>{' '}
+                (Ghidra&rsquo;s analysis phase, must be lower):
+              </p>
+              <Cmd>openbin decompile --timeout 3600 --analysis-timeout 2400 huge-miner.elf</Cmd>
             </CmdDoc>
             <CmdDoc name="openbin attach-native" desc="Decompile a single .so and attach it to an existing APK project's Native tab. The in-app 'Decompile this lib' button gives you the exact command to paste.">
               <Cmd>openbin attach-native --project=&lt;id&gt; --lib-path=resources/lib/arm64-v8a/libnative.so ./libnative.so</Cmd>
@@ -172,6 +172,17 @@ export function CliDocs() {
               <p className="mt-1.5 text-sm text-zinc-300">
                 Analyses run before the latest worker showed empty Entry/Exports. Run{' '}
                 <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-[12px]">openbin update</code> and re-decompile the file to populate them.
+              </p>
+            </div>
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
+              <p className="font-semibold text-zinc-100">A big binary times out, or some functions show as stubs</p>
+              <p className="mt-1.5 text-sm text-zinc-300">
+                Very large or obfuscated binaries can exhaust the 25-minute run budget. The analysis
+                still uploads as a <strong>partial result</strong> — undecompiled functions are listed
+                as stubs. To decompile more of them, re-run with a bigger budget, e.g.{' '}
+                <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-[12px]">openbin decompile --timeout 3600 file</code>.
+                Make sure you&rsquo;re on the latest worker first:{' '}
+                <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-[12px]">openbin update</code>.
               </p>
             </div>
           </div>

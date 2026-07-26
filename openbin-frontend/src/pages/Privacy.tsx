@@ -1,26 +1,12 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from 'react-oidc-context'
-import iconUrl from '../assets/icon.png'
 
 // Plain-English privacy stub. Identical to openapk-frontend/src/pages/Privacy.tsx
 // with OPENBIN branding (amber instead of red/purple).
 export function Privacy() {
   const auth = useAuth()
   return (
-    <div className="flex h-full flex-col bg-zinc-950 text-zinc-200">
-      <header className="border-b border-zinc-800 bg-zinc-950">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <Link to="/" className="flex items-center gap-2 text-zinc-100 hover:opacity-80">
-            <img src={iconUrl} alt="OpenBin" className="h-7 w-7" />
-            <span className="text-sm font-semibold tracking-wide">
-              OPENBIN<span className="text-amber-400">.AI</span>
-            </span>
-          </Link>
-          <Link to="/terms" className="text-sm text-zinc-300 hover:text-zinc-100">
-            Terms
-          </Link>
-        </div>
-      </header>
+    <div className="flex min-h-full flex-col bg-zinc-950 text-zinc-200">
       <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">
         <h1 className="mb-6 text-2xl font-semibold text-zinc-100">Privacy</h1>
         <div className="prose prose-invert prose-sm max-w-none prose-headings:text-zinc-200 prose-a:text-amber-400 text-zinc-300">

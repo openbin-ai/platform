@@ -1,6 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import iconUrl from '../assets/icon.png'
 import cliDecompile from '../assets/docs/cli-decompile.png'
 import askAi from '../assets/docs/project-view-ask-ai.png'
 import screenshotAnnotate from '../assets/docs/screenshot-annotate.png'
@@ -11,9 +10,9 @@ import reportPublish from '../assets/docs/report-publish.png'
  * Public, anonymous-readable how-to. Walks the full loop a new user follows —
  * CLI decompile → open the analysis & ask AI → capture a screenshot → build a
  * report → publish it — with the exact buttons to click at each step. Lives
- * outside Layout/RequireAuth (see App.tsx) so prospective users can read it
- * before signing in. Self-contained chrome (header/footer) since the shared
- * Layout is auth-gated.
+ * outside RequireAuth (see App.tsx) so prospective users can read it before
+ * signing in; the shared Layout provides the navbar (it renders a Sign in
+ * button for anonymous visitors).
  */
 export function Docs() {
   // Smooth in-page jumps from the step nav; restore on unmount is automatic.
@@ -25,22 +24,15 @@ export function Docs() {
 
   return (
     <div className="min-h-full bg-zinc-950 text-zinc-100">
-      {/* header */}
-      <header className="sticky top-0 z-20 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
-          <Link to="/" className="flex items-center gap-2 transition hover:opacity-80">
-            <img src={iconUrl} alt="OpenBin" className="h-7 w-7" />
-            <span className="text-sm font-semibold tracking-wide">
-              OPENBIN<span className="text-amber-400">.AI</span>
-            </span>
-            <span className="ml-1 rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-400">
-              Docs
-            </span>
-          </Link>
+      <main className="mx-auto max-w-3xl px-6 py-12">
+        {/* intro — the docs-local links (CLI ref, GitHub) live here now that
+            the page shares the app-wide Layout navbar. */}
+        <div className="flex items-center justify-between gap-4">
+          <p className="font-mono text-xs uppercase tracking-[0.25em] text-amber-400/90">
+            Quick start
+          </p>
           <nav className="flex items-center gap-4 text-sm">
             <Link to="/docs/cli" className="text-zinc-300 hover:text-amber-400">CLI &amp; Docker</Link>
-            <Link to="/projects" className="text-zinc-300 hover:text-amber-400">Open app</Link>
-            <Link to="/community" className="text-zinc-300 hover:text-amber-400">Community</Link>
             <a
               href="https://github.com/openbin-ai/platform"
               target="_blank"
@@ -51,13 +43,6 @@ export function Docs() {
             </a>
           </nav>
         </div>
-      </header>
-
-      <main className="mx-auto max-w-3xl px-6 py-12">
-        {/* intro */}
-        <p className="font-mono text-xs uppercase tracking-[0.25em] text-amber-400/90">
-          Quick start
-        </p>
         <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
           From a binary to a published report
         </h1>

@@ -4,8 +4,10 @@ import { RequireAuth } from '@shared/auth/RequireAuth'
 import { TosGate } from '@shared/components/TosGate'
 import { oidcConfig } from './auth/oidcConfig'
 import { Layout } from './components/Layout'
+import { SettingsLayout } from './components/SettingsLayout'
 import { Home } from './pages/Home'
 import { Projects } from './pages/Projects'
+import { BundlePage } from './pages/BundlePage'
 import { ProjectViewRoute } from './pages/ProjectViewRoute'
 import { ApiKeys } from './pages/ApiKeys'
 import { Report } from './pages/Report'
@@ -44,23 +46,26 @@ export default function App() {
     <AuthProvider {...oidcConfig}>
       <BrowserRouter>
         <Routes>
-          {/* Community pages — anonymous browsing. Outside RequireAuth so
-              signed-out visitors can read published research. */}
-          <Route path="community" element={<Community />} />
-          <Route path="community/researchers" element={<ResearcherSearch />} />
-          <Route path="community/reports/:id" element={<CommunityReport />} />
-          {/* Anonymous read-only project view — shareable public link. */}
-          <Route path="public/projects/:id" element={<PublicProject />} />
-          {/* Public researcher profile — anonymous-readable, shareable. */}
-          <Route path="u/:id" element={<AuthorProfilePage />} />
-          <Route path="u/:id/followers" element={<FollowListPage mode="followers" />} />
-          <Route path="u/:id/following" element={<FollowListPage mode="following" />} />
-          <Route path="terms" element={<Terms />} />
-          <Route path="privacy" element={<Privacy />} />
-          {/* How-to guide — anonymous-readable so prospective users can read
-              it before signing in. Must be declared before the catch-all. */}
-          <Route path="docs" element={<Docs />} />
-          <Route path="docs/cli" element={<CliDocs />} />
+          {/* Anonymous-readable pages — same Layout chrome as the authed
+              app (the navbar must not change shape between tabs), but no
+              RequireAuth/TosGate so signed-out visitors can browse. */}
+          <Route element={<Layout />}>
+            <Route path="community" element={<Community />} />
+            <Route path="community/researchers" element={<ResearcherSearch />} />
+            <Route path="community/reports/:id" element={<CommunityReport />} />
+            {/* Anonymous read-only project view — shareable public link. */}
+            <Route path="public/projects/:id" element={<PublicProject />} />
+            {/* Public researcher profile — anonymous-readable, shareable. */}
+            <Route path="u/:id" element={<AuthorProfilePage />} />
+            <Route path="u/:id/followers" element={<FollowListPage mode="followers" />} />
+            <Route path="u/:id/following" element={<FollowListPage mode="following" />} />
+            <Route path="terms" element={<Terms />} />
+            <Route path="privacy" element={<Privacy />} />
+            {/* How-to guide — anonymous-readable so prospective users can
+                read it before signing in. */}
+            <Route path="docs" element={<Docs />} />
+            <Route path="docs/cli" element={<CliDocs />} />
+          </Route>
 
           {/* Print view is chrome-free (no Layout) so what you see is what
               you print — matches openapk's /projects/:id/report/print. */}
@@ -94,10 +99,17 @@ export default function App() {
             <Route path="projects" element={<Projects />} />
             <Route path="projects/:id" element={<ProjectViewRoute />} />
             <Route path="projects/:id/report" element={<Report />} />
-            <Route path="settings/api-keys" element={<ApiKeys />} />
-            <Route path="settings/report-templates" element={<ReportTemplates />} />
-            <Route path="settings/usage" element={<Usage />} />
-            <Route path="settings/profile" element={<Profile />} />
+            {/* Bundle overview — the repo-style home for a multi-binary sample. */}
+            <Route path="bundles/:id" element={<BundlePage />} />
+            {/* Settings is a tabbed page (was a navbar dropdown); each tab
+                keeps its own URL so old bookmarks still resolve. */}
+            <Route path="settings" element={<SettingsLayout />}>
+              <Route index element={<Navigate to="profile" replace />} />
+              <Route path="profile" element={<Profile />} />
+              <Route path="api-keys" element={<ApiKeys />} />
+              <Route path="report-templates" element={<ReportTemplates />} />
+              <Route path="usage" element={<Usage />} />
+            </Route>
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

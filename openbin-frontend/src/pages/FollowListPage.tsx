@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useAuth } from 'react-oidc-context'
 import { useApi } from '@shared/api/client'
 import { UserListRow } from '@shared/components/UserListRow'
 import {
@@ -52,7 +51,7 @@ export function FollowListPage({ mode }: { mode: 'followers' | 'following' }) {
   const title = mode === 'followers' ? 'Followers' : 'Following'
 
   return (
-    <Chrome>
+    <div className="min-h-full bg-zinc-950 text-zinc-200">
       <main className="mx-auto w-full max-w-3xl px-6 py-8">
         <nav className="mb-4 text-xs text-zinc-500">
           <Link to={`/u/${id}`} className="hover:text-zinc-300">
@@ -122,38 +121,6 @@ export function FollowListPage({ mode }: { mode: 'followers' | 'following' }) {
           </div>
         )}
       </main>
-    </Chrome>
-  )
-}
-
-function Chrome({ children }: { children: React.ReactNode }) {
-  const auth = useAuth()
-  return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-200">
-      <header className="border-b border-zinc-800 bg-zinc-950">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <Link to="/" className="text-sm font-semibold tracking-wide text-zinc-100 hover:opacity-80">
-            OPENBIN<span className="text-amber-400">.AI</span>
-          </Link>
-          <nav className="flex items-center gap-4 text-sm">
-            <Link to="/community" className="text-amber-300">Community</Link>
-            {auth.isAuthenticated ? (
-              <Link to="/" className="text-zinc-300 hover:text-zinc-100">My projects →</Link>
-            ) : (
-              <button
-                onClick={() => void auth.signinRedirect()}
-                className="rounded border border-zinc-700 px-3 py-1 text-zinc-300 hover:bg-zinc-800"
-              >
-                Sign in
-              </button>
-            )}
-          </nav>
-        </div>
-      </header>
-      <div className="flex-1">{children}</div>
-      <footer className="border-t border-zinc-900 px-6 py-4 text-center text-[11px] text-zinc-600">
-        <Link to="/terms" className="hover:underline">Terms</Link>
-      </footer>
     </div>
   )
 }

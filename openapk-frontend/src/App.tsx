@@ -4,6 +4,7 @@ import { oidcConfig } from './auth/oidcConfig'
 import { RequireAuth } from './auth/RequireAuth'
 import { TosGate } from '@shared/components/TosGate'
 import { Layout } from './components/Layout'
+import { SettingsLayout } from './components/SettingsLayout'
 import { Landing } from './pages/Landing'
 import { Home } from './pages/Home'
 import { ApiKeys } from './pages/ApiKeys'
@@ -31,20 +32,23 @@ export default function App() {
           {/* Public marketing landing — no auth required. */}
           <Route path="/" element={<Landing />} />
 
-          {/* Community pages — anonymous browsing. Outside RequireAuth so
-              signed-out visitors can read published research. */}
-          <Route path="/community" element={<Community />} />
-          <Route path="/community/researchers" element={<ResearcherSearch />} />
-          <Route path="/community/reports/:id" element={<CommunityReport />} />
-          {/* Anonymous read-only project view — shareable public link. */}
-          <Route path="/public/projects/:id" element={<PublicProject />} />
-          {/* Public researcher profile. Mirrors /community in that it's
-              accessible anonymously and shareable as a link. */}
-          <Route path="/u/:id" element={<AuthorProfilePage />} />
-          <Route path="/u/:id/followers" element={<FollowListPage mode="followers" />} />
-          <Route path="/u/:id/following" element={<FollowListPage mode="following" />} />
-          <Route path="/terms" element={<Terms />} />
-          <Route path="/privacy" element={<Privacy />} />
+          {/* Anonymous-readable pages — same Layout chrome as the authed
+              app (the navbar must not change shape between tabs), but no
+              RequireAuth/TosGate so signed-out visitors can browse. */}
+          <Route element={<Layout />}>
+            <Route path="/community" element={<Community />} />
+            <Route path="/community/researchers" element={<ResearcherSearch />} />
+            <Route path="/community/reports/:id" element={<CommunityReport />} />
+            {/* Anonymous read-only project view — shareable public link. */}
+            <Route path="/public/projects/:id" element={<PublicProject />} />
+            {/* Public researcher profile. Mirrors /community in that it's
+                accessible anonymously and shareable as a link. */}
+            <Route path="/u/:id" element={<AuthorProfilePage />} />
+            <Route path="/u/:id/followers" element={<FollowListPage mode="followers" />} />
+            <Route path="/u/:id/following" element={<FollowListPage mode="following" />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy" element={<Privacy />} />
+          </Route>
 
           {/* Print view is chrome-free (no Layout) so what you see is what you print. */}
           <Route
@@ -66,10 +70,15 @@ export default function App() {
             <Route path="/projects" element={<Projects />} />
             <Route path="/projects/:id" element={<ProjectView />} />
             <Route path="/projects/:id/report" element={<Report />} />
-            <Route path="/settings/api-keys" element={<ApiKeys />} />
-            <Route path="/settings/report-templates" element={<ReportTemplates />} />
-            <Route path="/settings/usage" element={<Usage />} />
-            <Route path="/settings/profile" element={<Profile />} />
+            {/* Settings is a tabbed page (was a navbar dropdown); each tab
+                keeps its own URL so old bookmarks still resolve. */}
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route index element={<Navigate to="profile" replace />} />
+              <Route path="profile" element={<Profile />} />
+              <Route path="api-keys" element={<ApiKeys />} />
+              <Route path="report-templates" element={<ReportTemplates />} />
+              <Route path="usage" element={<Usage />} />
+            </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

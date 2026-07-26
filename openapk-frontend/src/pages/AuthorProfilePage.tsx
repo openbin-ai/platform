@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useAuth } from 'react-oidc-context'
 import { useApi } from '../api/client'
 import { Gravatar } from '@shared/components/Gravatar'
 import { FollowButton } from '@shared/components/FollowButton'
 import { UpvoteButton } from '@shared/components/UpvoteButton'
 import { profilePath, type ProfileResponse } from '@shared/api/social'
-import iconUrl from '../assets/icon.png'
 
 // Public researcher profile on openapk-frontend — APK reports only.
 // Anonymous-readable; the follow button hides itself for signed-out
@@ -37,7 +35,7 @@ export function AuthorProfilePage() {
   }, [api, id])
 
   return (
-    <Chrome>
+    <div className="min-h-full bg-zinc-950 text-zinc-200">
       {error ? (
         <main className="mx-auto max-w-3xl px-6 py-12">
           <h1 className="text-xl font-semibold text-zinc-100">Profile unavailable</h1>
@@ -146,41 +144,6 @@ export function AuthorProfilePage() {
           )}
         </main>
       )}
-    </Chrome>
-  )
-}
-
-function Chrome({ children }: { children: React.ReactNode }) {
-  const auth = useAuth()
-  return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-200">
-      <header className="border-b border-zinc-800 bg-zinc-950">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <Link to="/" className="flex items-center gap-2 text-zinc-100 hover:opacity-80">
-            <img src={iconUrl} alt="OpenAPK" className="h-7 w-7" />
-            <span className="text-sm font-semibold tracking-wide">
-              OPENAPK<span className="text-red-500">.AI</span>
-            </span>
-          </Link>
-          <nav className="flex items-center gap-4 text-sm">
-            <Link to="/community" className="text-purple-300">Community</Link>
-            {auth.isAuthenticated ? (
-              <Link to="/dashboard" className="text-zinc-300 hover:text-zinc-100">My projects →</Link>
-            ) : (
-              <button
-                onClick={() => void auth.signinRedirect()}
-                className="rounded border border-zinc-700 px-3 py-1 text-zinc-300 hover:bg-zinc-800"
-              >
-                Sign in
-              </button>
-            )}
-          </nav>
-        </div>
-      </header>
-      <div className="flex-1">{children}</div>
-      <footer className="border-t border-zinc-900 px-6 py-4 text-center text-[11px] text-zinc-600">
-        <Link to="/terms" className="hover:underline">Terms</Link>
-      </footer>
     </div>
   )
 }
