@@ -22,7 +22,11 @@ export function AuthenticatedImg({
   const [imgUrl, setImgUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const needsAuth = src.startsWith('/api/') || src.startsWith(`${API_BASE}/api/`)
+  // Anonymous /api/public/ media 302s to a presigned S3 URL. A plain <img>
+  // follows that redirect fine, but a fetch() would subject the S3 response
+  // to CORS (which the bucket doesn't serve) — so never fetch public paths.
+  const isPublic = src.includes('/api/public/')
+  const needsAuth = !isPublic && (src.startsWith('/api/') || src.startsWith(`${API_BASE}/api/`))
 
   useEffect(() => {
     if (!needsAuth) return
@@ -52,7 +56,10 @@ export function AuthenticatedImg({
     }
   }, [src, token, needsAuth])
 
-  if (!needsAuth) return <img src={src} alt={alt ?? ''} className={className} />
+  if (!needsAuth) {
+    const direct = isPublic && src.startsWith('/api/') ? `${API_BASE}${src}` : src
+    return <img src={direct} alt={alt ?? ''} className={className} />
+  }
   if (error) return <span className="text-xs text-red-400">[image failed: {error}]</span>
   if (!imgUrl) return <span className="text-xs text-zinc-500">[loading image…]</span>
   return <img src={imgUrl} alt={alt ?? ''} className={className} />
