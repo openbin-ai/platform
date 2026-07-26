@@ -234,8 +234,14 @@ export function AskPanel({ projectId, filePath, credentialId, model }: AskPanelP
     setError(null)
     setStreaming(true)
 
-    // Snapshot priorTurns BEFORE we mutate state.
-    const priorTurns = turns.map(t => ({ role: t.role, content: t.content }))
+    // Snapshot priorTurns BEFORE we mutate state. Blank turns are dropped:
+    // the backend @NotBlank-rejects them with a bodyless 400, and an empty
+    // assistant placeholder can get persisted if a stream dies before its
+    // first chunk.
+    // The 50k slice matches the backend's @Size cap on AskRequest.PriorTurn.
+    const priorTurns = turns
+      .filter(t => t.content.trim() !== '')
+      .map(t => ({ role: t.role, content: t.content.slice(0, 50000) }))
     const userTurn: ChatTurn = { role: 'user', content: trimmed, filePath }
     const assistantTurn: ChatTurn = { role: 'assistant', content: '' }
     updateActive(s => ({

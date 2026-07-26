@@ -4955,8 +4955,13 @@ function AskPanel({
     setStreaming(true)
 
     // Snapshot priorTurns BEFORE mutating state — the full thread the model
-    // has seen so far.
-    const priorTurns = turns.map((t) => ({ role: t.role, content: t.content }))
+    // has seen so far. Blank turns are dropped: the backend @NotBlank-rejects
+    // them with a bodyless 400, and an empty assistant placeholder can get
+    // persisted if a stream dies before its first chunk.
+    // The 16k slice matches the backend's @Size cap on PriorTurn.content.
+    const priorTurns = turns
+      .filter((t) => t.content.trim() !== '')
+      .map((t) => ({ role: t.role, content: t.content.slice(0, 16000) }))
     const userTurn: ChatTurn = { role: 'user', content: trimmed, functionName: fn.name }
     const assistantTurn: ChatTurn = { role: 'assistant', content: '' }
     updateActive((s) => ({

@@ -118,7 +118,13 @@ export function AskAiPanel({
     setError(null)
     setStreaming(true)
 
-    const priorTurns = turns.map((t) => ({ role: t.role, content: t.content }))
+    // Blank turns are dropped: the backend @NotBlank-rejects them with a
+    // bodyless 400, and an empty assistant placeholder can get persisted if
+    // a stream dies before its first chunk.
+    // The 50k slice matches the backend's @Size cap on AskRequest.PriorTurn.
+    const priorTurns = turns
+      .filter((t) => t.content.trim() !== '')
+      .map((t) => ({ role: t.role, content: t.content.slice(0, 50000) }))
     const userTurn: ChatTurn = {
       role: 'user',
       content: truncated ? `${trimmed}\n\n(note: file truncated to first 60 KB)` : trimmed,
