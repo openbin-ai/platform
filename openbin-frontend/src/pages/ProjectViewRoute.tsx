@@ -3,8 +3,9 @@ import { useParams } from 'react-router-dom'
 import { useApi } from '@shared/api/client'
 import { ProjectView } from './ProjectView'
 import { ScriptProjectView } from './ScriptProjectView'
+import { BundleTabBar } from '../components/BundleTabBar'
 
-type ProjectKindOnly = { kind: 'APK' | 'BIN' | 'SCRIPT' }
+type ProjectDispatch = { kind: 'APK' | 'BIN' | 'SCRIPT'; bundleId: string | null }
 
 /**
  * Top-level dispatch for {@code /projects/:id}. Loads the project's kind
@@ -21,14 +22,21 @@ export function ProjectViewRoute() {
   const { id = '' } = useParams<{ id: string }>()
   const api = useApi()
   const [kind, setKind] = useState<'APK' | 'BIN' | 'SCRIPT' | null>(null)
+  const [bundleId, setBundleId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
+    // Reset bundle state on id change so navigating between siblings doesn't
+    // briefly show the previous project's tab bar.
+    setBundleId(null)
     void (async () => {
       try {
-        const p = await api<ProjectKindOnly>(`/api/projects/${id}`)
-        if (!cancelled) setKind(p.kind)
+        const p = await api<ProjectDispatch>(`/api/projects/${id}`)
+        if (!cancelled) {
+          setKind(p.kind)
+          setBundleId(p.bundleId)
+        }
       } catch (e) {
         if (!cancelled) setError((e as Error).message)
       }
@@ -49,5 +57,16 @@ export function ProjectViewRoute() {
     return <div className="px-6 py-8 text-sm text-zinc-500">Loading project…</div>
   }
   if (kind === 'SCRIPT') return <ScriptProjectView />
-  return <ProjectView />
+  // BIN projects that belong to a bundle get the sibling tab strip above the
+  // workspace; standalone projects render unchanged (bundleId null → no bar).
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {kind === 'BIN' && bundleId && (
+        <BundleTabBar bundleId={bundleId} currentProjectId={id} />
+      )}
+      <div className="min-h-0 flex-1">
+        <ProjectView />
+      </div>
+    </div>
+  )
 }

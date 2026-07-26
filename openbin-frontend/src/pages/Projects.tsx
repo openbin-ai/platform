@@ -4,6 +4,7 @@ import { ApiError, API_BASE, useApi } from '@shared/api/client'
 import { canEdit, isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { useAuth } from 'react-oidc-context'
 import { ScriptUploadCard } from '../components/ScriptUploadCard'
+import type { BundleSummary } from '../api/bundles'
 
 /**
  * Upload progress state for the dropzone. {@code null} means no upload in
@@ -32,6 +33,9 @@ type Project = {
   decompilePhase: string | null
   decompileStartedAt: string | null
   role: ProjectRole | null
+  // Non-null = this project is a member of a bundle; hidden from the top-level
+  // list (the bundle card stands in for it).
+  bundleId: string | null
 }
 
 type ReportSummary = {
@@ -75,6 +79,7 @@ export function Projects() {
   const api = useApi()
   const auth = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
+  const [bundles, setBundles] = useState<BundleSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [upload, setUpload] = useState<UploadProgress>(null)
@@ -85,11 +90,15 @@ export function Projects() {
 
   const refresh = useCallback(async () => {
     try {
-      const all = await api<Project[]>('/api/projects')
-      // Shared backend hands back APK / BIN / SCRIPT; openbin renders BIN
-      // (native binaries via CLI) AND SCRIPT (malicious NPM analyzer). APK
-      // is the openapk.ai surface and lives there.
+      // Projects + bundles in parallel. Shared backend hands back APK / BIN /
+      // SCRIPT; openbin renders BIN (native binaries via CLI) AND SCRIPT
+      // (malicious NPM analyzer). APK is the openapk.ai surface and lives there.
+      const [all, bs] = await Promise.all([
+        api<Project[]>('/api/projects'),
+        api<BundleSummary[]>('/api/bundles'),
+      ])
       setProjects(all.filter((p) => p.kind === 'BIN' || p.kind === 'SCRIPT'))
+      setBundles(bs)
       setError(null)
     } catch (e) {
       setError((e as Error).message)
@@ -185,6 +194,11 @@ export function Projects() {
     }
   }
 
+  // Members of a bundle are represented by their bundle card, not as their own
+  // top-level row — so the standalone list is projects with no bundle.
+  const standalone = projects.filter((p) => !p.bundleId)
+  const topLevelCount = bundles.length + standalone.length
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
       <div>
@@ -202,7 +216,7 @@ export function Projects() {
 
       <div className="flex gap-1 border-b border-zinc-800">
         <TabBtn active={tab === 'projects'} onClick={() => setTab('projects')}>
-          Projects ({projects.length})
+          Projects ({topLevelCount})
         </TabBtn>
         <TabBtn active={tab === 'reports'} onClick={() => setTab('reports')}>
           Reports
@@ -211,7 +225,8 @@ export function Projects() {
 
       {tab === 'projects' ? (
         <ProjectsTab
-          projects={projects}
+          projects={standalone}
+          bundles={bundles}
           loading={loading}
           upload={upload}
           dragActive={dragActive}
@@ -236,6 +251,7 @@ export function Projects() {
 
 function ProjectsTab({
   projects,
+  bundles,
   loading,
   upload,
   dragActive,
@@ -248,6 +264,7 @@ function ProjectsTab({
   onPatch,
 }: {
   projects: Project[]
+  bundles: BundleSummary[]
   loading: boolean
   upload: UploadProgress
   dragActive: boolean
@@ -292,16 +309,56 @@ function ProjectsTab({
 
       {loading ? (
         <p className="text-zinc-500">Loading…</p>
-      ) : projects.length === 0 ? (
+      ) : projects.length === 0 && bundles.length === 0 ? (
         <p className="text-zinc-500">No projects yet. Upload one above.</p>
       ) : (
         <ul className="divide-y divide-zinc-800 rounded-lg border border-zinc-800 bg-zinc-900/40">
+          {/* Bundles first — one card per multi-binary sample. */}
+          {bundles.map((b) => (
+            <BundleRow key={b.id} bundle={b} />
+          ))}
           {projects.map((p) => (
             <ProjectRow key={p.id} project={p} onDelete={onDelete} onPatch={onPatch} />
           ))}
         </ul>
       )}
     </div>
+  )
+}
+
+/**
+ * A bundle as a single top-level list entry. Opens the repo-style overview at
+ * /bundles/:id; member projects are hidden from the top level and reached
+ * through the overview instead.
+ */
+function BundleRow({ bundle }: { bundle: BundleSummary }) {
+  return (
+    <li className="flex items-center gap-4 p-4">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span aria-hidden>🗂</span>
+          <Link
+            to={`/bundles/${bundle.id}`}
+            className="truncate font-medium text-zinc-100 hover:text-amber-300"
+          >
+            {bundle.name}
+          </Link>
+          <span className="rounded bg-amber-950/50 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
+            bundle
+          </span>
+        </div>
+        <div className="mt-1 text-xs text-zinc-500">
+          {bundle.fileCount} binar{bundle.fileCount === 1 ? 'y' : 'ies'}
+          {' · added '}{new Date(bundle.createdAt).toLocaleString()}
+        </div>
+      </div>
+      <Link
+        to={`/bundles/${bundle.id}`}
+        className="rounded border border-zinc-700 px-3 py-1 text-sm text-zinc-200 hover:bg-zinc-800"
+      >
+        Open
+      </Link>
+    </li>
   )
 }
 
