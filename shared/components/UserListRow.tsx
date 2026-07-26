@@ -25,9 +25,13 @@ type Props = {
   // count somewhere (e.g. the profile header). The callback receives the
   // row's userId and the new {@code amFollowing} state.
   onFollowChange?: (userId: string, active: boolean) => void
+  // Label for the row's date line. Follower/following lists keep the
+  // default; search results pass "Joined" since their date is the user's
+  // sign-up (or first publish), not a follow event.
+  dateLabel?: string
 }
 
-export function UserListRow({ row, viewerUserId, accentClass, onFollowChange }: Props) {
+export function UserListRow({ row, viewerUserId, accentClass, onFollowChange, dateLabel = 'Followed' }: Props) {
   const auth = useAuth()
   const isSelf = !!viewerUserId && viewerUserId === row.userId
 
@@ -41,7 +45,7 @@ export function UserListRow({ row, viewerUserId, accentClass, onFollowChange }: 
           {row.displayName}
         </a>
         <div className="text-[11px] text-zinc-500">
-          Followed {formatRelative(row.followedAt)}
+          {dateLabel} {formatRelative(row.followedAt)}
         </div>
       </div>
       {!isSelf && auth.isAuthenticated && (

@@ -471,10 +471,12 @@ public class SocialService {
     /**
      * Case-insensitive substring search over researcher display names + the
      * username half of their email (the fallback name shown when display_name
-     * is blank). Restricted to users who've actually published at least one
-     * community report — searching the full users table would expose every
-     * sign-up regardless of whether they've opted into being discoverable,
-     * and the only reason to look someone up is to read their work.
+     * is blank). Covers ALL registered users, not just publishers — the
+     * original publisher-only restriction made everyone who hadn't published
+     * yet unfindable, which broke the follow flow (you couldn't follow a
+     * colleague before their first report). Publishers still rank above
+     * non-publishers at equal match quality. Exposes only what a profile
+     * page already shows (display name + gravatar hash), never the email.
      *
      * <p>{@code amFollowing} mirrors the followers-list shape: opportunistic
      * personalization when the viewer is authenticated, false for anonymous.
@@ -497,8 +499,8 @@ public class SocialService {
         // merely contains it. `SIMILAR TO`-style ranking would be nicer but
         // pulls in extensions; this is good enough for the dataset size.
         var nq = em.createNativeQuery("""
-                SELECT DISTINCT u.id, u.display_name, u.email,
-                       MIN(r.community_published_at) AS joined_at,
+                SELECT u.id, u.display_name, u.email,
+                       COALESCE(MIN(r.community_published_at), u.created_at) AS joined_at,
                        (:viewerKnown AND EXISTS (
                            SELECT 1 FROM follows me
                            WHERE me.follower_id = :viewer AND me.followee_id = u.id
@@ -507,17 +509,18 @@ public class SocialService {
                            WHEN LOWER(COALESCE(u.display_name, '')) LIKE :prefix THEN 0
                            WHEN LOWER(SPLIT_PART(u.email, '@', 1)) LIKE :prefix THEN 1
                            ELSE 2
-                       END AS rank
+                       END AS rank,
+                       (MIN(r.community_published_at) IS NULL) AS unpublished
                 FROM users u
-                JOIN projects p ON p.user_id = u.id
-                JOIN project_reports r ON r.project_id = p.id
-                WHERE r.community_published_at IS NOT NULL
-                  AND (
+                LEFT JOIN projects p ON p.user_id = u.id
+                LEFT JOIN project_reports r ON r.project_id = p.id
+                       AND r.community_published_at IS NOT NULL
+                WHERE (
                        LOWER(COALESCE(u.display_name, '')) LIKE :needle
                     OR LOWER(SPLIT_PART(u.email, '@', 1)) LIKE :needle
                   )
-                GROUP BY u.id, u.display_name, u.email
-                ORDER BY rank, joined_at DESC
+                GROUP BY u.id, u.display_name, u.email, u.created_at
+                ORDER BY rank, unpublished, joined_at DESC
                 LIMIT :limit OFFSET :offset
                 """);
         String lower = trimmed.toLowerCase(java.util.Locale.ROOT);

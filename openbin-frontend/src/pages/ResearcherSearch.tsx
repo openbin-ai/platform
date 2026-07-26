@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { useAuth } from 'react-oidc-context'
+import { useSearchParams } from 'react-router-dom'
 import { useApi } from '@shared/api/client'
 import { UserListRow } from '@shared/components/UserListRow'
 import { useMe } from '@shared/api/me'
@@ -74,13 +73,12 @@ export function ResearcherSearch() {
   const filtered = rows?.filter((r) => !me || r.userId !== me.userId) ?? null
 
   return (
-    <Chrome>
+    <div className="min-h-full bg-zinc-950 text-zinc-200">
       <main className="mx-auto w-full max-w-3xl px-6 py-8">
         <header className="mb-6">
           <h1 className="text-xl font-semibold text-zinc-100">Researchers</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Find people by name. Only researchers who have published at least one
-            community report are searchable.
+            Find researchers by name and follow them to build your feed.
           </p>
         </header>
 
@@ -116,7 +114,7 @@ export function ResearcherSearch() {
           <ul className="space-y-2">
             {filtered.map((r) => (
               <li key={r.userId}>
-                <UserListRow row={r} viewerUserId={me?.userId} accentClass={ACCENT} />
+                <UserListRow row={r} viewerUserId={me?.userId} accentClass={ACCENT} dateLabel="Joined" />
               </li>
             ))}
           </ul>
@@ -150,38 +148,6 @@ export function ResearcherSearch() {
           </div>
         )}
       </main>
-    </Chrome>
-  )
-}
-
-function Chrome({ children }: { children: React.ReactNode }) {
-  const auth = useAuth()
-  return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-200">
-      <header className="border-b border-zinc-800 bg-zinc-950">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <Link to="/" className="text-sm font-semibold tracking-wide text-zinc-100 hover:opacity-80">
-            OPENBIN<span className="text-amber-400">.AI</span>
-          </Link>
-          <nav className="flex items-center gap-4 text-sm">
-            <Link to="/community" className="text-amber-300">Community</Link>
-            {auth.isAuthenticated ? (
-              <Link to="/" className="text-zinc-300 hover:text-zinc-100">My projects →</Link>
-            ) : (
-              <button
-                onClick={() => void auth.signinRedirect()}
-                className="rounded border border-zinc-700 px-3 py-1 text-zinc-300 hover:bg-zinc-800"
-              >
-                Sign in
-              </button>
-            )}
-          </nav>
-        </div>
-      </header>
-      <div className="flex-1">{children}</div>
-      <footer className="border-t border-zinc-900 px-6 py-4 text-center text-[11px] text-zinc-600">
-        <Link to="/terms" className="hover:underline">Terms</Link>
-      </footer>
     </div>
   )
 }
