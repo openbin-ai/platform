@@ -151,3 +151,19 @@ func projectWebURL(cfg config, kind, projectID string) string {
 	}
 	return base + "/projects/" + projectID
 }
+
+// bundleWebURL returns the browser URL for a bundle overview page. Bundles are
+// a native-binary (BIN) concept, so they always live on the openbin web app —
+// mirrors projectWebURL's host resolution.
+func bundleWebURL(cfg config, bundleID string) string {
+	if cfg.apiBase == defaultAPIBaseURL {
+		return "https://app.openbin.ai/bundles/" + bundleID
+	}
+	base := strings.TrimRight(cfg.apiBase, "/")
+	if strings.HasPrefix(base, "https://api.") {
+		base = "https://app." + strings.TrimPrefix(base, "https://api.")
+	} else if strings.HasPrefix(base, "http://api.") {
+		base = "http://app." + strings.TrimPrefix(base, "http://api.")
+	}
+	return base + "/bundles/" + bundleID
+}

@@ -37,6 +37,9 @@ type initiateRequest struct {
 	SchemaVersion    string `json:"schemaVersion"`
 	Source           string `json:"source"`
 	UploadSizeBytes  int64  `json:"uploadSizeBytes"`
+	// Optional bundle membership — set on sweep / --bundle runs. Empty for a
+	// standalone decompile.
+	BundleID string `json:"bundleId,omitempty"`
 }
 
 type initiateResponse struct {
@@ -69,7 +72,7 @@ type ingestResponse struct {
 // backend (Bearer required); the S3 PUT itself doesn't need our token.
 func ingestProjectV2(cfg config, tokenLookup func() (string, error),
 	name, filename, archHint, sha256Hex string, sizeBytes int64,
-	workerJSON []byte) (*ingestResponse, error) {
+	workerJSON []byte, bundleID string) (*ingestResponse, error) {
 
 	// 1. Gzip to a temp file. We use a file rather than an in-memory buffer
 	//    because a 200MB worker JSON gzipped is still 20-40MB, and tee'ing
@@ -119,6 +122,7 @@ func ingestProjectV2(cfg config, tokenLookup func() (string, error),
 		SchemaVersion:    ingestSchemaVersion,
 		Source:           "cli",
 		UploadSizeBytes:  gzSize,
+		BundleID:         bundleID,
 	}
 	initResp, err := postJSONRetry(cfg.apiBase+"/api/projects/ingest/initiate", token, initReq)
 	if err != nil {
