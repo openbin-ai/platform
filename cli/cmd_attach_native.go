@@ -103,7 +103,7 @@ Required flags:
 		fmt.Printf("Decompiling %s (%.1f MB, sha256=%s) locally...\n",
 			filename, float64(size)/(1024*1024), sha[:12])
 		start := time.Now()
-		workerJSON, err := runLocalGhidra(localPath, arch, image)
+		workerJSON, err := runLocalGhidra(localPath, arch, image, workerLimits{})
 		if err != nil {
 			return err
 		}

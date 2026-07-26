@@ -27,7 +27,30 @@ import (
 // locally guarantees byte-identical decompile output to whatever the cloud
 // pipeline would have produced, so the backend's ingest path doesn't need
 // to discriminate between client- and worker-sourced submissions.
-func runLocalGhidra(binaryPath, arch, image string) ([]byte, error) {
+// workerLimits carries optional overrides for the ghidra-worker's wall-clock
+// budgets, sourced from `decompile --timeout` / `--analysis-timeout`. A zero
+// field means "leave the worker's built-in default" (GHIDRA_ANALYZE_TIMEOUT
+// and GHIDRA_PER_FILE_TIMEOUT baked into the image). Raising these is the
+// escape hatch for genuinely huge binaries that need more than the default
+// 25-minute wall.
+type workerLimits struct {
+	AnalyzeTimeoutSec int // whole-subprocess wall (GHIDRA_ANALYZE_TIMEOUT)
+	PerFileTimeoutSec int // Ghidra auto-analysis per-file (GHIDRA_PER_FILE_TIMEOUT)
+}
+
+// env renders the non-zero limits as docker `-e KEY=VAL` values.
+func (l workerLimits) env() []string {
+	var e []string
+	if l.AnalyzeTimeoutSec > 0 {
+		e = append(e, fmt.Sprintf("GHIDRA_ANALYZE_TIMEOUT=%d", l.AnalyzeTimeoutSec))
+	}
+	if l.PerFileTimeoutSec > 0 {
+		e = append(e, fmt.Sprintf("GHIDRA_PER_FILE_TIMEOUT=%d", l.PerFileTimeoutSec))
+	}
+	return e
+}
+
+func runLocalGhidra(binaryPath, arch, image string, limits workerLimits) ([]byte, error) {
 	if err := ensureDockerImage(image, ghidraImageTarball); err != nil {
 		return nil, err
 	}
@@ -36,7 +59,7 @@ func runLocalGhidra(binaryPath, arch, image string) ([]byte, error) {
 		return nil, fmt.Errorf("allocate port: %w", err)
 	}
 
-	containerID, err := startContainer(image, port)
+	containerID, err := startContainer(image, port, limits.env()...)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +82,7 @@ func runLocalGhidra(binaryPath, arch, image string) ([]byte, error) {
 		return nil, err
 	}
 
-	body, err := postBinary(port, binaryPath, arch)
+	body, err := postBinary(port, binaryPath, arch, limits)
 	cancelStream()
 	streamWG.Wait()
 	if err != nil {
@@ -346,16 +369,21 @@ func findFreePort() (int, error) {
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
-func startContainer(image string, port int) (string, error) {
+// startContainer launches a worker image detached on the given port. Extra
+// `-e KEY=VAL` environment overrides may be passed (used by the ghidra path to
+// hand through timeout budgets); the JADX path passes none.
+func startContainer(image string, port int, envVars ...string) (string, error) {
 	// Note: we intentionally do NOT pass --rm. When Ghidra dies mid-request
 	// (cgroup OOM, JVM crash, hang) we need the container to STAY around
 	// long enough to grab `docker logs` + `docker inspect` post-mortem.
 	// Cleanup is done by stopContainer() (defer in runLocalGhidra), which
 	// removes the container after we've persisted its logs.
-	cmd := exec.Command("docker", "run", "-d",
-		"-p", fmt.Sprintf("127.0.0.1:%d:8000", port),
-		image,
-	)
+	runArgs := []string{"run", "-d", "-p", fmt.Sprintf("127.0.0.1:%d:8000", port)}
+	for _, e := range envVars {
+		runArgs = append(runArgs, "-e", e)
+	}
+	runArgs = append(runArgs, image)
+	cmd := exec.Command("docker", runArgs...)
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -444,7 +472,7 @@ func waitForHealth(port int, timeout time.Duration) error {
 	return fmt.Errorf("ghidra-worker did not become healthy within %s", timeout)
 }
 
-func postBinary(port int, path, arch string) ([]byte, error) {
+func postBinary(port int, path, arch string, limits workerLimits) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open binary: %w", err)
@@ -473,8 +501,17 @@ func postBinary(port int, path, arch string) ([]byte, error) {
 
 	// Ghidra can take 15+ minutes on a stripped library. The worker has its
 	// own subprocess timeout (default 25m); we go a touch higher so we don't
-	// kill the request just as the worker is finalizing the JSON write.
-	client := &http.Client{Timeout: 30 * time.Minute}
+	// kill the request just as the worker is finalizing the JSON write. When
+	// the caller raised --timeout past the default, scale the client timeout
+	// with it (worker wall + 5m headroom) so we don't abandon the request
+	// before the worker even reaches its own cap.
+	httpTimeout := 30 * time.Minute
+	if limits.AnalyzeTimeoutSec > 0 {
+		if d := time.Duration(limits.AnalyzeTimeoutSec)*time.Second + 5*time.Minute; d > httpTimeout {
+			httpTimeout = d
+		}
+	}
+	client := &http.Client{Timeout: httpTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("worker /analyze: %w", err)

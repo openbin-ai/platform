@@ -45,7 +45,11 @@ const (
 	//   :2       — adds line_map + vars for Ghidra-style cross-highlighting
 	//   :3       — full data-symbol bytes_preview (4KB cap, budgeted)
 	//   :4       — fixes entry_points/exports always empty (wrong API call)
-	ghidraWorkerImage  = "openbin/ghidra-worker:4"
+	//   :5       — wall-clock decompile budget: emits a PARTIAL result (stubs
+	//              the functions it can't reach in time) instead of a 504 on
+	//              huge binaries; per-fn decompile cap 90s→45s. Pairs with the
+	//              new `decompile --timeout` / `--analysis-timeout` flags.
+	ghidraWorkerImage  = "openbin/ghidra-worker:5"
 	ghidraImageTarball = "ghidra-worker.tar.gz"
 
 	// Same bundling scheme for the JADX worker (APK decompiles).

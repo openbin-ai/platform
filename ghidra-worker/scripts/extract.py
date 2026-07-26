@@ -40,7 +40,9 @@
 #@category OpenAPK
 
 import json
+import os
 import re
+import time
 import traceback
 
 # Identifier shape for decompiled variable names (uVar1, param_1, local_18,
@@ -70,7 +72,27 @@ MAX_DATA_SYMBOLS = 20000
 MAX_TLS_CALLBACKS = 64
 MAX_MEMORY_BLOCKS = 256
 MIN_STRING_LEN = 4
-DECOMPILE_TIMEOUT_SEC = 90
+# Per-function decompile ceiling. A single function that takes this long is
+# almost always pathological (obfuscated dispatch loop, giant switch); real
+# code decompiles in well under a second. Kept modest so a handful of such
+# functions can't each burn a big slice of the shared wall-clock budget — the
+# old 90s let ~a dozen gigafunctions alone blow the whole analysis past its cap.
+DECOMPILE_TIMEOUT_SEC = 45
+# Absolute wall-clock deadline (epoch seconds) for the decompile phase, handed
+# down by the worker (app/main.py) as GHIDRA_EXTRACT_DEADLINE_EPOCH. Once the
+# remaining budget drops below one function's decompile ceiling we STOP
+# decompiling new bodies and stub the rest (body_skipped=True, same UI stub as
+# the size-cap path) — every function is still LISTED, we just don't have time
+# to give them all bodies. This turns the old hard 504 (whole subprocess killed,
+# nothing salvaged) into a usable partial result. None => no deadline (older
+# worker, or an unbounded manual run): behaves exactly as before.
+_EXTRACT_DEADLINE = None
+try:
+    _dl = os.environ.get("GHIDRA_EXTRACT_DEADLINE_EPOCH")
+    if _dl:
+        _EXTRACT_DEADLINE = float(_dl)
+except:
+    _EXTRACT_DEADLINE = None
 # Caps on the per-function payload. Disassembly is by far the biggest
 # contributor to result.json size -- a single 5000-instruction function is
 # ~250KB of mnemonics alone. Truncate aggressively; the AI layer doesn't need
@@ -162,7 +184,9 @@ try:
     listing = program.getListing()
 
     functions = []
-    decompile_budget_hit = 0
+    decompile_budget_hit = 0     # bodies skipped by the MAX_DECOMPILE_BODIES size cap
+    decompile_time_skipped = 0   # bodies skipped because the wall-clock budget ran out
+    time_budget_exhausted = False
     fm = program.getFunctionManager()
     fn_iter = fm.getFunctions(True)  # forward=True
     while fn_iter.hasNext():
@@ -179,15 +203,29 @@ try:
         is_external = bool(fn.isExternal())
         is_thunk = bool(fn.isThunk())
 
+        # Wall-clock guard: once too little budget remains to safely run one
+        # more decompile (which can take up to DECOMPILE_TIMEOUT_SEC), stop
+        # decompiling NEW bodies. The metadata-stub loop below is fast and
+        # still runs for every remaining function, so the binary stays fully
+        # navigable and result.json still gets written before the worker's
+        # hard subprocess timeout. Latch it so we don't re-check every row.
+        if _EXTRACT_DEADLINE is not None and not time_budget_exhausted:
+            if time.time() + DECOMPILE_TIMEOUT_SEC > _EXTRACT_DEADLINE:
+                time_budget_exhausted = True
+                println("[extract] decompile time budget exhausted after " +
+                        str(len(functions)) + " functions; stubbing the rest")
+
         # Decompile/disassemble only the first MAX_DECOMPILE_BODIES non-
-        # external/non-thunk functions. Everything else gets a metadata-
-        # only stub so it remains clickable in the UI's function list and
-        # cross-references resolve, but the body is null (UI shows
-        # "decompile not available" empty state). This lets giant binaries
-        # stay navigable without blowing the JSON payload size.
+        # external/non-thunk functions, and only while wall-clock budget
+        # remains. Everything else gets a metadata-only stub so it remains
+        # clickable in the UI's function list and cross-references resolve,
+        # but the body is null (UI shows "decompile not available" empty
+        # state). This lets giant binaries stay navigable without blowing the
+        # JSON payload size OR the analysis wall-clock.
         decompile_this = (
             not is_external and not is_thunk
             and len(functions) < MAX_DECOMPILE_BODIES
+            and not time_budget_exhausted
         )
         decompiled = None
         disassembly = None
@@ -339,7 +377,10 @@ try:
         # decompile" vs "this is a stub" later.
         body_skipped = (not is_external and not is_thunk and not decompile_this)
         if body_skipped:
-            decompile_budget_hit += 1
+            if time_budget_exhausted:
+                decompile_time_skipped += 1
+            else:
+                decompile_budget_hit += 1
         functions.append({
             "name": name,
             "address": addr,
@@ -356,7 +397,8 @@ try:
         })
 
     println("[extract] functions: " + str(len(functions)) +
-            " (decompile_budget_skipped=" + str(decompile_budget_hit) + ")")
+            " (decompile_budget_skipped=" + str(decompile_budget_hit) +
+            " decompile_time_skipped=" + str(decompile_time_skipped) + ")")
 
     # ---------- Strings (defined string-shaped data) ----------
     strings = []
@@ -599,6 +641,11 @@ try:
         "tls_callback_count": len(tls_callbacks),
         "data_symbol_count": len(data_symbols),
         "memory_block_count": len(memory_blocks),
+        # >0 means the wall-clock budget ran out before every eligible function
+        # was decompiled — those extras are listed as body_skipped stubs. The
+        # UI can surface a "partial analysis — raise --timeout to decompile all"
+        # hint; kept a number so it fits the metadata's string|number contract.
+        "decompile_time_skipped_count": decompile_time_skipped,
     }
 
     result = {

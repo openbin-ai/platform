@@ -17,6 +17,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -40,6 +41,13 @@ ANALYZE_TIMEOUT_SEC = int(os.environ.get("GHIDRA_ANALYZE_TIMEOUT", "1500"))
 # function-start search enabled (see scripts/preflight.py), large stripped libs
 # can take 15+ minutes. Should always be lower than ANALYZE_TIMEOUT_SEC.
 ANALYSIS_TIMEOUT_SEC = int(os.environ.get("GHIDRA_PER_FILE_TIMEOUT", "1200"))
+# Slice reserved out of ANALYZE_TIMEOUT_SEC for extract.py's post-decompile
+# work (strings/imports/data-symbols) + JSON serialization + the HTTP response.
+# We hand extract.py a wall-clock deadline of (now + ANALYZE_TIMEOUT_SEC - this)
+# so it STOPS decompiling and emits a partial result BEFORE subprocess.run's own
+# hard timeout would kill everything. Without this, a binary whose auto-analysis
+# eats most of the budget produced a 504 with nothing salvaged.
+EXTRACT_TAIL_MARGIN_SEC = int(os.environ.get("GHIDRA_EXTRACT_TAIL_MARGIN", "150"))
 
 app = FastAPI(title="ghidra-worker", version="0.1.0")
 
@@ -101,12 +109,21 @@ async def analyze(
         ]
         log.info("job=%s running: %s", job_id, " ".join(cmd))
 
+        # Hand extract.py an absolute wall-clock deadline for its decompile
+        # phase. It reads GHIDRA_EXTRACT_DEADLINE_EPOCH and, once too little
+        # budget remains to safely decompile one more function, stubs the rest
+        # and writes result.json — so a big binary yields a PARTIAL result
+        # instead of hitting subprocess.run's hard timeout with nothing.
+        child_env = dict(os.environ)
+        child_env["GHIDRA_EXTRACT_DEADLINE_EPOCH"] = repr(time.time() + ANALYZE_TIMEOUT_SEC - EXTRACT_TAIL_MARGIN_SEC)
+
         try:
             proc = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=ANALYZE_TIMEOUT_SEC,
+                env=child_env,
             )
         except subprocess.TimeoutExpired:
             raise HTTPException(status_code=504, detail=f"ghidra analysis timed out after {ANALYZE_TIMEOUT_SEC}s")

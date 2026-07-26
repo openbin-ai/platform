@@ -11,11 +11,13 @@ import (
 )
 
 var (
-	decompileArch    string
-	decompileName    string
-	decompileImage   string
-	decompileFork    bool
-	decompileNoDedup bool
+	decompileArch            string
+	decompileName            string
+	decompileImage           string
+	decompileFork            bool
+	decompileNoDedup         bool
+	decompileTimeout         int
+	decompileAnalysisTimeout int
 )
 
 var decompileCmd = &cobra.Command{
@@ -26,10 +28,24 @@ the given binary, and POSTs the decompiled JSON to your OpenBin account
 as a new project. The binary bytes never leave your laptop — only the
 decompiled JSON (function listings, strings, imports, metadata) is uploaded.
 
+Large binaries:
+    The worker caps the whole run at 25 minutes (Ghidra auto-analysis + the
+    decompile pass). On a very large or heavily-obfuscated binary the decompile
+    pass may run out of that budget — when it does, the analysis is NOT lost:
+    every function is still listed, and the ones that couldn't be decompiled in
+    time are marked as stubs you can open on demand (a partial result instead of
+    a failure). To give a huge binary more room, raise the cap:
+
+        openbin decompile --timeout 3600 huge-miner.elf     # 60-minute wall
+
+    --analysis-timeout tunes just the Ghidra auto-analysis phase and must stay
+    below --timeout so the decompile pass keeps some of the budget.
+
 Examples:
     openbin decompile firmware.elf
     openbin decompile --arch x86_64 windows-malware.exe
     openbin decompile --name "Acme Firmware v2.3" fw.bin
+    openbin decompile --timeout 3600 --analysis-timeout 2400 big-stripped.so
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -103,10 +119,24 @@ Examples:
 			}
 		}
 
+		// Optional timeout overrides for large binaries. Zero = worker default.
+		// analysis-timeout must stay below the outer wall or Ghidra's own
+		// auto-analysis cap would eat the whole budget and leave nothing for
+		// the decompile/extract phase.
+		if decompileAnalysisTimeout > 0 && decompileTimeout > 0 &&
+			decompileAnalysisTimeout >= decompileTimeout {
+			return fmt.Errorf("--analysis-timeout (%ds) must be less than --timeout (%ds)",
+				decompileAnalysisTimeout, decompileTimeout)
+		}
+		limits := workerLimits{
+			AnalyzeTimeoutSec: decompileTimeout,
+			PerFileTimeoutSec: decompileAnalysisTimeout,
+		}
+
 		fmt.Printf("Decompiling %s (%.1f MB, sha256=%s) locally...\n",
 			filename, float64(size)/(1024*1024), sha[:12])
 		start := time.Now()
-		workerJSON, err := runLocalGhidra(binaryPath, arch, image)
+		workerJSON, err := runLocalGhidra(binaryPath, arch, image, limits)
 		if err != nil {
 			return err
 		}
@@ -142,6 +172,10 @@ func init() {
 		"if a public analysis of this binary already exists, fork it instead of decompiling (no prompt)")
 	decompileCmd.Flags().BoolVar(&decompileNoDedup, "no-dedup", false,
 		"skip the pre-decompile hash-dedup check and always decompile locally")
+	decompileCmd.Flags().IntVar(&decompileTimeout, "timeout", 0,
+		"hard cap in seconds for the whole local decompile (default: worker built-in 1500s/25m). Raise for very large binaries.")
+	decompileCmd.Flags().IntVar(&decompileAnalysisTimeout, "analysis-timeout", 0,
+		"cap in seconds for Ghidra's auto-analysis phase (default: worker built-in 1200s/20m). Must be < --timeout.")
 	rootCmd.AddCommand(decompileCmd)
 }
 
