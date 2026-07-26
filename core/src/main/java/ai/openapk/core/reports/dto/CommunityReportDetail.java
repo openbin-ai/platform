@@ -34,5 +34,9 @@ public record CommunityReportDetail(
         boolean votedByMe,
         boolean amFollowingAuthor,
         // Frozen contributor byline (LEAD first); empty for legacy reports.
-        List<Contributor> contributors
+        List<Contributor> contributors,
+        // Non-null when the project is anonymously public-readable
+        // (projects.public_read_at). Drives the report page's "View project &
+        // fork" link. Null = project private → the report shows no code link.
+        Instant projectPublicReadAt
 ) {}

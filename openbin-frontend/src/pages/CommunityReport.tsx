@@ -36,7 +36,7 @@ export function CommunityReport() {
 
   if (error) {
     return (
-      <ErrorShell title="Report unavailable" auth={auth}>
+      <ErrorShell title="Report unavailable">
         <p className="text-sm text-zinc-400">
           This report either doesn't exist, has been removed, or was never published.
         </p>
@@ -49,15 +49,14 @@ export function CommunityReport() {
 
   if (!report) {
     return (
-      <ErrorShell title="" auth={auth}>
+      <ErrorShell title="">
         <p className="text-sm text-zinc-500">Loading…</p>
       </ErrorShell>
     )
   }
 
   return (
-    <div className="flex h-full flex-col overflow-x-hidden bg-zinc-950 text-zinc-200">
-      <PublicHeader auth={auth} />
+    <div className="flex min-h-full flex-col overflow-x-hidden bg-zinc-950 text-zinc-200">
       <main className="mx-auto w-full min-w-0 max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
         <button
           onClick={() => navigate(-1)}
@@ -129,6 +128,25 @@ export function CommunityReport() {
             )}
           </header>
 
+          {/* Bridge to the forkable public project. Shown only when the owner
+              made the project public (at publish, or via the standalone
+              toggle). Anonymous readers can click through; the code view
+              itself asks them to sign in, and Fork lives on that page. */}
+          {report.projectPublicReadAt && (
+            <Link
+              to={`/public/projects/${report.projectId}`}
+              className="mb-8 flex items-center justify-between gap-3 rounded-lg border border-amber-700/50 bg-amber-950/20 px-4 py-3 transition hover:border-amber-600 hover:bg-amber-950/40"
+            >
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-amber-200">View project &amp; fork →</span>
+                <span className="mt-0.5 block text-xs text-zinc-400">
+                  Browse the decompiled code and fork your own editable copy.
+                </span>
+              </span>
+              <span aria-hidden className="shrink-0 text-lg">🍴</span>
+            </Link>
+          )}
+
           {report.sections.map((s) => (
             <section key={s.id} className="mb-8 min-w-0">
               <h2 className="mb-3 wrap-break-word text-lg font-medium text-zinc-100">{s.title}</h2>
@@ -145,7 +163,9 @@ export function CommunityReport() {
           <CommentsThread reportId={report.reportId} accent="amber" />
         </article>
       </main>
-      <PublicFooter />
+      <p className="px-6 pb-4 text-center text-[11px] text-zinc-600">
+        Community submissions reflect the views of their authors only.
+      </p>
       {showAbuse && (
         <AbuseModal
           reportId={report.reportId}
@@ -296,56 +316,19 @@ function AbuseModal({
   )
 }
 
-function PublicHeader({ auth }: { auth: ReturnType<typeof useAuth> }) {
-  return (
-    <header className="border-b border-zinc-800 bg-zinc-950">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
-        <Link to="/" className="text-sm font-semibold tracking-wide text-zinc-100 hover:opacity-80">
-          OPENBIN<span className="text-amber-400">.AI</span>
-        </Link>
-        <nav className="flex items-center gap-4 text-sm">
-          <Link to="/community" className="text-amber-300">Community</Link>
-          {auth.isAuthenticated ? (
-            <Link to="/" className="text-zinc-300 hover:text-zinc-100">My projects →</Link>
-          ) : (
-            <button
-              onClick={() => void auth.signinRedirect()}
-              className="rounded border border-zinc-700 px-3 py-1 text-zinc-300 hover:bg-zinc-800"
-            >
-              Sign in
-            </button>
-          )}
-        </nav>
-      </div>
-    </header>
-  )
-}
-
-function PublicFooter() {
-  return (
-    <footer className="border-t border-zinc-900 px-6 py-4 text-center text-[11px] text-zinc-600">
-      Community submissions reflect the views of their authors only. <Link to="/terms" className="hover:underline">Terms</Link>.
-    </footer>
-  )
-}
-
 function ErrorShell({
   title,
   children,
-  auth,
 }: {
   title: string
   children: React.ReactNode
-  auth: ReturnType<typeof useAuth>
 }) {
   return (
-    <div className="flex h-full flex-col bg-zinc-950 text-zinc-200">
-      <PublicHeader auth={auth} />
+    <div className="flex min-h-full flex-col bg-zinc-950 text-zinc-200">
       <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-16">
         {title && <h1 className="mb-3 text-xl font-semibold text-zinc-100">{title}</h1>}
         {children}
       </main>
-      <PublicFooter />
     </div>
   )
 }

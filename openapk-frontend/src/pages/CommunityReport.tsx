@@ -9,7 +9,6 @@ import { ContributorByline } from '@shared/components/ContributorByline'
 import { UpvoteButton } from '@shared/components/UpvoteButton'
 import { FollowButton } from '@shared/components/FollowButton'
 import { CommentsThread } from '@shared/components/CommentsThread'
-import iconUrl from '../assets/icon.png'
 
 // Anonymous, read-only view of a single community report. Same shape as
 // the auth'd Report editor's read mode but with zero edit affordances and
@@ -52,7 +51,7 @@ export function CommunityReport() {
 
   if (error) {
     return (
-      <ErrorShell title="Report unavailable" auth={auth}>
+      <ErrorShell title="Report unavailable">
         <p className="text-sm text-zinc-400">
           This report either doesn't exist, has been removed, or was never published.
         </p>
@@ -65,15 +64,14 @@ export function CommunityReport() {
 
   if (!report) {
     return (
-      <ErrorShell title="" auth={auth}>
+      <ErrorShell title="">
         <p className="text-sm text-zinc-500">Loading…</p>
       </ErrorShell>
     )
   }
 
   return (
-    <div className="flex h-full flex-col overflow-x-hidden bg-zinc-950 text-zinc-200">
-      <PublicHeader auth={auth} />
+    <div className="flex min-h-full flex-col overflow-x-hidden bg-zinc-950 text-zinc-200">
       <main className="mx-auto w-full min-w-0 max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
         <button
           onClick={() => navigate(-1)}
@@ -146,6 +144,23 @@ export function CommunityReport() {
             )}
           </header>
 
+          {/* Bridge to the public project view. Shown only when the owner made
+              the project public (at publish, or via the standalone toggle). */}
+          {report.projectPublicReadAt && (
+            <Link
+              to={`/public/projects/${report.projectId}`}
+              className="mb-8 flex items-center justify-between gap-3 rounded-lg border border-purple-700/50 bg-purple-950/20 px-4 py-3 transition hover:border-purple-600 hover:bg-purple-950/40"
+            >
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-purple-200">View project →</span>
+                <span className="mt-0.5 block text-xs text-zinc-400">
+                  Open the full project view — report and highlights.
+                </span>
+              </span>
+              <span aria-hidden className="shrink-0 text-lg">📂</span>
+            </Link>
+          )}
+
           {report.sections.map((s) => (
             <section key={s.id} className="mb-8 min-w-0">
               <h2 className="mb-3 wrap-break-word text-lg font-medium text-zinc-100">{s.title}</h2>
@@ -162,7 +177,9 @@ export function CommunityReport() {
           <CommentsThread reportId={report.reportId} accent="purple" />
         </article>
       </main>
-      <PublicFooter />
+      <p className="px-6 pb-4 text-center text-[11px] text-zinc-600">
+        Community submissions reflect the views of their authors only.
+      </p>
       {showAbuse && (
         <AbuseModal
           reportId={report.reportId}
@@ -314,59 +331,19 @@ function AbuseModal({
   )
 }
 
-function PublicHeader({ auth }: { auth: ReturnType<typeof useAuth> }) {
-  return (
-    <header className="border-b border-zinc-800 bg-zinc-950">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
-        <Link to="/" className="flex items-center gap-2 text-zinc-100 hover:opacity-80">
-          <img src={iconUrl} alt="OpenAPK" className="h-7 w-7" />
-          <span className="text-sm font-semibold tracking-wide">
-            OPENAPK<span className="text-red-500">.AI</span>
-          </span>
-        </Link>
-        <nav className="flex items-center gap-4 text-sm">
-          <Link to="/community" className="text-purple-300">Community</Link>
-          {auth.isAuthenticated ? (
-            <Link to="/projects" className="text-zinc-300 hover:text-zinc-100">My projects →</Link>
-          ) : (
-            <button
-              onClick={() => void auth.signinRedirect()}
-              className="rounded border border-zinc-700 px-3 py-1 text-zinc-300 hover:bg-zinc-800"
-            >
-              Sign in
-            </button>
-          )}
-        </nav>
-      </div>
-    </header>
-  )
-}
-
-function PublicFooter() {
-  return (
-    <footer className="border-t border-zinc-900 px-6 py-4 text-center text-[11px] text-zinc-600">
-      Community submissions reflect the views of their authors only. <Link to="/terms" className="hover:underline">Terms</Link>.
-    </footer>
-  )
-}
-
 function ErrorShell({
   title,
   children,
-  auth,
 }: {
   title: string
   children: React.ReactNode
-  auth: ReturnType<typeof useAuth>
 }) {
   return (
-    <div className="flex h-full flex-col bg-zinc-950 text-zinc-200">
-      <PublicHeader auth={auth} />
+    <div className="flex min-h-full flex-col bg-zinc-950 text-zinc-200">
       <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-16">
         {title && <h1 className="mb-3 text-xl font-semibold text-zinc-100">{title}</h1>}
         {children}
       </main>
-      <PublicFooter />
     </div>
   )
 }

@@ -272,7 +272,8 @@ public class CommunityService {
                 voteCount,
                 votedByMe,
                 amFollowingAuthor,
-                contributors.forReport(report.getId())
+                contributors.forReport(report.getId()),
+                p.getPublicReadAt()
         );
     }
 

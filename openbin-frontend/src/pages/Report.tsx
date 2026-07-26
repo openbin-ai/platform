@@ -199,7 +199,7 @@ export function ReportEditor({
     }
   }
 
-  async function publishToCommunity(payload: { malwareType: string | null; tags: string[] }) {
+  async function publishToCommunity(payload: { malwareType: string | null; tags: string[]; makeProjectPublic: boolean }) {
     setCommunityBusy(true)
     setError(null)
     try {
@@ -511,11 +511,15 @@ function CommunityPublishModal({
   initialTags: string[]
   busy: boolean
   onClose: () => void
-  onSubmit: (p: { malwareType: string | null; tags: string[] }) => void
+  onSubmit: (p: { malwareType: string | null; tags: string[]; makeProjectPublic: boolean }) => void
 }) {
   const [malwareType, setMalwareType] = useState(initialMalwareType ?? '')
   const [tags, setTags] = useState<string[]>(initialTags)
   const [tagDraft, setTagDraft] = useState('')
+  // Couple project public-read to publish (backend sets public_read_at). On by
+  // default so the report can link through to a forkable public project view;
+  // uncheck to publish the report only and keep the code private.
+  const [makeProjectPublic, setMakeProjectPublic] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
   function addTagFromDraft() {
@@ -533,6 +537,7 @@ function CommunityPublishModal({
     onSubmit({
       malwareType: malwareType || null,
       tags,
+      makeProjectPublic,
     })
   }
 
@@ -596,6 +601,23 @@ function CommunityPublishModal({
           ))}
         </div>
       )}
+
+      <label className="mt-5 flex cursor-pointer items-start gap-2.5 rounded border border-zinc-800 bg-zinc-950/60 p-3">
+        <input
+          type="checkbox"
+          checked={makeProjectPublic}
+          onChange={(e) => setMakeProjectPublic(e.target.checked)}
+          className="mt-0.5 h-4 w-4 shrink-0 accent-amber-500"
+        />
+        <span className="text-sm text-zinc-200">
+          Make the project public
+          <span className="mt-0.5 block text-xs text-zinc-500">
+            Adds a “View project &amp; fork” link on your report so readers can browse the
+            decompiled code (sign-in required) and fork their own editable copy. Uncheck to
+            publish the report only and keep the code private.
+          </span>
+        </span>
+      </label>
 
       {err && <p className="mt-3 text-xs text-red-400">{err}</p>}
 

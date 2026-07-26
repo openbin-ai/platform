@@ -66,6 +66,9 @@ export type CommunityReportDetail = {
   amFollowingAuthor: boolean
   // Frozen byline (LEAD first); empty for legacy reports.
   contributors: Contributor[]
+  // ISO instant when the project was made public-readable, or null if
+  // private. Drives the "View project & fork" link on the report page.
+  projectPublicReadAt?: string | null
 }
 
 export type CommunityFeedParams = {

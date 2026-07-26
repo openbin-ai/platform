@@ -136,10 +136,9 @@ public class CommunityController {
 
     /**
      * Researcher search — case-insensitive substring over display name +
-     * the username half of email. Only returns users who've published at
-     * least one community report, so the result set is naturally bounded
-     * to discoverable identities. Anonymous-readable (per-row
-     * {@code amFollowing} is always false for unauthenticated callers).
+     * the username half of email, across all registered users (publishers
+     * rank first). Anonymous-readable (per-row {@code amFollowing} is
+     * always false for unauthenticated callers).
      */
     @GetMapping("/users/search")
     public List<SocialUserSummary> searchUsers(

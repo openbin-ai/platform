@@ -246,8 +246,20 @@ public class ProjectReportService {
         if (report.getPublishedAt() == null) {
             report.setPublishedAt(Instant.now());
         }
+        boolean projectDirty = false;
         if (project.getWorkflowStatus() != WorkflowStatus.PUBLISHED) {
             project.setWorkflowStatus(WorkflowStatus.PUBLISHED);
+            projectDirty = true;
+        }
+        // Couple project public-read to the publish action when requested (the
+        // modal default). This is what lets the community report link through
+        // to a forkable public project view. Null = legacy client → leave the
+        // standalone visibility toggle as the only way to expose the code.
+        if (Boolean.TRUE.equals(req.makeProjectPublic()) && project.getPublicReadAt() == null) {
+            project.setPublicReadAt(Instant.now());
+            projectDirty = true;
+        }
+        if (projectDirty) {
             projectRepo.save(project);
         }
         ProjectReport saved = reportRepo.save(report);
