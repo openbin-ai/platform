@@ -49,7 +49,11 @@ const (
 	//              the functions it can't reach in time) instead of a 504 on
 	//              huge binaries; per-fn decompile cap 90s→45s. Pairs with the
 	//              new `decompile --timeout` / `--analysis-timeout` flags.
-	ghidraWorkerImage  = "openbin/ghidra-worker:5"
+	//   :6       — adds `listing`: full per-section listing (Ghidra Listing-
+	//              view style) — every instruction in executable blocks plus
+	//              defined-data/hexdump rows for data blocks. Powers the web
+	//              UI's full-disassembly / sections view.
+	ghidraWorkerImage  = "openbin/ghidra-worker:6"
 	ghidraImageTarball = "ghidra-worker.tar.gz"
 
 	// Same bundling scheme for the JADX worker (APK decompiles).

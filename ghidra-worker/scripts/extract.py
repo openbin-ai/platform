@@ -33,6 +33,12 @@
 #     "tls_callbacks": [{name, address}, ...],     # PE TLS directory callbacks (anti-debug hook surface)
 #     "data_symbols":  [{name, address, type}, ...], # DAT_* and named globals — for click-through from decompiled C
 #     "memory_blocks": [{name, start, end, size, permissions, executable, initialized}, ...],
+#     "listing":       [{block, start, end, executable, initialized, truncated,
+#                        lines: [{addr, bytes, text, label?}, ...]}, ...],
+#                      # full per-section listing (Ghidra Listing-view style):
+#                      # instructions + defined data in code order; undefined
+#                      # bytes coalesced into 16-byte hexdump rows (text=ascii).
+#                      # lines=[] for uninitialized blocks (.bss).
 #     "metadata":      {compiler, language, executable_format, image_base, *_count}
 #   }
 # On failure:
@@ -125,6 +131,19 @@ MAX_VAR_ADDRS = 256
 MAX_DATA_VALUE_BYTES = 4096
 MIN_DATA_VALUE_BYTES = 64
 MAX_TOTAL_DATA_PREVIEW_BYTES = 512 * 1024
+# Full-listing caps. The per-section listing is the single biggest optional
+# payload (a row per instruction / defined datum / 16 undefined bytes), so it
+# is bounded two ways: per block, and globally across all blocks. A row is
+# ~100B of JSON, so the worst case adds ~25MB raw (~3-4MB gzipped) — in the
+# same ballpark as the function-body budget that already dominates. Blocks
+# past a cap are flagged truncated=True so the UI can say so instead of
+# silently ending mid-section.
+MAX_LISTING_LINES_PER_BLOCK = 100000
+MAX_LISTING_TOTAL_LINES = 250000
+# Undefined bytes are one code unit EACH in Ghidra; coalesce runs into
+# hexdump-style rows of this many bytes (also the byte-column cap for
+# defined-data rows; instructions are never longer).
+LISTING_ROW_BYTES = 16
 
 
 def _safe(thunk, default=None):
@@ -140,6 +159,38 @@ def _write(out_path, payload):
         json.dump(payload, f)
     finally:
         f.close()
+
+
+def _hex_pairs(raw, n):
+    # Java bytes are signed; mask to unsigned before formatting.
+    parts = []
+    for i in range(n):
+        parts.append("%02x" % (raw[i] & 0xff))
+    return " ".join(parts)
+
+
+def _ascii_gutter(raw, n):
+    chars = []
+    for i in range(n):
+        b = raw[i] & 0xff
+        chars.append(chr(b) if 32 <= b <= 126 else ".")
+    return "".join(chars)
+
+
+def _flush_undef_row(lines, pend):
+    # pend: [addr_str, [signed bytes...], label_or_None] — a run of undefined
+    # bytes being coalesced into one hexdump row (text = ascii gutter).
+    if pend is None or not pend[1]:
+        return None
+    row = {
+        "addr":  pend[0],
+        "bytes": _hex_pairs(pend[1], len(pend[1])),
+        "text":  _ascii_gutter(pend[1], len(pend[1])),
+    }
+    if pend[2]:
+        row["label"] = pend[2]
+    lines.append(row)
+    return None
 
 
 # ---------- arg + program preflight ----------
@@ -627,6 +678,110 @@ try:
 
     println("[extract] memory_blocks: " + str(len(memory_blocks)))
 
+    # ---------- Full listing (per-section, Ghidra Listing-view style) ----------
+    # One entry per memory block, walked as CODE UNITS (not per-function), so
+    # the user gets the same linear view as Ghidra's Listing window: every
+    # instruction in .text including non-function code, defined data with its
+    # rendered value, and raw bytes in .data — plus symbol labels as anchors.
+    # This is deliberately additive to functions[].disassembly (the per-
+    # function view keeps its cross-highlight maps); the listing carries no
+    # line_map/vars.
+    #
+    # Undefined bytes are one code unit each in Ghidra, so runs are coalesced
+    # into LISTING_ROW_BYTES-wide hexdump rows (bytes=hex pairs, text=ascii
+    # gutter); a labeled unit starts a fresh row so the label lands on the
+    # right address. Uninitialized blocks (.bss) get lines=[] — there are no
+    # file bytes to show.
+    full_listing = []
+    listing_total_lines = 0
+    listing_deadline_hit = False
+    try:
+        from ghidra.program.model.address import AddressSet
+        from ghidra.program.model.listing import Instruction, Data
+        for blk in program.getMemory().getBlocks():
+            if len(full_listing) >= MAX_MEMORY_BLOCKS:
+                break
+            entry = {
+                "block":       blk.getName(),
+                "start":       str(blk.getStart()),
+                "end":         str(blk.getEnd()),
+                "executable":  bool(blk.isExecute()),
+                "initialized": bool(blk.isInitialized()),
+                "truncated":   False,
+                "lines":       [],
+            }
+            full_listing.append(entry)
+            if not blk.isInitialized():
+                continue
+            if listing_deadline_hit or listing_total_lines >= MAX_LISTING_TOTAL_LINES:
+                entry["truncated"] = True
+                continue
+            lines = entry["lines"]
+            pend = None  # coalesced undefined-byte row: [addr, [bytes], label]
+            n_seen = 0
+            try:
+                cu_iter = listing.getCodeUnits(AddressSet(blk.getStart(), blk.getEnd()), True)
+                while cu_iter.hasNext():
+                    cu = cu_iter.next()
+                    n_seen += 1
+                    # Periodic bail-outs: user cancel or the shared wall-clock
+                    # deadline (a multi-MB all-undefined .data block is millions
+                    # of one-byte code units).
+                    if (n_seen & 1023) == 0:
+                        if monitor.isCancelled() or (
+                                _EXTRACT_DEADLINE is not None and time.time() > _EXTRACT_DEADLINE):
+                            listing_deadline_hit = True
+                            entry["truncated"] = True
+                            break
+                    if (len(lines) >= MAX_LISTING_LINES_PER_BLOCK
+                            or listing_total_lines + len(lines) >= MAX_LISTING_TOTAL_LINES):
+                        entry["truncated"] = True
+                        break
+                    sym = _safe(lambda: sym_table.getPrimarySymbol(cu.getAddress()), None)
+                    label = sym.getName() if sym is not None else None
+                    is_undef = isinstance(cu, Data) and not _safe(lambda: cu.isDefined(), True)
+                    if is_undef:
+                        raw = _safe(lambda: cu.getBytes(), None)
+                        b = raw[0] if raw is not None and len(raw) > 0 else 0
+                        # Start a fresh row on a label or when the current one
+                        # is full; otherwise keep appending to the run.
+                        if pend is not None and (label or len(pend[1]) >= LISTING_ROW_BYTES):
+                            pend = _flush_undef_row(lines, pend)
+                        if pend is None:
+                            pend = [str(cu.getAddress()), [], label]
+                        pend[1].append(b)
+                        continue
+                    pend = _flush_undef_row(lines, pend)
+                    raw = _safe(lambda: cu.getBytes(), None)
+                    n_bytes = min(len(raw), LISTING_ROW_BYTES) if raw is not None else 0
+                    hex_str = _hex_pairs(raw, n_bytes) if n_bytes else ""
+                    if raw is not None and len(raw) > n_bytes:
+                        hex_str += " ..."
+                    if isinstance(cu, Instruction):
+                        text = _safe(lambda: cu.toString(), "") or ""
+                    else:
+                        # Defined data: same rendering Ghidra's Listing shows —
+                        # mnemonic (type) + value representation.
+                        mn = _safe(lambda: cu.getMnemonicString(), "") or ""
+                        vr = _safe(lambda: cu.getDefaultValueRepresentation(), "") or ""
+                        text = (mn + " " + vr).strip()
+                    row = {"addr": str(cu.getAddress()), "bytes": hex_str, "text": text}
+                    if label:
+                        row["label"] = label
+                    lines.append(row)
+                pend = _flush_undef_row(lines, pend)
+            except:
+                # Keep whatever rows we got for this block; the entry stays.
+                pend = _flush_undef_row(lines, pend)
+                entry["truncated"] = True
+            listing_total_lines += len(lines)
+    except Exception as e:
+        println("[extract] WARNING: full listing extraction failed: " + repr(e))
+
+    println("[extract] listing: " + str(listing_total_lines) + " lines across " +
+            str(len(full_listing)) + " blocks" +
+            (" (deadline hit)" if listing_deadline_hit else ""))
+
     # ---------- Metadata ----------
     metadata = {
         "compiler":          _safe(lambda: program.getCompiler(), ""),
@@ -641,6 +796,7 @@ try:
         "tls_callback_count": len(tls_callbacks),
         "data_symbol_count": len(data_symbols),
         "memory_block_count": len(memory_blocks),
+        "listing_line_count": listing_total_lines,
         # >0 means the wall-clock budget ran out before every eligible function
         # was decompiled — those extras are listed as body_skipped stubs. The
         # UI can surface a "partial analysis — raise --timeout to decompile all"
@@ -657,6 +813,7 @@ try:
         "tls_callbacks": tls_callbacks,
         "data_symbols":  data_symbols,
         "memory_blocks": memory_blocks,
+        "listing":       full_listing,
         "metadata":      metadata,
     }
 
@@ -669,7 +826,8 @@ try:
             " entry_points=" + str(len(entry_points)) +
             " tls=" + str(len(tls_callbacks)) +
             " data=" + str(len(data_symbols)) +
-            " blocks=" + str(len(memory_blocks)))
+            " blocks=" + str(len(memory_blocks)) +
+            " listing_lines=" + str(listing_total_lines))
 
 except SystemExit:
     raise
