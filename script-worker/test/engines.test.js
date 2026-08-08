@@ -102,6 +102,29 @@ test('readability scoring prefers revealed strings over hex identifiers', () => 
   );
 });
 
+test('response is trimmed to Lambda payload limit by SERIALIZED size', () => {
+  // Regression: capping the raw source at 4 MB still blew Lambda's 6 MB
+  // response cap, because JSON escaping inflates obfuscated JS (quotes,
+  // backslashes, non-ASCII). The budget must be measured after encoding.
+  const { fitToResponseLimit, MAX_RESPONSE_BYTES } = require('../src/handler').__test__;
+  const nasty = '"\\\né'.repeat(1_500_000); // escape-heavy, ~6 MB raw
+  const fitted = fitToResponseLimit({
+    engine: 'generic', used: true, source: nasty,
+    note: 'x', truncated: false, attempts: [],
+  });
+  const encoded = Buffer.byteLength(JSON.stringify(fitted), 'utf8');
+  assert.ok(encoded <= MAX_RESPONSE_BYTES, `serialized ${encoded} must fit ${MAX_RESPONSE_BYTES}`);
+  assert.equal(fitted.truncated, true);
+  assert.ok(fitted.source.length > 0, 'should keep as much as fits, not give up');
+});
+
+test('small responses are returned untouched', () => {
+  const { fitToResponseLimit } = require('../src/handler').__test__;
+  const r = fitToResponseLimit({ engine: 'generic', used: true, source: 'const a=1;', note: 'x', truncated: false });
+  assert.equal(r.truncated, false);
+  assert.equal(r.source, 'const a=1;');
+});
+
 test('suggestEngine routes the dropper shape to caesar', () => {
   assert.equal(suggestEngine(read('caesar-dropper.js')), 'caesar');
   assert.equal(suggestEngine(read('string-array.js')), 'obfuscator-io');

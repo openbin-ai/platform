@@ -156,9 +156,50 @@ async function analyzePackage(event) {
 
 // --- on-demand single-file deobfuscation ---------------------------------
 
-// Lambda's synchronous invoke response is capped at 6 MB; stay well under
-// it so the JSON envelope (note + attempts) can never push us over.
-const MAX_INLINE_SOURCE_BYTES = Number(process.env.MAX_INLINE_SOURCE_BYTES || 4 * 1024 * 1024);
+// Lambda's synchronous invoke response is hard-capped at 6 MB — and that
+// limit applies to the SERIALIZED payload, not the raw source. JSON
+// escaping inflates minified/obfuscated JS substantially (every quote,
+// backslash and newline doubles; non-ASCII becomes \uXXXX), so a 4 MB
+// source can serialize past 6 MB and the invoke fails with an opaque
+// "Response payload size exceeded" that loses the whole result. We
+// therefore budget against the encoded size and shrink until it fits.
+const MAX_RESPONSE_BYTES = Number(process.env.MAX_RESPONSE_BYTES || 5 * 1024 * 1024);
+
+/**
+ * Shrink `source` until the whole response fits Lambda's payload limit.
+ *
+ * Measures the SERIALIZED size (see MAX_RESPONSE_BYTES) and halves the
+ * source until it fits, rather than assuming a fixed expansion ratio —
+ * escaping cost varies from ~1x for plain ASCII to ~6x for source full of
+ * quotes and non-ASCII, which is exactly what obfuscated payloads look
+ * like. Truncating beats failing: a analyst can still read the top of a
+ * decoded dropper, and `truncated` tells the UI to say so.
+ */
+function fitToResponseLimit(response) {
+  let out = response;
+  let encoded = Buffer.byteLength(JSON.stringify(out), 'utf8');
+  if (encoded <= MAX_RESPONSE_BYTES) return out;
+
+  let source = out.source || '';
+  // Start from a ratio-informed guess, then halve until it fits. Bounded
+  // by construction: each pass at least halves the source.
+  let budget = Math.floor(source.length * (MAX_RESPONSE_BYTES / encoded) * 0.9);
+  while (budget > 1024) {
+    source = out.source.slice(0, budget);
+    const candidate = { ...out, source, truncated: true };
+    encoded = Buffer.byteLength(JSON.stringify(candidate), 'utf8');
+    if (encoded <= MAX_RESPONSE_BYTES) return candidate;
+    budget = Math.floor(budget / 2);
+  }
+  // Pathological: even a tiny slice doesn't fit. Drop the source entirely
+  // rather than lose the note + attempts the analyst can still act on.
+  return {
+    ...out,
+    source: '',
+    truncated: true,
+    note: `${out.note} (result too large to return — ${(out.source || '').length} chars)`,
+  };
+}
 
 /**
  * Deobfuscate ONE file from a project's existing analysis bundle.
@@ -204,17 +245,17 @@ async function deobfuscateFile(event) {
     }
 
     const result = deobfuscateOnDemand(raw, requestedEngine);
-    let source = result.source;
-    let truncated = false;
-    if (Buffer.byteLength(source, 'utf8') > MAX_INLINE_SOURCE_BYTES) {
-      source = source.slice(0, MAX_INLINE_SOURCE_BYTES);
-      truncated = true;
-    }
+    const response = fitToResponseLimit({
+      ...result,
+      truncated: false,
+      durationMs: Date.now() - startedAt,
+    });
     console.log(
       `deobfuscate project=${projectId} file=${filePath} requested=${requestedEngine} ` +
-      `picked=${result.engine} used=${result.used} ms=${Date.now() - startedAt}`,
+      `picked=${result.engine} used=${result.used} truncated=${response.truncated} ` +
+      `ms=${Date.now() - startedAt}`,
     );
-    return { ...result, source, truncated, durationMs: Date.now() - startedAt };
+    return response;
   } finally {
     try { await fsp.rm(workRoot, { recursive: true, force: true }); } catch (_) {}
   }
@@ -414,3 +455,6 @@ async function copyDir(src, dest) {
     else if (e.isFile()) await fsp.copyFile(sp, dp);
   }
 }
+
+// Internals exposed for tests only — the Lambda contract is `handler`.
+exports.__test__ = { fitToResponseLimit, MAX_RESPONSE_BYTES };
