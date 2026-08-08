@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from 'react-oidc-context'
 import { oidcConfig } from './auth/oidcConfig'
 import { RequireAuth } from './auth/RequireAuth'
+import { StaleSessionRecovery } from '@shared/auth/StaleSessionRecovery'
 import { TosGate } from '@shared/components/TosGate'
 import { Layout } from './components/Layout'
 import { SettingsLayout } from './components/SettingsLayout'
@@ -27,6 +28,7 @@ import { Profile } from './pages/Profile'
 export default function App() {
   return (
     <AuthProvider {...oidcConfig}>
+      <StaleSessionRecovery />
       <BrowserRouter>
         <Routes>
           {/* Public marketing landing — no auth required. */}

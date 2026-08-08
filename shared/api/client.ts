@@ -22,7 +22,14 @@ export class ApiError extends Error {
 
 export function useApi() {
   const auth = useAuth()
-  const token = auth.user?.access_token
+  // Never attach an expired token. The OIDC user is rehydrated from
+  // localStorage, so after the Keycloak session dies overnight we can hold a
+  // dead access token — and Spring validates any Bearer header it sees, even
+  // on permitAll endpoints, so sending it 401s public pages that would have
+  // worked anonymously. StaleSessionRecovery handles renewing/clearing the
+  // stale session itself.
+  const user = auth.user
+  const token = user && !user.expired ? user.access_token : undefined
 
   return useCallback(
     async <T = unknown>(path: string, init?: RequestInit): Promise<T> => {

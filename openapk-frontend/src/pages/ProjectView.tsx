@@ -1164,6 +1164,7 @@ function RightPanel({
             projectId={projectId}
             canEdit={callerCanEdit}
             Img={AuthenticatedImg}
+            ScreenshotPicker={ScreenshotModal}
             refreshKey={highlightsKey}
             defaultTarget={selectedFilePath ? { type: 'FILE', ref: selectedFilePath } : null}
             onNavigate={(h) => { if (h.type === 'FILE' && h.targetRef) onOpenFile(h.targetRef) }}

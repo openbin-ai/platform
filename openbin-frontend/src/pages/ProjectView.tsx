@@ -19,6 +19,7 @@ import { ReportEditor } from './Report'
 import { Gallery } from '../components/Gallery'
 import { AuthenticatedImg } from '../components/AuthenticatedImg'
 import { ScreenshotModal } from '../components/ScreenshotModal'
+import { ListingPane, type ListingBlock, type ListingTarget } from '../components/ListingPane'
 import { captureScreen } from '../components/captureScreen'
 import { estimateCost } from '../lib/llmCost'
 
@@ -248,6 +249,9 @@ type BinaryAnalysis = {
   tls_callbacks?: AddressedSymbol[]
   data_symbols?: DataSymbol[]
   memory_blocks?: MemoryBlock[]
+  // Full per-section listing (worker :6+). Absent on older analyses —
+  // the ListingPane renders a "re-analyze with the latest CLI" state.
+  listing?: ListingBlock[]
   metadata: Record<string, string | number>
 }
 
@@ -413,6 +417,11 @@ export function ProjectView() {
   // Left-sidebar tab. Stays in URL-less local state because the user's
   // primary task is reading code; the tab choice doesn't deserve a route.
   const [leftTab, setLeftTab] = useState<LeftTab>('functions')
+
+  // Non-null swaps the center pane from the per-function CodePane to the
+  // full program listing (sections + linear disassembly). Any function
+  // selection closes it — selectFn is the single choke point for that.
+  const [listingTarget, setListingTarget] = useState<ListingTarget | null>(null)
 
   // Set whenever a side-panel hit (Network call site today; Xrefs / Chain /
   // future Crypto and Search) wants the code view to scroll to + flash a
@@ -648,6 +657,8 @@ export function ProjectView() {
       // Cap the stack so a marathon session can't grow it unbounded.
       setNav(({ past }) => ({ past: [...past.slice(-63), prev], future: [] }))
     }
+    // Selecting a function always returns the center pane to code view.
+    setListingTarget(null)
     setSelectedName(name)
     const fn = fnByName.get(name)
     if (fn && (fn.external || fn.thunk)) {
@@ -726,6 +737,7 @@ export function ProjectView() {
     const current = selectedNameRef.current
     if (current) to.push(current)
     setNav(dir === 'back' ? { past: from, future: to } : { past: to, future: from })
+    setListingTarget(null)
     setSelectedName(target)
     setPendingHighlight(null)
     const f = fnByName.get(target)
@@ -807,6 +819,7 @@ export function ProjectView() {
             onJump={jumpToTarget}
             selectedDataName={selectedDataName}
             onSelectData={setSelectedDataName}
+            onOpenListing={(block) => setListingTarget({ block, nonce: Date.now() })}
             onCollapse={() => setLeftOpen(false)}
           />
         ) : (
@@ -816,6 +829,15 @@ export function ProjectView() {
             onExpand={() => setLeftOpen(true)}
           />
         )}
+        {listingTarget ? (
+          <ListingPane
+            blocks={analysis.listing}
+            target={listingTarget}
+            onClose={() => setListingTarget(null)}
+            isFn={(name) => fnByName.has(name)}
+            onJumpFn={selectFn}
+          />
+        ) : (
         <CodePane
           fn={selected}
           view={view}
@@ -831,6 +853,7 @@ export function ProjectView() {
           onSelect={selectFn}
           onJump={jumpToTarget}
           pendingHighlight={pendingHighlight}
+          onOpenListing={() => setListingTarget({ addr: selected?.address, nonce: Date.now() })}
           deobfs={deobfs}
           onDeobfChange={(originalName, deobf) => {
             setDeobfs((prev) => {
@@ -841,6 +864,7 @@ export function ProjectView() {
             })
           }}
         />
+        )}
         {rightOpen ? (
           <SidePanel
             panel={sidePanel}
@@ -1105,6 +1129,7 @@ function LeftSidebar({
   onJump,
   selectedDataName,
   onSelectData,
+  onOpenListing,
   onCollapse,
 }: {
   projectId: string
@@ -1121,6 +1146,7 @@ function LeftSidebar({
   onJump: (target: JumpTarget) => boolean
   selectedDataName: string | null
   onSelectData: (name: string | null) => void
+  onOpenListing: (block?: string) => void
   onCollapse: () => void
 }) {
   const graphHref = selectedName
@@ -1204,7 +1230,7 @@ function LeftSidebar({
         />
       )}
       {tab === 'sections' && (
-        <SectionsPanel blocks={analysis.memory_blocks} />
+        <SectionsPanel blocks={analysis.memory_blocks} onOpenListing={onOpenListing} />
       )}
     </aside>
   )
@@ -1292,6 +1318,7 @@ function CodePane({
   onSelect,
   onJump,
   pendingHighlight,
+  onOpenListing,
   deobfs,
   onDeobfChange,
 }: {
@@ -1319,6 +1346,9 @@ function CodePane({
   // for resolved targets, so a miss here is exceptional).
   onJump: (target: JumpTarget) => boolean
   pendingHighlight: PendingHighlight | null
+  // Swaps the center pane to the full program listing (sections view),
+  // opened at the current function's address when one is selected.
+  onOpenListing: () => void
   // Project-wide deobf cache keyed by original (pre-rename) function name.
   // Look-ups in this map use the displayed fn.name directly since renames
   // are applied to the analysis JSON before the frontend ever sees it —
@@ -1429,8 +1459,14 @@ function CodePane({
 
   if (!fn) {
     return (
-      <main className="flex items-center justify-center text-zinc-600">
-        Select a function from the list
+      <main className="flex flex-col items-center justify-center gap-3 text-zinc-600">
+        <span>Select a function from the list</span>
+        <button
+          onClick={onOpenListing}
+          className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-purple-700 hover:bg-purple-950/40 hover:text-purple-200"
+        >
+          ☰ or browse the full program listing
+        </button>
       </main>
     )
   }
@@ -1514,7 +1550,14 @@ function CodePane({
         {/* Side-by-side toggle: shows pseudocode + disassembly in two columns
             so the user can follow the C against the machine code. Clicking a
             line/variable/instruction in either pane cross-highlights both. */}
-        <div className="ml-auto flex items-center pr-2">
+        <div className="ml-auto flex items-center gap-1 pr-2">
+          <button
+            onClick={onOpenListing}
+            title="Full program listing — every section's disassembly and data (Ghidra Listing-view style), opened at this function's address"
+            className="rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800"
+          >
+            ☰ Listing
+          </button>
           <button
             onClick={toggleSplit}
             disabled={disasmDisabled}
@@ -2875,6 +2918,7 @@ function SidePanel({
               projectId={projectId}
               canEdit={canEditHighlights}
               Img={AuthenticatedImg}
+              ScreenshotPicker={ScreenshotModal}
               refreshKey={highlightsKey}
               defaultTarget={selectedName ? { type: 'FUNCTION', ref: selectedName } : null}
               onNavigate={(h) => { if (h.type === 'FUNCTION' && h.targetRef) onSelect(h.targetRef) }}
@@ -5770,7 +5814,13 @@ function DetailRow({
 // later filter the function/data lists to that range, but the immediate
 // value is just letting the user see whether 0x1405ec170 is in .text
 // vs a packed/overlay section.
-function SectionsPanel({ blocks }: { blocks: MemoryBlock[] | undefined }) {
+function SectionsPanel({
+  blocks,
+  onOpenListing,
+}: {
+  blocks: MemoryBlock[] | undefined
+  onOpenListing: (block?: string) => void
+}) {
   if (!blocks || blocks.length === 0) {
     return (
       <div className="p-3 text-[11px] text-zinc-500">
@@ -5781,24 +5831,41 @@ function SectionsPanel({ blocks }: { blocks: MemoryBlock[] | undefined }) {
     )
   }
   return (
-    <div className="p-2">
-      <ul className="space-y-1">
-        {blocks.map((b) => (
-          <li key={b.start + b.name} className="rounded border border-zinc-800 bg-zinc-900/40 p-2 font-mono text-[11px]">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="truncate font-semibold text-zinc-200" title={b.name}>{b.name}</span>
-              <span className={`shrink-0 ${b.executable ? 'text-emerald-300' : 'text-zinc-500'}`}>
-                {b.permissions}
-              </span>
-            </div>
-            <div className="mt-0.5 text-zinc-500">
-              {b.start} – {b.end}
-              {b.size > 0 && <span className="ml-2 text-zinc-600">{b.size.toLocaleString()} B</span>}
-              {!b.initialized && <span className="ml-2 text-zinc-600">uninitialized</span>}
-            </div>
-          </li>
-        ))}
-      </ul>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="border-b border-zinc-800 p-2">
+        <button
+          onClick={() => onOpenListing()}
+          className="w-full rounded border border-zinc-700 bg-zinc-900/60 px-2 py-1.5 text-[11px] font-medium text-zinc-200 hover:border-purple-700 hover:bg-purple-950/40 hover:text-purple-200"
+          title="Open the full program listing — every section's disassembly and data, Ghidra Listing-view style"
+        >
+          ☰ Open full listing
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        <ul className="space-y-1">
+          {blocks.map((b) => (
+            <li key={b.start + b.name}>
+              <button
+                onClick={() => onOpenListing(b.name)}
+                title={`View ${b.name} in the full listing`}
+                className="w-full rounded border border-zinc-800 bg-zinc-900/40 p-2 text-left font-mono text-[11px] hover:border-purple-800 hover:bg-purple-950/30"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="truncate font-semibold text-zinc-200">{b.name}</span>
+                  <span className={`shrink-0 ${b.executable ? 'text-emerald-300' : 'text-zinc-500'}`}>
+                    {b.permissions}
+                  </span>
+                </div>
+                <div className="mt-0.5 text-zinc-500">
+                  {b.start} – {b.end}
+                  {b.size > 0 && <span className="ml-2 text-zinc-600">{b.size.toLocaleString()} B</span>}
+                  {!b.initialized && <span className="ml-2 text-zinc-600">uninitialized</span>}
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   )
 }

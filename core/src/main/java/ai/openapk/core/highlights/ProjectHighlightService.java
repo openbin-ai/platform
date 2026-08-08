@@ -78,6 +78,7 @@ public class ProjectHighlightService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "highlight not found"));
         if (req.tag() != null) h.setTag(blankToNull(req.tag()));
         if (req.note() != null) h.setNote(blankToNull(req.note()));
+        if (req.mediaKey() != null) h.setMediaKey(blankToNull(req.mediaKey()));
         if (req.position() != null) h.setPosition(req.position());
         return toResponse(repo.save(h));
     }

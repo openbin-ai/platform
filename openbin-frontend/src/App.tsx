@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from 'react-oidc-context'
 import { RequireAuth } from '@shared/auth/RequireAuth'
+import { StaleSessionRecovery } from '@shared/auth/StaleSessionRecovery'
 import { TosGate } from '@shared/components/TosGate'
 import { oidcConfig } from './auth/oidcConfig'
 import { Layout } from './components/Layout'
@@ -44,6 +45,7 @@ import { Profile } from './pages/Profile'
 export default function App() {
   return (
     <AuthProvider {...oidcConfig}>
+      <StaleSessionRecovery />
       <BrowserRouter>
         <Routes>
           {/* Anonymous-readable pages — same Layout chrome as the authed

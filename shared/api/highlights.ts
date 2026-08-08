@@ -31,6 +31,8 @@ export type CreateHighlightRequest = {
 export type UpdateHighlightRequest = {
   tag?: string | null
   note?: string | null
+  /** New media filename to attach ('' clears; upload via media endpoint first). */
+  mediaKey?: string | null
   position?: number | null
 }
 

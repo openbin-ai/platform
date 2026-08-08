@@ -4,7 +4,9 @@ import {
   type Highlight,
   type HighlightType,
   type CreateHighlightRequest,
+  type UpdateHighlightRequest,
   HIGHLIGHT_TYPE_META,
+  mediaKeyFromUrl,
 } from '@shared/api/highlights'
 
 // The Highlights board: a curated evidence layer over the project's shared
@@ -23,6 +25,13 @@ type Props = {
   projectId: string
   canEdit: boolean
   Img: ComponentType<{ src: string; className?: string }>
+  /**
+   * Screenshot picker used to add/replace a card's screenshot in place —
+   * injected per-frontend (each app's ScreenshotModal owns the paste/drop/
+   * annotate flow), same reasoning as `Img`. onInsert receives the uploaded
+   * media URL. Omit (e.g. public view) to hide the screenshot edit controls.
+   */
+  ScreenshotPicker?: ComponentType<{ projectId: string; onClose: () => void; onInsert: (url: string) => void }>
   /** Bump to force a refetch (e.g. after a screenshot adds a highlight). */
   refreshKey?: number
   /** Pre-fills the "add" form's anchor with the current selection. */
@@ -38,7 +47,7 @@ type Props = {
 }
 
 export function HighlightsPanel({
-  projectId, canEdit, Img, refreshKey = 0, defaultTarget, onNavigate, pathBase,
+  projectId, canEdit, Img, ScreenshotPicker, refreshKey = 0, defaultTarget, onNavigate, pathBase,
 }: Props) {
   const api = useApi()
   const base = pathBase ?? `/api/projects/${projectId}`
@@ -46,6 +55,8 @@ export function HighlightsPanel({
   const [error, setError] = useState<string | null>(null)
   const [tagFilter, setTagFilter] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
+  /** Card whose screenshot is being added/replaced via the picker. */
+  const [pickingFor, setPickingFor] = useState<Highlight | null>(null)
 
   const load = useCallback(async () => {
     setError(null)
@@ -79,12 +90,21 @@ export function HighlightsPanel({
     }
   }
 
-  async function patch(id: string, body: { tag?: string | null; note?: string | null; position?: number }) {
+  async function patch(id: string, body: UpdateHighlightRequest) {
     const updated = await api<Highlight>(`${base}/highlights/${id}`, {
       method: 'PATCH', body: JSON.stringify(body),
     })
     setItems(prev => prev?.map(h => (h.id === id ? updated : h)) ?? null)
     return updated
+  }
+
+  // '' (not null) clears — null means "leave unchanged" in the PATCH contract.
+  async function setScreenshot(id: string, mediaKey: string) {
+    try {
+      await patch(id, { mediaKey })
+    } catch (e) {
+      setError((e as Error).message)
+    }
   }
 
   // Reorder by swapping adjacent positions. Works against the FULL list order
@@ -162,6 +182,8 @@ export function HighlightsPanel({
                 onNavigate={onNavigate}
                 onDelete={() => void remove(h.id)}
                 onSave={(body) => patch(h.id, body)}
+                onPickScreenshot={canEdit && ScreenshotPicker ? () => setPickingFor(h) : undefined}
+                onRemoveScreenshot={canEdit && h.mediaKey ? () => void setScreenshot(h.id, '') : undefined}
                 onMoveUp={tagFilter === null && i > 0 ? () => void move(h.id, -1) : undefined}
                 onMoveDown={tagFilter === null && i < shown.length - 1 ? () => void move(h.id, 1) : undefined}
               />
@@ -169,6 +191,18 @@ export function HighlightsPanel({
           </ul>
         )}
       </div>
+
+      {pickingFor && ScreenshotPicker && (
+        <ScreenshotPicker
+          projectId={projectId}
+          onClose={() => setPickingFor(null)}
+          onInsert={(url) => {
+            const key = mediaKeyFromUrl(url)
+            if (key) void setScreenshot(pickingFor.id, key)
+            setPickingFor(null)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -189,7 +223,7 @@ function FilterChip({ active, onClick, children }: { active: boolean; onClick: (
 }
 
 function HighlightCard({
-  h, mediaBase, canEdit, Img, onNavigate, onDelete, onSave, onMoveUp, onMoveDown,
+  h, mediaBase, canEdit, Img, onNavigate, onDelete, onSave, onPickScreenshot, onRemoveScreenshot, onMoveUp, onMoveDown,
 }: {
   h: Highlight
   mediaBase: string
@@ -198,6 +232,8 @@ function HighlightCard({
   onNavigate?: (h: Highlight) => void
   onDelete: () => void
   onSave: (body: { tag?: string | null; note?: string | null }) => Promise<Highlight>
+  onPickScreenshot?: () => void
+  onRemoveScreenshot?: () => void
   onMoveUp?: () => void
   onMoveDown?: () => void
 }) {
@@ -253,6 +289,28 @@ function HighlightCard({
 
       {editing ? (
         <div className="mt-2 space-y-2">
+          {(onPickScreenshot || onRemoveScreenshot) && (
+            <div className="flex gap-2">
+              {onPickScreenshot && (
+                <button
+                  onClick={onPickScreenshot}
+                  className="rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-200 hover:bg-zinc-800"
+                >
+                  📷 {h.mediaKey ? 'Replace screenshot' : 'Add screenshot'}
+                </button>
+              )}
+              {onRemoveScreenshot && h.mediaKey && (
+                <button
+                  onClick={() => {
+                    if (window.confirm('Remove this screenshot from the card? It stays in the Gallery.')) onRemoveScreenshot()
+                  }}
+                  className="rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-red-400"
+                >
+                  Remove screenshot
+                </button>
+              )}
+            </div>
+          )}
           <input
             value={tag}
             onChange={e => setTag(e.target.value)}
