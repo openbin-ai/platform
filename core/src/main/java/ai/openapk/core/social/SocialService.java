@@ -184,13 +184,13 @@ public class SocialService {
                 JOIN users u ON p.user_id = u.id
                 JOIN follows f ON f.followee_id = u.id
                 WHERE r.community_published_at IS NOT NULL
-                  AND p.kind = :kind
+                  AND p.kind = ANY(CAST(:kinds AS text[]))
                   AND f.follower_id = :viewer
                 ORDER BY r.community_published_at DESC
                 LIMIT :limit OFFSET :offset
                 """);
         nq.setParameter("viewer", viewer.getId());
-        nq.setParameter("kind", kind.name());
+        nq.setParameter("kinds", kind.surfaceKindsPgArray());
         nq.setParameter("limit", limit);
         nq.setParameter("offset", offset);
 
@@ -317,13 +317,13 @@ public class SocialService {
                 JOIN projects p ON r.project_id = p.id
                 JOIN users u ON p.user_id = u.id
                 WHERE r.community_published_at IS NOT NULL
-                  AND p.kind = :kind
+                  AND p.kind = ANY(CAST(:kinds AS text[]))
                   AND p.user_id = :author
                 ORDER BY r.community_published_at DESC
                 LIMIT 50
                 """);
         nq.setParameter("author", u.getId());
-        nq.setParameter("kind", kind.name());
+        nq.setParameter("kinds", kind.surfaceKindsPgArray());
         nq.setParameter("viewerKnown", viewerOrNull != null);
         // Postgres still binds the param even on the short-circuit branch,
         // so pass the author UUID as a stand-in when anonymous (NULL would
@@ -352,12 +352,12 @@ public class SocialService {
                 WHERE rc.user_id = :author
                   AND rc.credit = 'CONTRIBUTOR'
                   AND r.community_published_at IS NOT NULL
-                  AND p.kind = :kind
+                  AND p.kind = ANY(CAST(:kinds AS text[]))
                 ORDER BY r.community_published_at DESC
                 LIMIT 50
                 """);
         collabQuery.setParameter("author", u.getId());
-        collabQuery.setParameter("kind", kind.name());
+        collabQuery.setParameter("kinds", kind.surfaceKindsPgArray());
         collabQuery.setParameter("viewerKnown", viewerOrNull != null);
         collabQuery.setParameter("viewer", viewerOrNull != null ? viewerOrNull.getId() : u.getId());
         @SuppressWarnings("unchecked")

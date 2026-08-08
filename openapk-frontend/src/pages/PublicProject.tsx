@@ -15,7 +15,7 @@ import { PublicCodeView } from '../components/PublicCodeView'
 
 type PublicSummary = {
   id: string
-  kind: 'APK' | 'BIN'
+  kind: 'APK' | 'BIN' | 'SCRIPT'
   name: string
   originalFilename: string
   sha256: string
@@ -99,7 +99,9 @@ export function PublicProject() {
             <h1 className="wrap-break-word text-xl font-semibold text-zinc-100 sm:text-2xl">
               {report?.title || summary.name}
             </h1>
-            <ForkButton projectId={summary.id} accent="purple" />
+            {/* Fork is BIN-only on the backend (shares the immutable binary
+                analysis blob); APK/SCRIPT projects have no forkable blob yet. */}
+            {summary.kind === 'BIN' && <ForkButton projectId={summary.id} accent="purple" />}
           </div>
           <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-zinc-500 sm:grid-cols-3">
             <Meta label="Project" value={summary.name} />

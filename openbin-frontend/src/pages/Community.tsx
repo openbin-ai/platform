@@ -100,7 +100,7 @@ export function Community() {
           <div>
             <h1 className="text-2xl font-semibold text-zinc-100">Community research</h1>
             <p className="mt-1 text-sm text-zinc-500">
-              Public binary analyses contributed by the community. Browse, search by hash or
+              Public binary and script analyses contributed by the community. Browse, search by hash or
               keyword, and filter by malware type. <Link to="/terms" className="text-amber-400 hover:underline">Terms</Link>.
             </p>
           </div>

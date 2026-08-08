@@ -79,7 +79,8 @@ export function ScriptUploadCard({
         let rootName = ''
         for (let i = 0; i < files.length; i++) {
           const f = files[i] as File & { webkitRelativePath?: string }
-          const rel = f.webkitRelativePath || f.name
+          const rel = sanitizeZipEntryPath(f.webkitRelativePath || f.name)
+          if (!rel) continue
           if (!rootName) rootName = rel.split('/')[0] || 'upload'
           zip.file(rel, await f.arrayBuffer())
         }
@@ -249,6 +250,18 @@ export function ScriptUploadCard({
       `}</style>
     </div>
   )
+}
+
+// Zip entry names must stay portable: the analyzer's zip reader treats a
+// leading `name:` segment as a Windows drive path and refuses the archive —
+// a Linux folder legally named `Gzip:tar-bundle` used to 502 the whole
+// upload. Drop `.`/`..`/empty segments and replace `:` and `\` per segment.
+function sanitizeZipEntryPath(rel: string): string {
+  return rel
+    .split('/')
+    .filter((seg) => seg && seg !== '.' && seg !== '..')
+    .map((seg) => seg.replace(/[:\\]/g, '_'))
+    .join('/')
 }
 
 // Drag-and-drop a directory: the OS gives us a DataTransferItemList of

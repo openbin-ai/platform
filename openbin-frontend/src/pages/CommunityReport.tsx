@@ -138,9 +138,13 @@ export function CommunityReport() {
               className="mb-8 flex items-center justify-between gap-3 rounded-lg border border-amber-700/50 bg-amber-950/20 px-4 py-3 transition hover:border-amber-600 hover:bg-amber-950/40"
             >
               <span className="min-w-0">
-                <span className="block text-sm font-medium text-amber-200">View project &amp; fork →</span>
+                <span className="block text-sm font-medium text-amber-200">
+                  {report.kind === 'BIN' ? <>View project &amp; fork →</> : <>View project →</>}
+                </span>
                 <span className="mt-0.5 block text-xs text-zinc-400">
-                  Browse the decompiled code and fork your own editable copy.
+                  {report.kind === 'BIN'
+                    ? 'Browse the decompiled code and fork your own editable copy.'
+                    : 'Browse the published analysis.'}
                 </span>
               </span>
               <span aria-hidden className="shrink-0 text-lg">🍴</span>

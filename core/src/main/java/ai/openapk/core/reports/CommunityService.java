@@ -92,7 +92,8 @@ public class CommunityService {
      * Supports optional FTS keyword search, malware-type filter, tag
      * filter (ARRAY overlap), and exact sha256 lookup.
      *
-     * @param kind APK or BIN — split feed per product
+     * @param kind APK or BIN — split feed per product surface (BIN also
+     *             matches SCRIPT projects, which live on openbin)
      * @param q free-text keyword (FTS via plainto_tsquery)
      * @param malwareType STIX 2.1 malware-type filter
      * @param tags tag list for array-overlap filter
@@ -133,7 +134,7 @@ public class CommunityService {
                 JOIN projects p ON r.project_id = p.id
                 JOIN users u ON p.user_id = u.id
                 WHERE r.community_published_at IS NOT NULL
-                  AND p.kind = :kind
+                  AND p.kind = ANY(CAST(:kinds AS text[]))
                 """);
 
         if (isHashLookup) {
@@ -162,7 +163,7 @@ public class CommunityService {
         sql.append("LIMIT :limit OFFSET :offset");
 
         var nq = em.createNativeQuery(sql.toString());
-        nq.setParameter("kind", kind.name());
+        nq.setParameter("kinds", kind.surfaceKindsPgArray());
         nq.setParameter("limit", limit);
         nq.setParameter("offset", offset);
         nq.setParameter("viewerKnown", viewerId != null);

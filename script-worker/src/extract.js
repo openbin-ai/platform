@@ -54,7 +54,12 @@ async function extractTarGz(inputPath, destDir) {
 }
 
 async function extractZip(inputPath, destDir) {
-  const zip = new StreamZip.async({ file: inputPath });
+  // skipEntryNameValidation: the library's built-in guard rejects any entry
+  // matching `^\w+:` as a Windows drive path — which false-positives on
+  // legal Linux/macOS folder names containing colons (a web folder-upload
+  // named `Gzip:tar-bundle/` killed the whole analysis). Zip-slip safety is
+  // enforced by our own isInside() check on every entry below.
+  const zip = new StreamZip.async({ file: inputPath, skipEntryNameValidation: true });
   let entryCount = 0;
   try {
     // Inspect entries first to compute the common leading prefix. Both
@@ -66,7 +71,9 @@ async function extractZip(inputPath, destDir) {
     const commonRoot = computeCommonRoot(names);
     for (const [name, entry] of Object.entries(entries)) {
       if (entry.isDirectory) continue;
-      const rel = commonRoot ? name.slice(commonRoot.length) : name;
+      // Normalize backslash separators (zips from broken Windows tooling)
+      // so the traversal check and on-disk layout see forward slashes.
+      const rel = (commonRoot ? name.slice(commonRoot.length) : name).replaceAll('\\', '/');
       if (!rel) continue;
       if (!isInside(destDir, rel)) continue;
       const out = path.join(destDir, rel);

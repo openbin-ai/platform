@@ -45,7 +45,7 @@ export type Contributor = {
 export type CommunityReportDetail = {
   reportId: string
   projectId: string
-  kind: 'APK' | 'BIN'
+  kind: 'APK' | 'BIN' | 'SCRIPT'
   title: string
   sections: { id: string; title: string; content: string }[]
   malwareType: string | null

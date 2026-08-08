@@ -20,5 +20,17 @@ package ai.openapk.core.projects;
 public enum ProjectKind {
     APK,
     BIN,
-    SCRIPT
+    SCRIPT;
+
+    /**
+     * Kinds visible on this kind's product surface. The openbin product
+     * (BIN) also hosts SCRIPT projects, so its community/social feeds must
+     * match both — a SCRIPT report published to the community is otherwise
+     * invisible in every feed despite reading "live". Returned as a
+     * Postgres text[] literal for {@code = ANY(CAST(:kinds AS text[]))}
+     * binding in the native feed queries.
+     */
+    public String surfaceKindsPgArray() {
+        return this == BIN ? "{BIN,SCRIPT}" : "{" + name() + "}";
+    }
 }
