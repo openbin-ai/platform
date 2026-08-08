@@ -36,7 +36,7 @@ export function AskAiPanel({
   projectId: string
   filePath: string | null
   fileBytes: Uint8Array | undefined
-  sourceMode: 'original' | 'deobfuscated'
+  sourceMode: 'original' | 'deobfuscated' | 'ondemand'
 }) {
   const api = useApi()
   const streamingApi = useStreamingApi()
@@ -138,7 +138,9 @@ export function AskAiPanel({
       {
         filePath,
         fileContent: content,
-        deobfuscated: sourceMode === 'deobfuscated',
+        // Both deobfuscated views are "not the original bytes" as far as
+        // the system prompt is concerned.
+        deobfuscated: sourceMode !== 'original',
         question: trimmed,
         credentialId,
         model: model || undefined,

@@ -5,6 +5,8 @@ import ai.openapk.core.auth.CurrentUserService;
 import ai.openapk.core.projects.analysis.AnalysisStorageService;
 import ai.openapk.core.projects.dto.ProjectResponse;
 import ai.openapk.core.script.dto.AskScriptRequest;
+import ai.openapk.core.script.dto.DeobfuscateRequest;
+import ai.openapk.core.script.dto.DeobfuscateResponse;
 import ai.openapk.core.script.dto.ScriptAnalysisFindings;
 import jakarta.validation.Valid;
 import tools.jackson.databind.ObjectMapper;
@@ -121,6 +123,21 @@ public class ScriptAnalysisController {
         }
         String url = storage.signDownloadUrl(row.getBundleS3Key());
         return Map.of("url", url);
+    }
+
+    /**
+     * Run a deobfuscation engine over ONE file of a SCRIPT project, on
+     * demand. Not part of upload — the analyst picks the file and the
+     * engine ({@code auto} to let the worker score the candidates and keep
+     * the best). Nothing is persisted, so this is safe to re-run with a
+     * different engine as many times as the analyst wants.
+     */
+    @PostMapping("/{projectId}/deobfuscate")
+    public DeobfuscateResponse deobfuscate(
+            @PathVariable UUID projectId,
+            @Valid @RequestBody DeobfuscateRequest req
+    ) {
+        return service.deobfuscateFile(currentUser.current(), projectId, req);
     }
 
     @GetMapping("/{projectId}/findings")

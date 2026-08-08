@@ -1,11 +1,18 @@
-// Lambda entrypoint. Orchestrates: download tarball from S3 → extract →
-// parse package.json → per-file deobfuscate + AST analyze → emit findings
-// JSON + deobfuscated bundle back to S3.
+// Lambda entrypoint. Two operations, dispatched on `event.op`:
 //
-// Event shape:
-//   { s3Bucket, s3InputKey, projectId }
-// Response shape:
-//   { findingsKey, bundleKey, summary }
+//   op: 'analyze' (default — the shape core has always sent)
+//     download tarball from S3 → extract → parse package.json → per-file
+//     deobfuscate + AST analyze → emit findings JSON + bundle back to S3.
+//     Event:    { s3Bucket, s3InputKey, projectId }
+//     Response: { findingsKey, bundleKey, summary }
+//
+//   op: 'deobfuscate' (on-demand, analyst pressed the button on one file)
+//     pull that one file out of the analysis bundle already in S3, run the
+//     requested engine (or auto-select), return the source inline. No S3
+//     write and no findings mutation — this is a read-only view transform,
+//     so re-running it with a different engine is free and idempotent.
+//     Event:    { s3Bucket, projectId, filePath, engine, bundleKey? }
+//     Response: { engine, used, source, note, attempts, truncated }
 //
 // Errors surface as `{ error: '...' }` with non-2xx semantics in the
 // Lambda invocation result (caller decides how to treat).
@@ -20,6 +27,7 @@ const s3io = require('./s3-io');
 const archive = require('./extract');
 const pkgParser = require('./package-json-parser');
 const { tryDeobfuscate } = require('./deobfuscator');
+const { deobfuscateOnDemand, ENGINE_IDS } = require('./engines');
 const { analyzeSource } = require('./analyzer');
 
 // 10 MB per file. Real malicious payloads run huge — the Red Hat
@@ -36,6 +44,13 @@ const MAX_AST_BYTES = Number(process.env.MAX_AST_BYTES || 512 * 1024);
 const ANALYZED_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.ts']);
 
 exports.handler = async (event, context) => {
+  if (event && event.op === 'deobfuscate') {
+    return deobfuscateFile(event);
+  }
+  return analyzePackage(event);
+};
+
+async function analyzePackage(event) {
   const startedAt = Date.now();
   const { s3Bucket, s3InputKey, projectId } = event || {};
   if (!s3Bucket || !s3InputKey || !projectId) {
@@ -137,7 +152,73 @@ exports.handler = async (event, context) => {
     // Best-effort scratch cleanup — Lambda /tmp is per-container and small.
     try { await fsp.rm(workRoot, { recursive: true, force: true }); } catch (_) {}
   }
-};
+}
+
+// --- on-demand single-file deobfuscation ---------------------------------
+
+// Lambda's synchronous invoke response is capped at 6 MB; stay well under
+// it so the JSON envelope (note + attempts) can never push us over.
+const MAX_INLINE_SOURCE_BYTES = Number(process.env.MAX_INLINE_SOURCE_BYTES || 4 * 1024 * 1024);
+
+/**
+ * Deobfuscate ONE file from a project's existing analysis bundle.
+ *
+ * Reads from the bundle rather than accepting source in the event: the
+ * bundle is the authoritative copy of what was analyzed, it keeps the
+ * request payload tiny regardless of file size, and it means a caller
+ * cannot ask us to burn Lambda CPU on arbitrary attacker-supplied text.
+ */
+async function deobfuscateFile(event) {
+  const startedAt = Date.now();
+  const { s3Bucket, projectId, filePath, engine, bundleKey } = event || {};
+  if (!s3Bucket || !projectId || !filePath) {
+    throw new Error('event missing s3Bucket / projectId / filePath');
+  }
+  const requestedEngine = engine || 'auto';
+  if (requestedEngine !== 'auto' && !ENGINE_IDS.includes(requestedEngine)) {
+    throw new Error(`unknown engine '${requestedEngine}'`);
+  }
+
+  const workRoot = await fsp.mkdtemp(path.join(os.tmpdir(), `deobf-${projectId}-`));
+  const bundlePath = path.join(workRoot, 'bundle.tgz');
+  const outDir = path.join(workRoot, 'out');
+  try {
+    // Caller passes the bundle key recorded on the analysis row; the
+    // conventional path is only a fallback for older rows.
+    const key = bundleKey || `scripts/${projectId}/deobfuscated.tgz`;
+    await s3io.downloadToFile(s3Bucket, key, bundlePath);
+
+    // Extract only the one entry we need. `original/` is the untouched
+    // upload tree — always deobfuscate from that, never from a previously
+    // deobfuscated copy, so engines are compared on equal footing.
+    const wanted = `original/${filePath}`;
+    await fsp.mkdir(outDir, { recursive: true });
+    await tar.x({ file: bundlePath, cwd: outDir, filter: (p) => p === wanted || p === `./${wanted}` });
+
+    const onDisk = path.join(outDir, wanted);
+    let raw;
+    try {
+      raw = await fsp.readFile(onDisk, 'utf8');
+    } catch (_) {
+      throw new Error(`file not found in bundle: ${filePath}`);
+    }
+
+    const result = deobfuscateOnDemand(raw, requestedEngine);
+    let source = result.source;
+    let truncated = false;
+    if (Buffer.byteLength(source, 'utf8') > MAX_INLINE_SOURCE_BYTES) {
+      source = source.slice(0, MAX_INLINE_SOURCE_BYTES);
+      truncated = true;
+    }
+    console.log(
+      `deobfuscate project=${projectId} file=${filePath} requested=${requestedEngine} ` +
+      `picked=${result.engine} used=${result.used} ms=${Date.now() - startedAt}`,
+    );
+    return { ...result, source, truncated, durationMs: Date.now() - startedAt };
+  } finally {
+    try { await fsp.rm(workRoot, { recursive: true, force: true }); } catch (_) {}
+  }
+}
 
 // -----------------------------------------------------------------------
 

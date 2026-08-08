@@ -67,7 +67,62 @@ export const SCRIPT_PATHS = {
   findings: (projectId: string) => `/api/projects/script/${projectId}/findings`,
   bundleUrl: (projectId: string) => `/api/projects/script/${projectId}/bundle-url`,
   askStream: (projectId: string) => `/api/projects/script/${projectId}/ask/stream`,
+  deobfuscate: (projectId: string) => `/api/projects/script/${projectId}/deobfuscate`,
 } as const
+
+// --- on-demand deobfuscation --------------------------------------------
+
+/**
+ * Engines the analyst can run against a single file, on demand. This is
+ * separate from the conservative pass that runs at upload time.
+ *
+ *  auto          — worker runs the plausible engines and keeps whichever
+ *                  scores most readable (it reports what it tried).
+ *  obfuscator-io — ben-sb/obfuscator-io-deobfuscator, specialised for
+ *                  obfuscator.io string arrays + control-flow flattening.
+ *  generic       — ben-sb/js-deobfuscator, broader but less targeted.
+ *  caesar        — Caesar-over-fromCharCode decoder for the common NPM
+ *                  dropper shape.
+ */
+export type DeobfuscateEngine = 'auto' | 'obfuscator-io' | 'generic' | 'caesar'
+
+export const DEOBFUSCATE_ENGINES: { id: DeobfuscateEngine; label: string; hint: string }[] = [
+  { id: 'auto', label: 'Auto', hint: 'Try each engine and keep the most readable result' },
+  { id: 'obfuscator-io', label: 'obfuscator.io', hint: 'String arrays, control-flow flattening, anti-tamper' },
+  { id: 'generic', label: 'General JS', hint: 'Broader deobfuscator, less obfuscator.io-specific' },
+  { id: 'caesar', label: 'Caesar decode', hint: 'Caesar-shift over fromCharCode — the common NPM dropper' },
+]
+
+/** Extensions the JS engines can do anything with. */
+const JS_EXTENSIONS = ['.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx']
+
+export function isDeobfuscatable(path: string): boolean {
+  const lower = path.toLowerCase()
+  return JS_EXTENSIONS.some((ext) => lower.endsWith(ext))
+}
+
+export type DeobfuscateAttempt = {
+  engine: string
+  used: boolean
+  score: number | null
+  durationMs?: number
+  error?: string
+}
+
+/** Mirrors DeobfuscateResponse on the backend. */
+export type DeobfuscateResult = {
+  engine: string
+  used: boolean
+  source: string
+  note: string
+  error?: string | null
+  score?: number | null
+  baselineScore?: number | null
+  looksObfuscated?: boolean | null
+  truncated: boolean
+  durationMs?: number | null
+  attempts?: DeobfuscateAttempt[] | null
+}
 
 /** Mirrors AskScriptRequest on the backend. */
 export type AskScriptBody = {

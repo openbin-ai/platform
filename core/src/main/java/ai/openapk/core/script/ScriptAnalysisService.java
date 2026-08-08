@@ -9,6 +9,8 @@ import ai.openapk.core.projects.ProjectRepository;
 import ai.openapk.core.projects.ProjectStatus;
 import ai.openapk.core.projects.WorkflowStatus;
 import ai.openapk.core.projects.dto.ProjectResponse;
+import ai.openapk.core.script.dto.DeobfuscateRequest;
+import ai.openapk.core.script.dto.DeobfuscateResponse;
 import ai.openapk.core.script.dto.ScriptAnalysisFindings;
 import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -244,6 +246,67 @@ public class ScriptAnalysisService {
             project.setStatus(ProjectStatus.FAILED);
             projects.save(project);
             throw e;
+        }
+    }
+
+    /**
+     * On-demand deobfuscation of one file, driven by the analyst pressing
+     * the button in the code viewer.
+     *
+     * <p>Deliberately NOT part of the upload pipeline: upload-time
+     * deobfuscation stays conservative (it runs over every file of every
+     * package), while this runs a chosen engine hard at one file. Nothing
+     * is persisted — the result is a view transform, so re-running with a
+     * different engine is free and can't corrupt the stored analysis.
+     *
+     * <p>Always targets the npm/JS worker regardless of the project's
+     * ecosystem: these are JavaScript deobfuscators, and the JS worker is
+     * the only one that carries them. The caller is expected to offer the
+     * action only for JS-ish files.
+     */
+    public DeobfuscateResponse deobfuscateFile(User user, UUID projectId, DeobfuscateRequest req) {
+        if (!callerCanRead(user.getId(), projectId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project");
+        }
+        ScriptAnalysis row = analyses.findById(projectId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project"));
+        if (row.getBundleS3Key() == null || row.getBundleS3Key().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "this analysis has no source bundle, so there is nothing to deobfuscate");
+        }
+        String functionName = cfg.lambdaFunctionName();
+        if (functionName == null || functionName.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "no JS analyzer Lambda configured");
+        }
+
+        Map<String, Object> event = Map.of(
+                "op", "deobfuscate",
+                "s3Bucket", s3Config.bucket(),
+                "bundleKey", row.getBundleS3Key(),
+                "projectId", projectId.toString(),
+                "filePath", req.filePath(),
+                "engine", req.engineOrAuto()
+        );
+        byte[] respBytes;
+        try {
+            respBytes = invoker.invoke(functionName, event);
+        } catch (LambdaInvoker.LambdaInvocationException e) {
+            String msg = e.getMessage() == null ? "" : e.getMessage();
+            // "file not found in bundle" is a client mistake (stale path
+            // from a re-analyzed project), not a worker fault — 404 it so
+            // the UI can say something useful instead of "bad gateway".
+            if (msg.contains("file not found in bundle")) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "that file is not in this project's analysis bundle");
+            }
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "deobfuscator failed: " + msg);
+        }
+        try {
+            return mapper.readValue(respBytes, DeobfuscateResponse.class);
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "deobfuscator returned malformed response: " + e.getMessage());
         }
     }
 
