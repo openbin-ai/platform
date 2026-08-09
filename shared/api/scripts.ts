@@ -68,6 +68,7 @@ export const SCRIPT_PATHS = {
   bundleUrl: (projectId: string) => `/api/projects/script/${projectId}/bundle-url`,
   askStream: (projectId: string) => `/api/projects/script/${projectId}/ask/stream`,
   deobfuscate: (projectId: string) => `/api/projects/script/${projectId}/deobfuscate`,
+  deobfuscations: (projectId: string) => `/api/projects/script/${projectId}/deobfuscations`,
 } as const
 
 // --- on-demand deobfuscation --------------------------------------------
@@ -133,4 +134,19 @@ export type AskScriptBody = {
   credentialId: string
   model?: string
   priorTurns?: Array<{ role: 'user' | 'assistant'; content: string }>
+}
+
+/** Mirrors SavedDeobfuscation on the backend — a result from an earlier session. */
+export type SavedDeobfuscation = {
+  filePath: string
+  /** Engine requested (auto | obfuscator-io | generic | caesar). */
+  engine: string
+  /** Engine auto settled on; equals `engine` for explicit runs. */
+  engineUsed: string
+  source: string
+  note: string | null
+  score: number | null
+  baselineScore: number | null
+  truncated: boolean
+  savedAt: string
 }

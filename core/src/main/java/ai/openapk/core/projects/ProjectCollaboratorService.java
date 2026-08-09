@@ -114,10 +114,11 @@ public class ProjectCollaboratorService {
     }
 
     /**
-     * Owner-only: invite a user (by email) at the given role. OWNER as a
-     * requested role is rejected — ownership is a property of
-     * {@code projects.user_id}, never granted via this table. Inviting
-     * the project owner is also rejected (they already have full access).
+     * Owner-only: invite a user — identified by user id (from researcher
+     * search or the follow graph) or by email — at the given role. OWNER as
+     * a requested role is rejected: ownership is a property of
+     * {@code projects.user_id}, never granted via this table. Inviting the
+     * project owner is also rejected (they already have full access).
      */
     @Transactional
     public CollaboratorResponse add(User caller, UUID projectId, AddCollaboratorRequest req) {
@@ -126,9 +127,16 @@ public class ProjectCollaboratorService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "OWNER cannot be granted as a collaborator role — there is only one project owner.");
         }
-        User invitee = userRepo.findByEmailIgnoreCase(req.email())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
-                        "No account found for that email. The user must sign in once before they can be added."));
+        // Two ways in: a user id picked from search / followers / following,
+        // or a typed email address. The id path is the one the share modal
+        // uses, since the social DTOs never expose email addresses.
+        User invitee = req.byUserId()
+                ? userRepo.findById(req.userId())
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                                "That user no longer exists."))
+                : userRepo.findByEmailIgnoreCase(req.email())
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                                "No account found for that email. The user must sign in once before they can be added."));
         if (invitee.getId().equals(project.getUser().getId())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "That user already owns this project.");

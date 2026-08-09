@@ -205,7 +205,7 @@ public class RenameService {
 
         List<RenameDto> savedDtos = new ArrayList<>();
         for (RawSuggestion s : deduped.values()) {
-            ProjectRename existing = renameRepo.findByProjectIdAndOriginal(projectId, s.original).orElse(null);
+            ProjectRename existing = renameRepo.findScoped(projectId, s.original, req.filePath()).orElse(null);
             if (existing != null && existing.getStatus() == RenameStatus.APPLIED) {
                 // Don't override an already-accepted rename.
                 continue;
@@ -236,7 +236,12 @@ public class RenameService {
     @Transactional
     public RenameDto manualRename(User user, UUID projectId, ManualRenameRequest req) {
         Project project = loadEditableProject(user, projectId);
-        ProjectRename row = renameRepo.findByProjectIdAndOriginal(projectId, req.original())
+        // Variable renames are scoped to their owning function; everything
+        // else is project-wide (sourcePath null). Look the row up in the
+        // same scope we're about to write it to, or a second function's
+        // uVar1 would hijack the first one's row.
+        String sourcePath = req.sourcePathTag();
+        ProjectRename row = renameRepo.findScoped(projectId, req.original(), sourcePath)
                 .orElseGet(() -> {
                     var fresh = new ProjectRename();
                     fresh.setProject(project);
@@ -245,6 +250,7 @@ public class RenameService {
                 });
         row.setSuggested(req.suggested());
         row.setScope(req.scope());
+        row.setSourcePath(sourcePath);
         row.setStatus(RenameStatus.APPLIED);
         row.setAppliedBy(user);
         if (row.getConfidence() == null) row.setConfidence("manual");
@@ -330,7 +336,8 @@ public class RenameService {
 
         List<RenameDto> saved = new ArrayList<>();
         for (RawSuggestion s : deduped.values()) {
-            ProjectRename existing = renameRepo.findByProjectIdAndOriginal(projectId, s.original).orElse(null);
+            ProjectRename existing = renameRepo
+                    .findScoped(projectId, s.original, "function:" + originalName).orElse(null);
             if (existing != null && existing.getStatus() == RenameStatus.APPLIED) continue;
             ProjectRename row = existing != null ? existing : new ProjectRename();
             if (existing == null) {
@@ -394,11 +401,14 @@ public class RenameService {
         Project project = loadEditableProject(user, projectId);
         List<RenameDto> applied = new ArrayList<>();
         for (String original : req.originals()) {
-            ProjectRename row = renameRepo.findByProjectIdAndOriginal(projectId, original).orElse(null);
-            if (row == null) continue;
-            row.setStatus(RenameStatus.APPLIED);
-            row.setAppliedBy(user);
-            applied.add(RenameDto.from(renameRepo.save(row)));
+            // Since V39 one `original` can have a row per scope (uVar1 in
+            // several functions). The review panel sends bare names, so
+            // accept the whole set rather than an arbitrary one of them.
+            for (ProjectRename row : renameRepo.findAllByProjectIdAndOriginal(projectId, original)) {
+                row.setStatus(RenameStatus.APPLIED);
+                row.setAppliedBy(user);
+                applied.add(RenameDto.from(renameRepo.save(row)));
+            }
         }
         if (!applied.isEmpty()) invalidateSymbolIndex(project);
         return applied;
@@ -407,10 +417,11 @@ public class RenameService {
     @Transactional
     public void unapply(User user, UUID projectId, String original) {
         Project project = loadEditableProject(user, projectId);
-        renameRepo.findByProjectIdAndOriginal(projectId, original).ifPresent(row -> {
-            renameRepo.delete(row);
+        List<ProjectRename> rows = renameRepo.findAllByProjectIdAndOriginal(projectId, original);
+        if (!rows.isEmpty()) {
+            renameRepo.deleteAll(rows);
             invalidateSymbolIndex(project);
-        });
+        }
     }
 
     /**

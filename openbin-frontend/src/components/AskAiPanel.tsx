@@ -1,31 +1,34 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useApi } from '@shared/api/client'
 import { useStreamingApi } from '@shared/api/streaming'
 import { SCRIPT_PATHS } from '@shared/api/scripts'
+import {
+  SHARED_KEY, UNTITLED, sessionMessageCount, useAskSessions,
+  type ChatTurn, type SessionMode,
+} from '@shared/api/askSessions'
 import { ModelSelect } from '@shared/components/ModelSelect'
+import { estimateCost } from '../lib/llmCost'
 
 type Credential = { id: string; provider: string; label: string }
-type ChatTurn = {
-  role: 'user' | 'assistant'
-  content: string
-  meta?: { model: string; in: number; out: number }
-}
 
 const ASK_MAX_FILE_BYTES = 60 * 1024  // matches backend ASK_MAX_FILE_BYTES
-
-function threadsKey(projectId: string) {
-  return `openbin.script.ask.${projectId}`
-}
+const PRIOR_TURN_MAX = 50000          // matches AskRequest.PriorTurn @Size
 
 /**
- * Per-file Ask AI panel for SCRIPT projects. Threads persist to
- * localStorage keyed by (projectId, filePath, sourceMode) so flipping
- * between Original/Deobfuscated keeps separate conversations — they're
- * literally different source.
+ * Ask AI panel for SCRIPT projects, with the same named multi-session
+ * model the BIN view uses.
  *
- * The file content is sent inline with each request (already in memory
- * from the bundle extraction); no per-turn S3 round-trip on the backend.
+ * Two conversation modes:
+ *   per-unit — a thread per (file, source view). Original and Deobfuscated
+ *     stay separate conversations because they are literally different
+ *     source; answers about one don't apply to the other.
+ *   shared — one thread spanning every file you open, so the model keeps
+ *     context across a package walkthrough. Each turn records which file it
+ *     was asked about.
+ *
+ * File content is sent inline from the already-extracted bundle, so the
+ * backend never does a per-turn S3 round-trip.
  */
 export function AskAiPanel({
   projectId,
@@ -40,43 +43,30 @@ export function AskAiPanel({
 }) {
   const api = useApi()
   const streamingApi = useStreamingApi()
+  const {
+    sessions, active, activeId,
+    setActiveId, updateActive, newSession, deleteSession, renameSession, setMode,
+  } = useAskSessions('openbin.script', projectId)
 
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
   const [credentialId, setCredentialId] = useState<string>('')
   const [model, setModel] = useState<string>('')
-  const [turns, setTurns] = useState<ChatTurn[]>([])
   const [question, setQuestion] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
   const tailRef = useRef<HTMLDivElement | null>(null)
 
-  // Threads map: key = `${filePath}::${sourceMode}` → ChatTurn[]
-  const threadsRef = useRef<Map<string, ChatTurn[]>>(loadThreads(projectId))
+  // The unit a per-unit thread is keyed by. Source mode is part of it so
+  // Original vs Deobfuscated never share a conversation.
+  const unitKey = filePath ? `${filePath}::${sourceMode}` : ''
+  const threadKey = active?.mode === 'shared' ? SHARED_KEY : unitKey
+  const turns: ChatTurn[] = active && threadKey ? (active.threads[threadKey] ?? []) : []
 
-  useEffect(() => {
-    threadsRef.current = loadThreads(projectId)
-  }, [projectId])
+  useEffect(() => { setError(null) }, [filePath, sourceMode])
 
-  // Swap the visible thread whenever file or source-mode changes.
-  useEffect(() => {
-    setError(null)
-    if (!filePath) {
-      setTurns([])
-      return
-    }
-    const k = `${filePath}::${sourceMode}`
-    setTurns(threadsRef.current.get(k) ?? [])
-  }, [filePath, sourceMode, projectId])
-
-  // Mirror visible thread → threads map → localStorage.
-  useEffect(() => {
-    if (!filePath || turns.length === 0) return
-    const k = `${filePath}::${sourceMode}`
-    threadsRef.current.set(k, turns)
-    saveThreads(projectId, threadsRef.current)
-  }, [turns, filePath, sourceMode, projectId])
-
-  // Load credentials once per mount.
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -92,14 +82,31 @@ export function AskAiPanel({
     return () => { cancelled = true }
   }, [api])
 
+  const setTurns = useCallback((fn: (prev: ChatTurn[]) => ChatTurn[]) => {
+    updateActive((s) => ({
+      ...s,
+      threads: { ...s.threads, [threadKey]: fn(s.threads[threadKey] ?? []) },
+    }))
+  }, [updateActive, threadKey])
+
   const clearThread = useCallback(() => {
-    if (!filePath) return
-    const k = `${filePath}::${sourceMode}`
-    threadsRef.current.delete(k)
-    saveThreads(projectId, threadsRef.current)
-    setTurns([])
+    if (!threadKey || turns.length === 0) return
+    if (!confirm('Clear this conversation? The session and its other threads stay.')) return
+    updateActive((s) => {
+      const next = { ...s.threads }
+      delete next[threadKey]
+      return { ...s, threads: next }
+    })
     setError(null)
-  }, [filePath, sourceMode, projectId])
+  }, [threadKey, turns.length, updateActive])
+
+  const copyTurn = useCallback((content: string) => {
+    navigator.clipboard?.writeText(content).catch(() => {
+      // Clipboard is blocked on insecure origins / without permission —
+      // fall back to a selectable prompt rather than failing silently.
+      window.prompt('Copy the answer:', content)
+    })
+  }, [])
 
   const send = useCallback(async () => {
     if (!filePath) return
@@ -121,16 +128,20 @@ export function AskAiPanel({
     // Blank turns are dropped: the backend @NotBlank-rejects them with a
     // bodyless 400, and an empty assistant placeholder can get persisted if
     // a stream dies before its first chunk.
-    // The 50k slice matches the backend's @Size cap on AskRequest.PriorTurn.
     const priorTurns = turns
       .filter((t) => t.content.trim() !== '')
-      .map((t) => ({ role: t.role, content: t.content.slice(0, 50000) }))
+      .map((t) => ({ role: t.role, content: t.content.slice(0, PRIOR_TURN_MAX) }))
     const userTurn: ChatTurn = {
       role: 'user',
       content: truncated ? `${trimmed}\n\n(note: file truncated to first 60 KB)` : trimmed,
+      context: filePath,
     }
-    const assistantTurn: ChatTurn = { role: 'assistant', content: '' }
-    setTurns((prev) => [...prev, userTurn, assistantTurn])
+    setTurns((prev) => [...prev, userTurn, { role: 'assistant', content: '' }])
+    // Name the session after its opening question, so the drawer reads as
+    // a list of investigations rather than "Untitled session" ×6.
+    updateActive((s) => (
+      s.title === UNTITLED ? { ...s, title: trimmed.slice(0, 40) } : s
+    ))
     setQuestion('')
 
     await streamingApi(
@@ -164,7 +175,10 @@ export function AskAiPanel({
             if (prev.length === 0) return prev
             const next = prev.slice()
             const last = next[next.length - 1]
-            next[next.length - 1] = { ...last, meta: { model: info.model, in: info.inputTokens, out: info.outputTokens } }
+            next[next.length - 1] = {
+              ...last,
+              meta: { model: info.model, in: info.inputTokens, out: info.outputTokens },
+            }
             return next
           })
           setStreaming(false)
@@ -181,10 +195,57 @@ export function AskAiPanel({
         },
       },
     )
-  }, [filePath, credentialId, model, question, fileBytes, turns, projectId, sourceMode, streamingApi])
+  }, [filePath, credentialId, model, question, fileBytes, turns, projectId, sourceMode,
+      streamingApi, setTurns, updateActive])
+
+  const sortedSessions = useMemo(
+    () => sessions.slice().sort((a, b) => b.updatedAt - a.updatedAt),
+    [sessions],
+  )
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
+      {/* Session bar */}
+      <div className="flex items-center gap-1.5 border-b border-zinc-800 px-2 py-1.5 text-xs">
+        <button
+          onClick={() => setDrawerOpen((v) => !v)}
+          title="Switch conversation"
+          className="min-w-0 flex-1 truncate rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-left text-zinc-200 hover:border-zinc-700"
+        >
+          <span className="text-zinc-500">☰ </span>
+          {active?.title ?? UNTITLED}
+        </button>
+        <button
+          onClick={() => newSession(active?.mode ?? 'per-unit')}
+          title="New conversation"
+          className="rounded border border-zinc-700 px-2 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+        >
+          ＋
+        </button>
+        <select
+          value={active?.mode ?? 'per-unit'}
+          onChange={(e) => setMode(e.target.value as SessionMode)}
+          title={active?.mode === 'shared'
+            ? 'One thread across every file you open'
+            : 'A separate thread per file and source view'}
+          className="rounded border border-zinc-800 bg-zinc-950 px-1.5 py-1 text-[11px] text-zinc-300"
+        >
+          <option value="per-unit">Per file</option>
+          <option value="shared">Everything</option>
+        </select>
+        {turns.length > 0 && (
+          <button
+            onClick={clearThread}
+            disabled={streaming}
+            className="rounded border border-zinc-700 px-2 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40"
+            title="Clear this thread"
+          >
+            ⟲
+          </button>
+        )}
+      </div>
+
+      {/* Credential + model */}
       <div className="flex items-center gap-2 border-b border-zinc-800 px-2 py-1.5 text-xs">
         {credentials === null ? (
           <span className="text-zinc-500">Loading credentials…</span>
@@ -199,9 +260,7 @@ export function AskAiPanel({
             className="min-w-0 flex-1 truncate rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-zinc-100"
           >
             {credentials.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label} ({c.provider})
-              </option>
+              <option key={c.id} value={c.id}>{c.label} ({c.provider})</option>
             ))}
           </select>
         )}
@@ -213,57 +272,137 @@ export function AskAiPanel({
             className="min-w-0 flex-1 truncate rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-zinc-100"
           />
         )}
-        {turns.length > 0 && (
-          <button
-            onClick={clearThread}
-            disabled={streaming}
-            className="rounded border border-zinc-700 px-2 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40"
-            title="Clear conversation"
-          >
-            ⟲
-          </button>
-        )}
       </div>
 
+      {/* Sessions drawer */}
+      {drawerOpen && (
+        <div className="absolute inset-0 z-20 flex flex-col bg-zinc-950/97">
+          <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2 text-xs">
+            <span className="font-medium text-zinc-200">Conversations</span>
+            <button onClick={() => setDrawerOpen(false)} className="text-zinc-400 hover:text-zinc-100">✕</button>
+          </div>
+          <ul className="min-h-0 flex-1 divide-y divide-zinc-900 overflow-auto">
+            {sortedSessions.map((s) => (
+              <li
+                key={s.id}
+                className={`flex items-center gap-2 px-3 py-2 text-xs ${
+                  s.id === activeId ? 'bg-purple-950/20' : 'hover:bg-zinc-900/60'
+                }`}
+              >
+                {renamingId === s.id ? (
+                  <input
+                    autoFocus
+                    value={renameDraft}
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onBlur={() => { renameSession(s.id, renameDraft); setRenamingId(null) }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { renameSession(s.id, renameDraft); setRenamingId(null) }
+                      if (e.key === 'Escape') setRenamingId(null)
+                    }}
+                    className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-zinc-100 focus:outline-none"
+                  />
+                ) : (
+                  <button
+                    onClick={() => { setActiveId(s.id); setDrawerOpen(false) }}
+                    className="min-w-0 flex-1 truncate text-left text-zinc-200"
+                  >
+                    {s.title}
+                    <span className="ml-2 text-[10px] text-zinc-600">
+                      {s.mode === 'shared' ? 'everything' : 'per file'} · {sessionMessageCount(s)} msg
+                    </span>
+                  </button>
+                )}
+                <button
+                  onClick={() => { setRenamingId(s.id); setRenameDraft(s.title) }}
+                  title="Rename"
+                  className="shrink-0 text-zinc-500 hover:text-zinc-200"
+                >
+                  ✎
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm(`Delete “${s.title}”? Its messages are gone for good.`)) deleteSession(s.id)
+                  }}
+                  title="Delete"
+                  className="shrink-0 text-zinc-500 hover:text-red-300"
+                >
+                  🗑
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="min-h-0 flex-1 space-y-3 overflow-auto p-3 text-sm">
-        {!filePath && (
-          <p className="text-zinc-500">Pick a file on the left to ask about it.</p>
-        )}
+        {!filePath && <p className="text-zinc-500">Pick a file on the left to ask about it.</p>}
         {filePath && turns.length === 0 && (
           <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 text-zinc-400">
             <div className="text-xs uppercase tracking-wide text-zinc-500">Currently asking about</div>
             <div className="mt-1 truncate font-mono text-xs text-purple-200">
-              {filePath} {sourceMode === 'deobfuscated' && <span className="ml-1 text-[10px] text-purple-400">(deobfuscated)</span>}
+              {filePath}
+              {sourceMode !== 'original' && (
+                <span className="ml-1 text-[10px] text-purple-400">(deobfuscated)</span>
+              )}
             </div>
             <p className="mt-2 text-xs">
               Try: <em>“What does this file do?”</em> · <em>“Where is the data exfiltrated to?”</em>
             </p>
+            {active?.mode === 'shared' && (
+              <p className="mt-2 text-[11px] text-zinc-500">
+                This conversation spans every file you open — the model keeps what it already saw.
+              </p>
+            )}
           </div>
         )}
         {turns.map((t, i) => (
-          <div
-            key={i}
-            className={
-              t.role === 'user'
-                ? 'rounded border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-zinc-100'
-                : 'rounded border border-purple-900/40 bg-purple-950/20 px-3 py-2 text-zinc-100'
-            }
-          >
-            <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wide text-zinc-500">
-              <span>{t.role === 'user' ? 'You' : 'AI'}</span>
-              {t.meta && (
-                <span className="font-mono normal-case">
-                  {t.meta.model} · {t.meta.in}+{t.meta.out} tok
+          <div key={i} className={t.role === 'user' ? 'flex justify-end' : ''}>
+            <div
+              className={
+                t.role === 'user'
+                  ? 'max-w-[92%] rounded border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-zinc-100'
+                  : 'w-full rounded border border-purple-900/40 bg-purple-950/20 px-3 py-2 text-zinc-100'
+              }
+            >
+              <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-zinc-500">
+                <span>
+                  {t.role === 'user' ? 'You' : 'AI'}
+                  {/* In shared mode one thread spans many files, so say
+                      which one each question was about. */}
+                  {t.role === 'user' && active?.mode === 'shared' && t.context && (
+                    <span className="ml-1.5 font-mono normal-case text-purple-300/80">📄 {shortPath(t.context)}</span>
+                  )}
                 </span>
+                <span className="flex items-center gap-2">
+                  {t.meta && (
+                    <span className="font-mono normal-case">
+                      {t.meta.model} · {t.meta.in}+{t.meta.out} tok
+                      {costLabel(t.meta)}
+                    </span>
+                  )}
+                  {t.role === 'assistant' && t.content && (
+                    <button
+                      onClick={() => copyTurn(t.content)}
+                      title="Copy markdown"
+                      className="normal-case text-zinc-500 hover:text-zinc-200"
+                    >
+                      ⧉
+                    </button>
+                  )}
+                </span>
+              </div>
+              {t.role === 'assistant' ? (
+                t.content ? (
+                  <div className="prose prose-sm prose-invert max-w-none prose-pre:bg-black/40 prose-pre:text-[11px]">
+                    <ReactMarkdown>{t.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <div className="text-xs italic text-zinc-500">Waiting for first token…</div>
+                )
+              ) : (
+                <div className="whitespace-pre-wrap">{t.content}</div>
               )}
             </div>
-            {t.role === 'assistant' ? (
-              <div className="prose prose-sm prose-invert max-w-none prose-pre:bg-black/40 prose-pre:text-[11px]">
-                <ReactMarkdown>{t.content || ' '}</ReactMarkdown>
-              </div>
-            ) : (
-              <div className="whitespace-pre-wrap">{t.content}</div>
-            )}
           </div>
         ))}
         <div ref={tailRef} />
@@ -302,27 +441,13 @@ export function AskAiPanel({
   )
 }
 
-// ---- localStorage helpers ----
-
-function loadThreads(projectId: string): Map<string, ChatTurn[]> {
-  if (typeof window === 'undefined') return new Map()
-  try {
-    const raw = window.localStorage.getItem(threadsKey(projectId))
-    if (!raw) return new Map()
-    const obj = JSON.parse(raw) as Record<string, ChatTurn[]>
-    return new Map(Object.entries(obj))
-  } catch {
-    return new Map()
-  }
+/** Trailing path segment — full paths blow out the turn header. */
+function shortPath(p: string): string {
+  const parts = p.split('/')
+  return parts[parts.length - 1] || p
 }
 
-function saveThreads(projectId: string, threads: Map<string, ChatTurn[]>) {
-  if (typeof window === 'undefined') return
-  try {
-    const obj: Record<string, ChatTurn[]> = {}
-    for (const [k, v] of threads) obj[k] = v
-    window.localStorage.setItem(threadsKey(projectId), JSON.stringify(obj))
-  } catch {
-    // localStorage quota or disabled — silently skip.
-  }
+function costLabel(meta: { model: string; in: number; out: number }): string {
+  const cost = estimateCost(meta.model, meta.in, meta.out)
+  return cost ? ` · ${cost}` : ''
 }

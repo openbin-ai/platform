@@ -194,8 +194,10 @@ public class ProjectController {
 
     /**
      * Add a collaborator to the project at VIEWER or EDITOR role.
-     * Owner-only. Email-based invite — the invitee must already have
-     * signed into the platform at least once.
+     * Owner-only. The invitee is named by {@code userId} (picked from
+     * researcher search or the owner's followers/following) or by
+     * {@code email}, and must already have signed into the platform at
+     * least once — there are no pending invites for strangers.
      */
     @PostMapping("/{id}/collaborators")
     @ResponseStatus(HttpStatus.CREATED)

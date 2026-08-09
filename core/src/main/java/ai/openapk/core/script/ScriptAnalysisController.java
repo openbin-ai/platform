@@ -7,6 +7,7 @@ import ai.openapk.core.projects.dto.ProjectResponse;
 import ai.openapk.core.script.dto.AskScriptRequest;
 import ai.openapk.core.script.dto.DeobfuscateRequest;
 import ai.openapk.core.script.dto.DeobfuscateResponse;
+import ai.openapk.core.script.dto.SavedDeobfuscation;
 import ai.openapk.core.script.dto.ScriptAnalysisFindings;
 import jakarta.validation.Valid;
 import tools.jackson.databind.ObjectMapper;
@@ -14,6 +15,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,6 +29,7 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executor;
@@ -129,8 +132,9 @@ public class ScriptAnalysisController {
      * Run a deobfuscation engine over ONE file of a SCRIPT project, on
      * demand. Not part of upload — the analyst picks the file and the
      * engine ({@code auto} to let the worker score the candidates and keep
-     * the best). Nothing is persisted, so this is safe to re-run with a
-     * different engine as many times as the analyst wants.
+     * the best). Safe to re-run with a different engine as often as the
+     * analyst likes — the transform is deterministic and a successful
+     * result is upserted per (file, engine), never appended.
      */
     @PostMapping("/{projectId}/deobfuscate")
     public DeobfuscateResponse deobfuscate(
@@ -138,6 +142,28 @@ public class ScriptAnalysisController {
             @Valid @RequestBody DeobfuscateRequest req
     ) {
         return service.deobfuscateFile(currentUser.current(), projectId, req);
+    }
+
+    /**
+     * Every saved on-demand deobfuscation for this project. The viewer
+     * calls this on mount so results the analyst produced in an earlier
+     * session are still there — deobfuscation used to live only in page
+     * memory and vanished on reload.
+     */
+    @GetMapping("/{projectId}/deobfuscations")
+    public List<SavedDeobfuscation> savedDeobfuscations(@PathVariable UUID projectId) {
+        return service.savedDeobfuscations(currentUser.current(), projectId);
+    }
+
+    /** Forget one saved result, returning that file to original-only. */
+    @DeleteMapping("/{projectId}/deobfuscations")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteDeobfuscation(
+            @PathVariable UUID projectId,
+            @RequestParam("filePath") String filePath,
+            @RequestParam("engine") String engine
+    ) {
+        service.deleteDeobfuscation(currentUser.current(), projectId, filePath, engine);
     }
 
     @GetMapping("/{projectId}/findings")

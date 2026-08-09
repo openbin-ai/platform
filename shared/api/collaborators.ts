@@ -13,8 +13,18 @@ export type Collaborator = {
   addedBy: string
 }
 
+/**
+ * Invite body. Supply EXACTLY ONE of `userId` or `email` — the backend
+ * rejects both-at-once rather than picking a winner.
+ *
+ * `userId` is what the share modal sends when the owner picks someone from
+ * researcher search or their followers/following: those endpoints return
+ * user ids and deliberately never expose email addresses, so an id is the
+ * only way to invite a person you can see in the UI.
+ */
 export type AddCollaboratorRequest = {
-  email: string
+  userId?: string
+  email?: string
   role: 'VIEWER' | 'EDITOR'   // OWNER is rejected by the backend
 }
 

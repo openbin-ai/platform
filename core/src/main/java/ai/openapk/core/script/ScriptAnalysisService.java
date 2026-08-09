@@ -11,6 +11,7 @@ import ai.openapk.core.projects.WorkflowStatus;
 import ai.openapk.core.projects.dto.ProjectResponse;
 import ai.openapk.core.script.dto.DeobfuscateRequest;
 import ai.openapk.core.script.dto.DeobfuscateResponse;
+import ai.openapk.core.script.dto.SavedDeobfuscation;
 import ai.openapk.core.script.dto.ScriptAnalysisFindings;
 import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -63,6 +64,7 @@ public class ScriptAnalysisService {
 
     private final ProjectRepository projects;
     private final ScriptAnalysisRepository analyses;
+    private final ScriptDeobfuscationRepository deobfuscations;
     private final LambdaInvoker invoker;
     private final ScriptEcosystemDetector ecosystemDetector;
     private final S3Client s3;
@@ -73,6 +75,7 @@ public class ScriptAnalysisService {
     public ScriptAnalysisService(
             ProjectRepository projects,
             ScriptAnalysisRepository analyses,
+            ScriptDeobfuscationRepository deobfuscations,
             LambdaInvoker invoker,
             ScriptEcosystemDetector ecosystemDetector,
             @Qualifier("analysisS3Client") S3Client analysisS3Client,
@@ -81,6 +84,7 @@ public class ScriptAnalysisService {
     ) {
         this.projects = projects;
         this.analyses = analyses;
+        this.deobfuscations = deobfuscations;
         this.invoker = invoker;
         this.ecosystemDetector = ecosystemDetector;
         this.s3 = analysisS3Client;
@@ -302,12 +306,82 @@ public class ScriptAnalysisService {
             }
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "deobfuscator failed: " + msg);
         }
+        DeobfuscateResponse result;
         try {
-            return mapper.readValue(respBytes, DeobfuscateResponse.class);
+            result = mapper.readValue(respBytes, DeobfuscateResponse.class);
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "deobfuscator returned malformed response: " + e.getMessage());
         }
+        // Persist successful results so they survive a reload. A run that
+        // changed nothing isn't worth a row — there's no output to restore,
+        // and keeping it would just make the file look "already done".
+        if (result.used() && result.source() != null && !result.source().isBlank()) {
+            saveDeobfuscation(user, projectId, req.filePath(), req.engineOrAuto(), result);
+        }
+        return result;
+    }
+
+    /**
+     * Upsert the saved result for (project, file, engine).
+     *
+     * <p>Intentionally NOT {@code @Transactional}: it's called from
+     * {@link #deobfuscateFile} in the same class, and a self-invoked
+     * annotated method never passes through the Spring proxy, so the
+     * annotation would be decorative (the same trap as the async-ingest
+     * LazyInit incident). The repository's own transaction covers the
+     * write; the read-then-write is therefore not atomic, and two
+     * simultaneous runs of the same engine on the same file can collide on
+     * the unique constraint — which is exactly why this is best-effort.
+     *
+     * <p>Failure is deliberately swallowed: the analyst already has the
+     * deobfuscated source on screen, so a persistence hiccup must not turn
+     * a successful transform into an error response.
+     */
+    private void saveDeobfuscation(User user, UUID projectId, String filePath,
+                                   String engine, DeobfuscateResponse result) {
+        try {
+            ScriptDeobfuscation row = deobfuscations
+                    .findByProjectIdAndFilePathAndEngine(projectId, filePath, engine)
+                    .orElseGet(ScriptDeobfuscation::new);
+            row.setProjectId(projectId);
+            row.setFilePath(filePath);
+            row.setEngine(engine);
+            row.setEngineUsed(result.engine() == null ? engine : result.engine());
+            row.setSource(result.source());
+            row.setNote(result.note());
+            row.setScore(result.score());
+            row.setBaselineScore(result.baselineScore());
+            row.setTruncated(result.truncated());
+            row.setCreatedBy(user.getId());
+            deobfuscations.save(row);
+        } catch (RuntimeException e) {
+            log.warn("could not persist deobfuscation project={} file={} engine={}: {}",
+                    projectId, filePath, engine, e.toString());
+        }
+    }
+
+    /** Every saved deobfuscation for a project, for the view to restore on mount. */
+    @Transactional(readOnly = true)
+    public List<SavedDeobfuscation> savedDeobfuscations(User user, UUID projectId) {
+        if (!callerCanRead(user.getId(), projectId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project");
+        }
+        return deobfuscations.findAllByProjectId(projectId).stream()
+                .map(r -> new SavedDeobfuscation(
+                        r.getFilePath(), r.getEngine(), r.getEngineUsed(), r.getSource(),
+                        r.getNote(), r.getScore(), r.getBaselineScore(), r.isTruncated(),
+                        r.getUpdatedAt()))
+                .toList();
+    }
+
+    /** Drop a saved result so the file goes back to showing only its original. */
+    @Transactional
+    public void deleteDeobfuscation(User user, UUID projectId, String filePath, String engine) {
+        if (!callerCanRead(user.getId(), projectId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project");
+        }
+        deobfuscations.deleteByProjectIdAndFilePathAndEngine(projectId, filePath, engine);
     }
 
     /**

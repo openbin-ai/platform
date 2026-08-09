@@ -5,6 +5,7 @@ import { Network } from 'lucide-react'
 import { useApi } from '@shared/api/client'
 import { isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { ShareProjectModal } from '@shared/components/ShareProjectModal'
+import { RenameSymbolDialog } from '@shared/components/RenameSymbolDialog'
 import { MembersBar } from '@shared/components/MembersBar'
 import { ProjectVisibilityToggle } from '@shared/components/ProjectVisibilityToggle'
 import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleContext'
@@ -1410,6 +1411,23 @@ function CodePane({
     return m
   }, [fn])
 
+  // Double-click a variable token to rename it — no AI, no credential, no
+  // round-trip through the suggest/review flow. Ghidra's placeholder names
+  // (uVar1, param_1) are the single biggest readability tax on decompiled
+  // output, and the analyst usually knows what a variable is the moment
+  // they read the line it's used on.
+  //
+  // Scoped to the owning function on the backend: the same uVar1 exists in
+  // most other functions and must not be renamed there.
+  const [renamingVar, setRenamingVar] = useState<string | null>(null)
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    const varEl = (e.target as HTMLElement).closest('[data-var]') as HTMLElement | null
+    const name = varEl?.dataset.var
+    if (!name || !fn) return
+    e.preventDefault()
+    setRenamingVar(name)
+  }, [fn])
+
   const handleClick = useCallback((e: React.MouseEvent) => {
     const el = e.target as HTMLElement
     // 1) Navigation links win — function/data/addr jumps.
@@ -1572,9 +1590,21 @@ function CodePane({
           </button>
         </div>
       </div>
+      {renamingVar && fn && (
+        <RenameSymbolDialog
+          projectId={projectId}
+          original={renamingVar}
+          scope="variable"
+          scopeRef={fn.name}
+          onClose={() => setRenamingVar(null)}
+          onRenamed={async () => { setRenamingVar(null); await onRenamed(fn.name) }}
+        />
+      )}
       <div
         className="min-h-0 flex-1 overflow-hidden bg-zinc-900/40"
         onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
+        title="Double-click a variable to rename it"
       >
         {split && !disasmDisabled ? (
           <div className="flex h-full min-h-0">
