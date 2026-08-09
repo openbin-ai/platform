@@ -27,7 +27,13 @@ export function RenameSymbolDialog({
 }: {
   projectId: string
   original: string
-  scope: 'variable' | 'function' | 'class' | 'method' | 'field'
+  /**
+   * Pick 'variable' ONLY for a decompiled-function local: the backend
+   * treats that scope specially and stores scopeRef as "function:<name>".
+   * Script/file-scoped identifiers use 'symbol', which stores scopeRef
+   * verbatim.
+   */
+  scope: 'variable' | 'symbol' | 'function' | 'class' | 'method' | 'field'
   /**
    * Container this rename is scoped to: the owning function for BIN
    * variables (required), or the file path for SCRIPT symbols. Omit for
