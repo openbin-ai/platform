@@ -53,6 +53,7 @@ public class LlmCredentialTester {
         if (base == null || base.isBlank()) {
             return new TestResultResponse("error", "No base URL configured for provider " + provider);
         }
+        LlmBaseUrlValidator.validate(base);
         var resp = http.get()
                 .uri(base.replaceAll("/+$", "") + "/models")
                 .header("Authorization", "Bearer " + p.apiKey())

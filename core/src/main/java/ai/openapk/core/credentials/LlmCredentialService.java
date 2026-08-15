@@ -107,6 +107,7 @@ public class LlmCredentialService {
                 String baseUrl = req.baseUrl();
                 if (req.provider() == LlmProvider.OPENAI_COMPAT) {
                     requireField(baseUrl, "baseUrl");
+                    LlmBaseUrlValidator.validate(baseUrl);
                 } else {
                     baseUrl = null;
                 }
