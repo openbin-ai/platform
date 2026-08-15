@@ -114,6 +114,7 @@ public class LlmModelCatalog {
     private List<String> fetchOpenAiCompatible(LlmProvider provider, LlmCredentialPayload.OpenAI p) {
         String base = provider.resolveBaseUrl(p.baseUrl());
         if (base == null || base.isBlank()) return List.of();
+        LlmBaseUrlValidator.validate(base);
         String url = base.replaceAll("/+$", "") + "/models";
         String body = http.get()
                 .uri(url)

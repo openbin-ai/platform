@@ -1,6 +1,7 @@
 package ai.openapk.core.analysis;
 
 import ai.openapk.core.auth.User;
+import ai.openapk.core.credentials.LlmBaseUrlValidator;
 import ai.openapk.core.credentials.LlmCredential;
 import ai.openapk.core.credentials.LlmCredentialEncryptionService;
 import ai.openapk.core.credentials.LlmCredentialPayload;
@@ -264,6 +265,7 @@ public class LlmInvoker {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "No base URL configured for provider " + provider);
         }
+        LlmBaseUrlValidator.validate(base);
         return base.replaceAll("/+$", "") + "/chat/completions";
     }
 
