@@ -724,16 +724,21 @@ public class ProjectService {
         return ProjectResponse.from(saved, urlSigner(), ProjectRole.OWNER);
     }
 
-    /** A project is forkable if the caller can read it, or it's public. */
+    /**
+     * A project is forkable if the caller can read it, or it's public.
+     *
+     * <p>Both lookups are the NON-throwing guard variants on purpose. The
+     * obvious spelling — call {@code requireRead}, catch its 404, fall back to
+     * the public guard — shipped and 500'd on every fork of a public project
+     * the caller had no role on: the guard is itself {@code @Transactional},
+     * so its 404 marked THIS transaction rollback-only before we ever saw the
+     * exception, and the commit then failed with UnexpectedRollbackException.
+     * See ProjectForkAccessTest.
+     */
     private Project resolveForkable(User caller, UUID id) {
-        try {
-            return guard.requireRead(caller, id);
-        } catch (ResponseStatusException e) {
-            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
-                return publicGuard.requirePublic(id);
-            }
-            throw e;
-        }
+        return guard.findReadable(caller, id)
+                .or(() -> publicGuard.findPublic(id))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
     }
 
     private static String forkName(String sourceName) {

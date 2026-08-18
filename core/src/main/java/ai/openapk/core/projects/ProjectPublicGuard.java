@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -32,9 +33,20 @@ public class ProjectPublicGuard {
      * absent. Returns the full {@link Project} for downstream read logic —
      * never expose write paths through this.
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, noRollbackFor = ResponseStatusException.class)
     public Project requirePublic(UUID projectId) {
-        return projectRepo.findByIdAndPublicReadAtIsNotNull(projectId)
+        return findPublic(projectId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
+    }
+
+    /**
+     * Non-throwing counterpart to {@link #requirePublic}, for callers that
+     * treat "not public" as a branch rather than an error — see
+     * {@link ProjectAccessGuard#findReadable} for why a swallowed 404 from a
+     * transactional guard is not harmless.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Project> findPublic(UUID projectId) {
+        return projectRepo.findByIdAndPublicReadAtIsNotNull(projectId);
     }
 }
