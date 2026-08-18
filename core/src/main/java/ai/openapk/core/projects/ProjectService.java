@@ -155,7 +155,19 @@ public class ProjectService {
         // round trip (see ProjectRepository.findAccessibleByIdAndUserId).
         var row = repo.findAccessibleByIdAndUserId(id, user.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "project not found"));
-        return ProjectResponse.from(row.getProject(), urlSigner(), ProjectRole.valueOf(row.getRole()));
+        return ProjectResponse.from(row.getProject(), urlSigner(), ProjectRole.valueOf(row.getRole()),
+                forkParentIsPublic(row.getProject()));
+    }
+
+    /**
+     * Whether this project's fork source is anonymously readable, so the UI
+     * can send "forked from" to the public view. Reads the id off the LAZY
+     * association (safe — Hibernate hands back the identifier without
+     * initializing the proxy) and asks the DB about the parent directly.
+     */
+    private boolean forkParentIsPublic(Project p) {
+        Project parent = p.getForkedFrom();
+        return parent != null && repo.existsByIdAndPublicReadAtIsNotNull(parent.getId());
     }
 
     /**
@@ -721,7 +733,8 @@ public class ProjectService {
         source.setForkCount(source.getForkCount() + 1);
         repo.save(source);
 
-        return ProjectResponse.from(saved, urlSigner(), ProjectRole.OWNER);
+        return ProjectResponse.from(saved, urlSigner(), ProjectRole.OWNER,
+                source.getPublicReadAt() != null);
     }
 
     /**

@@ -59,7 +59,15 @@ public record ProjectResponse(
         // Non-null = this project is a member of a multi-binary bundle. Drives
         // the projects-list grouping (members hidden from the top level) and
         // the ProjectView sibling tab bar (only rendered when this is set).
-        UUID bundleId
+        UUID bundleId,
+        // True = the fork source is anonymously readable, so the "forked from"
+        // link must go to /public/projects/{forkedFromId}. You normally fork
+        // something you DON'T own, so the authenticated view 404s for you —
+        // which is what shipped, and what this flag exists to prevent. Only
+        // populated on the detail + fork responses (the only places the
+        // attribution renders); false everywhere else, which degrades to the
+        // authenticated link.
+        boolean forkedFromPublic
 ) {
     /**
      * Convenience variant for code paths that don't have a URL signer or
@@ -89,6 +97,18 @@ public record ProjectResponse(
      * back to the legacy inline read.
      */
     public static ProjectResponse from(Project p, Function<String, String> urlSigner, ProjectRole role) {
+        return from(p, urlSigner, role, false);
+    }
+
+    /**
+     * Full variant plus {@code forkedFromPublic} — see the field docs. The
+     * caller resolves it (it needs a repository hit), rather than this record
+     * walking {@code p.getForkedFrom()}: that association is LAZY and several
+     * call sites build responses from detached entities, where touching it
+     * would throw LazyInitializationException.
+     */
+    public static ProjectResponse from(Project p, Function<String, String> urlSigner, ProjectRole role,
+                                       boolean forkedFromPublic) {
         String signedUrl = null;
         String s3Key = p.getBinaryAnalysisS3Key();
         if (urlSigner != null && s3Key != null && !s3Key.isBlank()) {
@@ -122,7 +142,8 @@ public record ProjectResponse(
                 p.getPublicReadAt(),
                 p.getForkedFrom() != null ? p.getForkedFrom().getId() : null,
                 p.getForkCount(),
-                p.getBundle() != null ? p.getBundle().getId() : null
+                p.getBundle() != null ? p.getBundle().getId() : null,
+                forkedFromPublic
         );
     }
 }

@@ -106,6 +106,22 @@ class ProjectForkAccessTest {
         assertTrue(publicGuard.findPublic(pub.getId()).isPresent());
     }
 
+    /**
+     * Backs the "forked from" link target: a fork's owner usually has no role
+     * on the source, so the UI needs to know the source is public and send
+     * them to /public/projects/{id} instead of the authenticated view.
+     */
+    @Test
+    void existsByIdAndPublicReadAtIsNotNullTracksVisibility() {
+        Project priv = projects.save(project(owner, null));
+        Project pub = projects.save(project(owner, Instant.now()));
+        assertTrue(projects.existsByIdAndPublicReadAtIsNotNull(pub.getId()));
+        org.junit.jupiter.api.Assertions.assertFalse(
+                projects.existsByIdAndPublicReadAtIsNotNull(priv.getId()));
+        org.junit.jupiter.api.Assertions.assertFalse(
+                projects.existsByIdAndPublicReadAtIsNotNull(UUID.randomUUID()));
+    }
+
     @Test
     void requireReadStill404sForAStranger() {
         Project p = projects.save(project(owner, null));

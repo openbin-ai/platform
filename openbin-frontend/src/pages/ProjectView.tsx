@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import { Network } from 'lucide-react'
 import { useApi } from '@shared/api/client'
 import { isOwner, type ProjectRole } from '@shared/api/collaborators'
+import { forkedFromHref } from '@shared/api/forkLink'
 import { ShareProjectModal } from '@shared/components/ShareProjectModal'
 import { RenameSymbolDialog } from '@shared/components/RenameSymbolDialog'
 import { MembersBar } from '@shared/components/MembersBar'
@@ -280,6 +281,9 @@ type ProjectSummary = {
   publicReadAt?: string | null
   // Set when this project is a fork; drives the "forked from" attribution.
   forkedFromId?: string | null
+  // Source is anonymously readable — the attribution must link to the public
+  // view, since forking something you don't own is the normal case.
+  forkedFromPublic?: boolean
   forkCount?: number
 }
 
@@ -1007,7 +1011,7 @@ function Header({
           {project.forkedFromId && (
             <>
               {' · '}
-              <Link to={`/projects/${project.forkedFromId}`} className="text-zinc-400 hover:text-amber-300" title="View the project this was forked from">
+              <Link to={forkedFromHref(project) ?? '#'} className="text-zinc-400 hover:text-amber-300" title="View the project this was forked from">
                 🍴 forked
               </Link>
             </>

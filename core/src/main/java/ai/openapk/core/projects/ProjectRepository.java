@@ -64,6 +64,14 @@ public interface ProjectRepository extends JpaRepository<Project, UUID> {
     Optional<Project> findByIdAndPublicReadAtIsNotNull(UUID id);
 
     /**
+     * "Is this project anonymously readable?" without hydrating it. Used to
+     * decide whether a fork's "forked from" link should point at the public
+     * view — the fork's owner usually has no role on the source, so the
+     * authenticated view would 404 on them.
+     */
+    boolean existsByIdAndPublicReadAtIsNotNull(UUID id);
+
+    /**
      * How many projects reference this analysis blob. Used to refcount the
      * shared sha256-keyed blob on delete — only the last referencing project
      * may delete the object. Includes the row being deleted until commit.
