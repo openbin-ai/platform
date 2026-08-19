@@ -4,6 +4,7 @@ import ai.openapk.core.auth.User;
 import ai.openapk.core.credentials.LlmCredential;
 import ai.openapk.core.credentials.LlmCredentialPayload;
 import ai.openapk.core.credentials.LlmProvider;
+import ai.openapk.core.credentials.OutboundLlmHttp;
 import ai.openapk.core.usage.LlmUsageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,9 +63,10 @@ public class StreamingLlmInvoker {
         this.invoker = invoker;
         this.mapper = mapper;
         this.usage = usage;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .build();
+        // Redirects off explicitly. NEVER is already the JDK default, but this
+        // client talks to a user-supplied base URL, so the policy belongs in
+        // one reviewable place rather than resting on a library default.
+        this.httpClient = OutboundLlmHttp.streamingClient(Duration.ofSeconds(15));
     }
 
     public void stream(

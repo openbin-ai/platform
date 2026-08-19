@@ -67,10 +67,9 @@ public class LlmModelCatalog {
         this.crypto = crypto;
         this.codec = codec;
         this.mapper = mapper;
-        var factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout((int) Duration.ofSeconds(10).toMillis());
-        factory.setReadTimeout((int) Duration.ofSeconds(20).toMillis());
-        this.http = RestClient.builder().requestFactory(factory).build();
+        // Redirects off — GET /models is aimed at a user-supplied base URL and
+        // the old SimpleClientHttpRequestFactory followed redirects on GET.
+        this.http = OutboundLlmHttp.restClient(Duration.ofSeconds(10), Duration.ofSeconds(20));
     }
 
     /** Model IDs available to this credential, cached for {@link #TTL}. Empty on failure. */

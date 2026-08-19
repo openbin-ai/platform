@@ -14,12 +14,19 @@ import software.amazon.awssdk.services.bedrockruntime.model.InferenceConfigurati
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
 import software.amazon.awssdk.services.bedrockruntime.model.SystemContentBlock;
 
+import java.time.Duration;
+
 @Component
 public class LlmCredentialTester {
 
     private static final Logger log = LoggerFactory.getLogger(LlmCredentialTester.class);
 
-    private final RestClient http = RestClient.builder().build();
+    // Redirects off (see OutboundLlmHttp) — this client is pointed at a
+    // user-supplied base URL. Timeouts were also missing entirely here, so a
+    // hostile endpoint that accepted the connection and never answered pinned
+    // a request thread indefinitely.
+    private final RestClient http = OutboundLlmHttp.restClient(
+            Duration.ofSeconds(10), Duration.ofSeconds(20));
 
     public TestResultResponse test(LlmProvider provider, LlmCredentialPayload payload) {
         try {

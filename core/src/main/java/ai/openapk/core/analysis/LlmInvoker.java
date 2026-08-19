@@ -2,6 +2,7 @@ package ai.openapk.core.analysis;
 
 import ai.openapk.core.auth.User;
 import ai.openapk.core.credentials.LlmCredential;
+import ai.openapk.core.credentials.OutboundLlmHttp;
 import ai.openapk.core.credentials.LlmCredentialEncryptionService;
 import ai.openapk.core.credentials.LlmCredentialPayload;
 import ai.openapk.core.credentials.LlmCredentialPayloadCodec;
@@ -65,10 +66,10 @@ public class LlmInvoker {
         this.mapper = mapper;
         this.usage = usage;
         this.modelCatalog = modelCatalog;
-        var factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout((int) Duration.ofSeconds(15).toMillis());
-        factory.setReadTimeout((int) Duration.ofSeconds(180).toMillis());
-        this.http = RestClient.builder().requestFactory(factory).build();
+        // Redirects off — chat completions post to a user-supplied base URL.
+        // POST already didn't follow redirects, but that was an accident of
+        // SimpleClientHttpRequestFactory's per-method default, not a decision.
+        this.http = OutboundLlmHttp.restClient(Duration.ofSeconds(15), Duration.ofSeconds(180));
     }
 
     public CompletionResult complete(
