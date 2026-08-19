@@ -1,6 +1,7 @@
 package ai.openapk.core.analysis;
 
 import ai.openapk.core.auth.User;
+import ai.openapk.core.credentials.EgressUrlPolicy;
 import ai.openapk.core.credentials.LlmCredential;
 import ai.openapk.core.credentials.OutboundLlmHttp;
 import ai.openapk.core.credentials.LlmCredentialEncryptionService;
@@ -265,6 +266,11 @@ public class LlmInvoker {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "No base URL configured for provider " + provider);
         }
+        // Re-checked on every call, not just at credential-create time: it
+        // covers credentials stored before the check existed, and keeps the
+        // DNS-rebinding window short. StreamingLlmInvoker builds its URI from
+        // this same method, so both chat paths are gated here.
+        EgressUrlPolicy.requirePublicOverride(p.baseUrl());
         return base.replaceAll("/+$", "") + "/chat/completions";
     }
 

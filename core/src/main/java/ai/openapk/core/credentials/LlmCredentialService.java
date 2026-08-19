@@ -107,6 +107,11 @@ public class LlmCredentialService {
                 String baseUrl = req.baseUrl();
                 if (req.provider() == LlmProvider.OPENAI_COMPAT) {
                     requireField(baseUrl, "baseUrl");
+                    // Not the security boundary — the per-call checks are, since
+                    // DNS can change under us. This is here so a typo'd or
+                    // internal URL fails at Save with a clear message instead of
+                    // at first use.
+                    EgressUrlPolicy.requirePublicDestination(baseUrl);
                 } else {
                     baseUrl = null;
                 }
