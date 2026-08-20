@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
+import { Markdown } from '../components/Markdown'
 import { API_BASE, useApi } from '@shared/api/client'
 import { HighlightsPanel } from '@shared/components/HighlightsPanel'
 import { ForkButton } from '@shared/components/ForkButton'
@@ -138,9 +138,9 @@ export function PublicProject() {
                   <h2 className="mb-3 wrap-break-word text-lg font-medium text-zinc-100">{s.title}</h2>
                   <div className="prose prose-invert prose-sm max-w-none prose-zinc prose-headings:text-zinc-200 prose-a:text-amber-400 prose-code:text-zinc-200 prose-code:bg-zinc-800 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:overflow-x-auto prose-pre:bg-zinc-900 prose-pre:border prose-pre:border-zinc-800 prose-img:max-w-full prose-img:h-auto">
                     {s.content && s.content.trim() ? (
-                      <ReactMarkdown components={{ img: ({ src, alt }) => <PublicImg src={publicMediaSrc(src)} alt={alt} /> }}>
+                      <Markdown img={({ src, alt }) => <PublicImg src={publicMediaSrc(src)} alt={alt} />}>
                         {s.content}
-                      </ReactMarkdown>
+                      </Markdown>
                     ) : (
                       <p className="text-xs italic text-zinc-600">(empty)</p>
                     )}

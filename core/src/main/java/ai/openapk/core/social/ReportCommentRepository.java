@@ -21,4 +21,9 @@ public interface ReportCommentRepository extends JpaRepository<ReportComment, UU
      * point of view, just with one entry redacted.
      */
     long countByReportId(UUID reportId);
+
+    /** Blog-post thread, same ordering as the report thread. */
+    List<ReportComment> findAllByPostIdOrderByCreatedAtAsc(UUID postId);
+
+    long countByPostId(UUID postId);
 }

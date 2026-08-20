@@ -14,7 +14,10 @@ import java.util.UUID;
  */
 public record CommentResponse(
         UUID id,
+        // Exactly one of reportId / postId is set — a comment hangs off a
+        // community report or a blog post, never both.
         UUID reportId,
+        UUID postId,
         UUID parentCommentId,
         UUID authorId,
         String authorDisplayName,

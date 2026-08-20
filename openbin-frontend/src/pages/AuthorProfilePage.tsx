@@ -4,6 +4,7 @@ import { useApi } from '@shared/api/client'
 import { Gravatar } from '@shared/components/Gravatar'
 import { FollowButton } from '@shared/components/FollowButton'
 import { UpvoteButton } from '@shared/components/UpvoteButton'
+import { socialLinksOf } from '@shared/api/blog'
 import { profilePath, type ProfileResponse } from '@shared/api/social'
 
 const UPVOTE_ACCENT = 'border-amber-600 bg-amber-950/40 text-amber-200 hover:bg-amber-900/50'
@@ -54,9 +55,25 @@ export function AuthorProfilePage() {
               <Gravatar emailMd5={profile.emailMd5} size={64} />
               <div className="min-w-0 flex-1">
                 <h1 className="text-xl font-semibold text-zinc-100 sm:text-2xl">{profile.displayName}</h1>
+                {profile.bio && <p className="mt-1 text-sm text-zinc-300">{profile.bio}</p>}
                 <p className="mt-1 text-xs text-zinc-500">
                   Joined {new Date(profile.joinedAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
                 </p>
+                {socialLinksOf(profile).length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                    {socialLinksOf(profile).map((l) => (
+                      <a
+                        key={l.label}
+                        href={l.href}
+                        target="_blank"
+                        rel="noopener noreferrer nofollow"
+                        className="text-amber-400 hover:underline"
+                      >
+                        {l.text}
+                      </a>
+                    ))}
+                  </div>
+                )}
                 <div className="mt-3 flex gap-4 text-sm">
                   <Link to={`/u/${profile.userId}/followers`} className="text-zinc-300 hover:text-zinc-100">
                     <span className="font-mono text-base text-zinc-100">{followerCount ?? profile.followerCount}</span>{' '}
@@ -76,6 +93,29 @@ export function AuthorProfilePage() {
               />
             </div>
           </section>
+
+          {profile.posts && profile.posts.length > 0 && (
+            <section className="mb-8">
+              <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
+                Blog posts
+              </h2>
+              <ul className="space-y-2">
+                {profile.posts.map((p) => (
+                  <li key={p.id} className="rounded border border-zinc-800 bg-zinc-900/40 p-3">
+                    <Link to={`/blog/${p.slug}`} className="text-sm text-zinc-100 hover:text-amber-300">
+                      {p.title}
+                    </Link>
+                    <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-zinc-500">
+                      {p.publishedAt && <span>{new Date(p.publishedAt).toLocaleDateString()}</span>}
+                      <span>{p.readingMinutes} min read</span>
+                      <span>▲ {p.upvotes}</span>
+                      <span>💬 {p.commentCount}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
             Published reports

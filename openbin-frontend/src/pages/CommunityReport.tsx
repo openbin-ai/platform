@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from 'react-oidc-context'
-import ReactMarkdown from 'react-markdown'
+import { Markdown } from '../components/Markdown'
 import { API_BASE, useApi } from '@shared/api/client'
 import type { CommunityReportDetail } from '@shared/api/community'
 import { Gravatar } from '@shared/components/Gravatar'
@@ -156,7 +156,7 @@ export function CommunityReport() {
               <h2 className="mb-3 wrap-break-word text-lg font-medium text-zinc-100">{s.title}</h2>
               <div className="prose prose-invert prose-sm max-w-none prose-zinc prose-headings:wrap-break-word prose-headings:text-zinc-200 prose-a:wrap-break-word prose-a:text-amber-400 prose-code:whitespace-pre-wrap prose-code:wrap-break-word prose-code:text-zinc-200 prose-code:bg-zinc-800 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:overflow-x-auto prose-pre:bg-zinc-900 prose-pre:border prose-pre:border-zinc-800 prose-img:max-w-full prose-img:h-auto">
                 {s.content && s.content.trim() ? (
-                  <ReactMarkdown components={{ img: PublicImg }}>{s.content}</ReactMarkdown>
+                  <Markdown img={PublicImg}>{s.content}</Markdown>
                 ) : (
                   <p className="text-xs italic text-zinc-600">(empty)</p>
                 )}

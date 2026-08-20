@@ -3,6 +3,7 @@ import { useAuth } from 'react-oidc-context'
 import { useApi } from '@shared/api/client'
 import { Gravatar } from '@shared/components/Gravatar'
 import {
+  blogCommentsPath,
   commentsPath,
   deleteCommentPath,
   postCommentPath,
@@ -18,9 +19,16 @@ import {
  * thread stay chronological.
  *
  * Anonymous viewers can read but the composer redirects them through Keycloak.
+ *
+ * The target is either a community report or a blog post — the thread itself
+ * is identical, so it takes one or the other rather than being duplicated.
+ * Blog threads are ADDRESSED by slug (that's what the post URL carries) while
+ * the write API keys on the post's id.
  */
 type Props = {
-  reportId: string
+  reportId?: string
+  postId?: string
+  postSlug?: string
   accent?: 'purple' | 'amber'
 }
 
@@ -44,7 +52,11 @@ type ThreadCtx = {
   accentFocus: string
 }
 
-export function CommentsThread({ reportId, accent = 'purple' }: Props) {
+export function CommentsThread({ reportId, postId, postSlug, accent = 'purple' }: Props) {
+  // What the write endpoint keys on, and what the read endpoint addresses.
+  const target = reportId ? { reportId } : { postId }
+  const threadPath = (s: CommentSort) =>
+    reportId ? commentsPath(reportId, s) : blogCommentsPath(postSlug ?? '', s)
   const auth = useAuth()
   const api = useApi()
   const [comments, setComments] = useState<CommentResponse[] | null>(null)
@@ -57,13 +69,13 @@ export function CommentsThread({ reportId, accent = 'purple' }: Props) {
 
   const reload = useCallback(async () => {
     try {
-      const rows = await api<CommentResponse[]>(commentsPath(reportId, sort))
+      const rows = await api<CommentResponse[]>(threadPath(sort))
       setComments(rows)
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load comments')
     }
-  }, [api, reportId, sort])
+  }, [api, reportId, postSlug, sort])
 
   useEffect(() => { void reload() }, [reload])
 
@@ -75,7 +87,7 @@ export function CommentsThread({ reportId, accent = 'purple' }: Props) {
     try {
       await api<CommentResponse>(postCommentPath(), {
         method: 'POST',
-        body: JSON.stringify({ reportId, body }),
+        body: JSON.stringify({ ...target, body }),
       })
       setDraft('')
       await reload()
@@ -84,7 +96,7 @@ export function CommentsThread({ reportId, accent = 'purple' }: Props) {
     } finally {
       setPosting(false)
     }
-  }, [api, auth, draft, reload, reportId])
+  }, [api, auth, draft, reload, reportId, postId])
 
   const submitReply = useCallback(async (parentCommentId: string) => {
     if (!auth.isAuthenticated) { void auth.signinRedirect(); return }
@@ -94,7 +106,7 @@ export function CommentsThread({ reportId, accent = 'purple' }: Props) {
     try {
       await api<CommentResponse>(postCommentPath(), {
         method: 'POST',
-        body: JSON.stringify({ reportId, parentCommentId, body }),
+        body: JSON.stringify({ ...target, parentCommentId, body }),
       })
       setReplyDraft('')
       setReplyParent(null)
@@ -104,7 +116,7 @@ export function CommentsThread({ reportId, accent = 'purple' }: Props) {
     } finally {
       setPosting(false)
     }
-  }, [api, auth, replyDraft, reload, reportId])
+  }, [api, auth, replyDraft, reload, reportId, postId])
 
   const remove = useCallback(async (commentId: string) => {
     if (!confirm('Delete this comment? It will show as "[deleted]" but stay in the thread.')) return

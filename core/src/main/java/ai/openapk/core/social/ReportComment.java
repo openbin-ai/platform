@@ -1,6 +1,7 @@
 package ai.openapk.core.social;
 
 import ai.openapk.core.auth.User;
+import ai.openapk.core.blog.BlogPost;
 import ai.openapk.core.reports.ProjectReport;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -36,9 +37,19 @@ public class ReportComment {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "report_id", nullable = false)
+    /**
+     * The thing being commented on. EXACTLY ONE of {@link #report} /
+     * {@link #post} is set — enforced by a CHECK constraint in V40, because
+     * threading, soft-deletes and comment notifications are worth having in
+     * one implementation rather than two.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "report_id")
     private ProjectReport report;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "post_id")
+    private BlogPost post;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)

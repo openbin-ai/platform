@@ -62,6 +62,32 @@ public class User {
     @Column(name = "credit_publicly", nullable = false)
     private boolean creditPublicly = true;
 
+    // ─── public profile ─────────────────────────────────────────────────
+    // Researchers want to be findable off-platform; a byline with no way to
+    // follow the person is a dead end. Handles are stored BARE (no @, no URL)
+    // and the frontend builds the link, so a stored value can never carry its
+    // own scheme. See V40.
+
+    @Column(name = "bio")
+    private String bio;
+
+    @Column(name = "website_url")
+    private String websiteUrl;
+
+    /** GitHub username, without the @ or any URL. */
+    @Column(name = "github_user")
+    private String githubUser;
+
+    /** X/Twitter handle, without the @. */
+    @Column(name = "x_user")
+    private String xUser;
+
+    @Column(name = "mastodon_url")
+    private String mastodonUrl;
+
+    @Column(name = "linkedin_url")
+    private String linkedinUrl;
+
     @PrePersist
     void prePersist() {
         var now = Instant.now();

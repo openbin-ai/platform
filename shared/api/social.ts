@@ -1,3 +1,4 @@
+import type { BlogPostSummary } from '@shared/api/blog'
 // Types + helpers for the /api/social and /api/community/users endpoints.
 // The split: /api/social/** is auth-required (mutations + personal feed);
 // /api/community/users/{id}/profile/{kind} is anonymous-readable so a
@@ -18,10 +19,22 @@ export type ProfileResponse = {
   followerCount: number
   followingCount: number
   amFollowing: boolean // always false for anonymous viewers
+  // Public identity. Handles are BARE — the link is built client-side, so a
+  // stored value can never carry its own scheme. Optional so an older
+  // backend response still parses.
+  bio?: string | null
+  websiteUrl?: string | null
+  githubUser?: string | null
+  xUser?: string | null
+  mastodonUrl?: string | null
+  linkedinUrl?: string | null
+  isMe?: boolean
   reports: CommunityReportSummary[] // where this user is the LEAD (owner)
   // Reports where this user is a credited CONTRIBUTOR but not the lead.
   // Empty for legacy reports; optional so an older backend response parses.
   collaborativeReports?: CommunityReportSummary[]
+  // Published blog posts by this author, newest first.
+  posts?: BlogPostSummary[]
 }
 
 export type ProjectKindParam = 'apk' | 'bin'

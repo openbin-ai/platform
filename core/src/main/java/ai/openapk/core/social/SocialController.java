@@ -5,6 +5,8 @@ import ai.openapk.core.projects.ProjectKind;
 import ai.openapk.core.reports.dto.CommunityReportSummary;
 import ai.openapk.core.social.dto.CommentResponse;
 import ai.openapk.core.social.dto.CreateCommentRequest;
+import ai.openapk.core.social.dto.ProfileResponse;
+import ai.openapk.core.social.dto.UpdateProfileRequest;
 import ai.openapk.core.social.dto.ToggleResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -12,6 +14,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -47,6 +50,20 @@ public class SocialController {
     }
 
     // ─── follows ────────────────────────────────────────────────────────
+
+    /**
+     * Edit my own public profile (bio + social links). Lives on the
+     * authenticated /api/social surface rather than beside the anonymous
+     * profile READ — a write has no business on a permitAll path.
+     */
+    @PutMapping("/profile/{kind}")
+    public ProfileResponse updateProfile(
+            @PathVariable("kind") String kindStr,
+            @Valid @RequestBody UpdateProfileRequest req
+    ) {
+        var kind = ai.openapk.core.projects.ProjectKind.valueOf(kindStr.toUpperCase(java.util.Locale.ROOT));
+        return social.updateProfile(currentUser.current(), req, kind);
+    }
 
     @PostMapping("/follows/{userId}")
     public ToggleResponse follow(@PathVariable("userId") UUID userId) {

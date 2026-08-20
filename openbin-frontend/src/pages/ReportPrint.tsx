@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
+import { Markdown } from '../components/Markdown'
 import { useApi } from '@shared/api/client'
 import { AuthenticatedImg } from '../components/AuthenticatedImg'
 
@@ -106,19 +106,17 @@ export function ReportPrint() {
           <section key={s.id} className="mb-8 break-inside-avoid">
             <h2 className="mb-3 text-xl font-semibold text-zinc-900">{s.title}</h2>
             <div className="report-print-md">
-              <ReactMarkdown
-                components={{
-                  img: ({ src, alt }) => (
-                    <AuthenticatedImg
-                      src={typeof src === 'string' ? src : ''}
-                      alt={alt}
-                      className="my-3 max-w-full rounded border border-zinc-200"
-                    />
-                  ),
-                }}
+              <Markdown
+                img={({ src, alt }) => (
+                  <AuthenticatedImg
+                    src={typeof src === 'string' ? src : ''}
+                    alt={alt}
+                    className="my-3 max-w-full rounded border border-zinc-200"
+                  />
+                )}
               >
                 {s.content || '_(empty)_'}
-              </ReactMarkdown>
+              </Markdown>
             </div>
           </section>
         ))}

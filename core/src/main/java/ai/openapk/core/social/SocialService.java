@@ -10,7 +10,9 @@ import ai.openapk.core.reports.ProjectReportRepository;
 import ai.openapk.core.reports.ReportContributorService;
 import ai.openapk.core.reports.dto.CommunityReportSummary;
 import ai.openapk.core.reports.dto.Contributor;
+import ai.openapk.core.blog.BlogService;
 import ai.openapk.core.social.dto.ProfileResponse;
+import ai.openapk.core.social.dto.UpdateProfileRequest;
 import ai.openapk.core.social.dto.SocialUserSummary;
 import ai.openapk.core.social.dto.ToggleResponse;
 import jakarta.persistence.EntityManager;
@@ -54,12 +56,14 @@ public class SocialService {
     private final CommunityService communityService;
     private final NotificationService notifications;
     private final ReportContributorService contributors;
+    private final BlogService blog;
 
     public SocialService(FollowRepository followRepo, ReportVoteRepository voteRepo,
                          UserRepository userRepo, ProjectReportRepository reportRepo,
                          CommunityService communityService,
                          NotificationService notifications,
-                         ReportContributorService contributors) {
+                         ReportContributorService contributors,
+                         BlogService blog) {
         this.followRepo = followRepo;
         this.voteRepo = voteRepo;
         this.userRepo = userRepo;
@@ -67,6 +71,7 @@ public class SocialService {
         this.communityService = communityService;
         this.notifications = notifications;
         this.contributors = contributors;
+        this.blog = blog;
     }
 
     // ─── follows ────────────────────────────────────────────────────────
@@ -375,9 +380,51 @@ public class SocialService {
                 followRepo.countByFolloweeId(u.getId()),
                 followRepo.countByFollowerId(u.getId()),
                 amFollowing,
+                u.getBio(),
+                u.getWebsiteUrl(),
+                u.getGithubUser(),
+                u.getXUser(),
+                u.getMastodonUrl(),
+                u.getLinkedinUrl(),
+                viewerOrNull != null && viewerOrNull.getId().equals(u.getId()),
                 reports,
-                collaborativeReports
+                collaborativeReports,
+                blog.byAuthor(u.getId(), viewerOrNull)
         );
+    }
+
+    /**
+     * Update the caller's own public profile. Null field = leave alone, blank
+     * field = clear it, so a client can send a partial patch or a full form
+     * without either one surprising the user.
+     */
+    @Transactional
+    public ProfileResponse updateProfile(User caller, UpdateProfileRequest req, ProjectKind kind) {
+        User u = userRepo.findById(caller.getId()).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "user not found"));
+        if (req.bio() != null) u.setBio(blankToNull(req.bio()));
+        if (req.websiteUrl() != null) u.setWebsiteUrl(blankToNull(req.websiteUrl()));
+        if (req.githubUser() != null) u.setGithubUser(stripHandle(req.githubUser()));
+        if (req.xUser() != null) u.setXUser(stripHandle(req.xUser()));
+        if (req.mastodonUrl() != null) u.setMastodonUrl(blankToNull(req.mastodonUrl()));
+        if (req.linkedinUrl() != null) u.setLinkedinUrl(blankToNull(req.linkedinUrl()));
+        userRepo.save(u);
+        return profile(u.getId(), caller, kind);
+    }
+
+    private static String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s.strip();
+    }
+
+    /**
+     * Store handles bare. People type "@octocat" out of habit; keeping the @
+     * would double it in the rendered link and break the URL.
+     */
+    private static String stripHandle(String s) {
+        String v = blankToNull(s);
+        if (v == null) return null;
+        while (v.startsWith("@")) v = v.substring(1);
+        return v.isBlank() ? null : v;
     }
 
     // ─── helpers ────────────────────────────────────────────────────────

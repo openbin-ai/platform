@@ -1,6 +1,7 @@
 package ai.openapk.core.notifications;
 
 import ai.openapk.core.auth.User;
+import ai.openapk.core.blog.BlogPost;
 import ai.openapk.core.notifications.dto.EmailPrefsResponse;
 import ai.openapk.core.notifications.dto.UpdateEmailPrefsRequest;
 import ai.openapk.core.projects.Project;
@@ -159,6 +160,36 @@ public class NotificationService {
         createInApp(parentAuthor, "REPLY_TO_MY_COMMENT",
                 payload,
                 "/community/reports/" + report.getId());
+    }
+
+    /**
+     * "X commented on your post." In-app only: the email templates take a
+     * report id to build their link and a post has none. Reuses the
+     * comment-on-my-report preference toggle rather than inventing a second
+     * switch for the same intent — one "someone commented on my writing"
+     * setting is what a user expects to control both.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void notifyCommentOnMyPost(User postAuthor, User commenter, BlogPost post) {
+        if (postAuthor == null || commenter == null || post == null) return;
+        if (postAuthor.getId().equals(commenter.getId())) return;
+        if (!getOrDefault(postAuthor.getId()).isNotifyCommentOnMyReport()) return;
+        var payload = actorPayload(commenter);
+        payload.put("postId", post.getId().toString());
+        payload.put("postTitle", post.getTitle());
+        createInApp(postAuthor, "COMMENT_ON_MY_POST", payload, "/blog/" + post.getSlug());
+    }
+
+    /** "X replied to your comment on post Y." In-app only, same reasoning. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void notifyReplyToMyPostComment(User parentAuthor, User replier, BlogPost post) {
+        if (parentAuthor == null || replier == null || post == null) return;
+        if (parentAuthor.getId().equals(replier.getId())) return;
+        if (!getOrDefault(parentAuthor.getId()).isNotifyReplyToMyComment()) return;
+        var payload = actorPayload(replier);
+        payload.put("postId", post.getId().toString());
+        payload.put("postTitle", post.getTitle());
+        createInApp(parentAuthor, "REPLY_TO_MY_POST_COMMENT", payload, "/blog/" + post.getSlug());
     }
 
     /**

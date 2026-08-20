@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
+import { Markdown } from '../components/Markdown'
 import { ApiError, API_BASE, useApi } from '@shared/api/client'
 import { useAuth } from 'react-oidc-context'
 import { AuthenticatedImg } from '../components/AuthenticatedImg'
@@ -781,19 +781,17 @@ function SectionCard({
       {!collapsed && (
         (preview || locked) ? (
           <div className="markdown-answer p-3 text-sm text-zinc-200">
-            <ReactMarkdown
-              components={{
-                img: ({ src, alt }) => (
-                  <AuthenticatedImg
-                    src={typeof src === 'string' ? src : ''}
-                    alt={alt}
-                    className="my-2 max-w-full rounded border border-zinc-800"
-                  />
-                ),
-              }}
+            <Markdown
+              img={({ src, alt }) => (
+                <AuthenticatedImg
+                  src={typeof src === 'string' ? src : ''}
+                  alt={alt}
+                  className="my-2 max-w-full rounded border border-zinc-800"
+                />
+              )}
             >
               {section.content || '_(empty)_'}
-            </ReactMarkdown>
+            </Markdown>
           </div>
         ) : (
           <>

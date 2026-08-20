@@ -3,6 +3,7 @@ import { useApi } from '@shared/api/client'
 import { setMeCache } from '@shared/api/me'
 import { EmailPreferences } from '@shared/components/EmailPreferences'
 import { Gravatar } from '@shared/components/Gravatar'
+import { SocialLinksEditor } from '@shared/components/SocialLinksEditor'
 
 // Self-profile settings — identical behavior to openapk-frontend's
 // Profile page. The shared API endpoint /api/users/me serves both apps.
@@ -136,6 +137,8 @@ export function Profile() {
         </div>
         {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
       </section>
+
+      <SocialLinksEditor kind="BIN" accent="amber" />
 
       <section className="mt-6 rounded border border-zinc-800 bg-zinc-900/40 p-4">
         <div className="flex items-start justify-between gap-4">

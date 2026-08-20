@@ -16,6 +16,9 @@ import { ReportPrint } from './pages/ReportPrint'
 import { ReportTemplates } from './pages/ReportTemplates'
 import { Usage } from './pages/Usage'
 import { CallGraph } from './pages/CallGraph'
+import { Blog } from './pages/Blog'
+import { BlogEditor } from './pages/BlogEditor'
+import { BlogPostPage } from './pages/BlogPostPage'
 import { Community } from './pages/Community'
 import { CommunityReport } from './pages/CommunityReport'
 import { PublicProject } from './pages/PublicProject'
@@ -52,6 +55,8 @@ export default function App() {
               app (the navbar must not change shape between tabs), but no
               RequireAuth/TosGate so signed-out visitors can browse. */}
           <Route element={<Layout />}>
+            <Route path="blog" element={<Blog />} />
+            <Route path="blog/:slug" element={<BlogPostPage />} />
             <Route path="community" element={<Community />} />
             <Route path="community/researchers" element={<ResearcherSearch />} />
             <Route path="community/reports/:id" element={<CommunityReport />} />
@@ -99,6 +104,8 @@ export default function App() {
             <Route index element={<Home />} />
             <Route path="dashboard" element={<Home />} />
             <Route path="projects" element={<Projects />} />
+            <Route path="blog/new" element={<BlogEditor />} />
+            <Route path="blog/:id/edit" element={<BlogEditor />} />
             <Route path="projects/:id" element={<ProjectViewRoute />} />
             <Route path="projects/:id/report" element={<Report />} />
             {/* Bundle overview — the repo-style home for a multi-binary sample. */}

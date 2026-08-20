@@ -1,6 +1,8 @@
 package ai.openapk.core.social;
 
 import ai.openapk.core.auth.User;
+import ai.openapk.core.blog.BlogPost;
+import ai.openapk.core.blog.BlogPostRepository;
 import ai.openapk.core.notifications.NotificationService;
 import ai.openapk.core.reports.CommunityService;
 import ai.openapk.core.reports.ProjectReport;
@@ -33,12 +35,14 @@ public class CommentsService {
 
     private final ReportCommentRepository repo;
     private final ProjectReportRepository reportRepo;
+    private final BlogPostRepository postRepo;
     private final NotificationService notifications;
 
     public CommentsService(ReportCommentRepository repo, ProjectReportRepository reportRepo,
-                           NotificationService notifications) {
+                           BlogPostRepository postRepo, NotificationService notifications) {
         this.repo = repo;
         this.reportRepo = reportRepo;
+        this.postRepo = postRepo;
         this.notifications = notifications;
     }
 
@@ -58,7 +62,26 @@ public class CommentsService {
 
         // Fetch chronologically so replies attach + render oldest-first within
         // each thread regardless of the root-level sort.
-        List<ReportComment> flat = repo.findAllByReportIdOrderByCreatedAtAsc(reportId);
+        return threadOf(repo.findAllByReportIdOrderByCreatedAtAsc(reportId), viewerOrNull, sort);
+    }
+
+    /**
+     * Same thread, hung off a blog post instead of a report. Drafts 404 for
+     * everyone including the author — an unpublished post has no audience to
+     * comment, and returning it here would leak drafts to anyone with the id.
+     */
+    @Transactional(readOnly = true)
+    public List<CommentResponse> listForPost(UUID postId, User viewerOrNull, String sort) {
+        BlogPost post = postRepo.findById(postId).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "post not found"));
+        if (!post.isPublished()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "post not found");
+        }
+        return threadOf(repo.findAllByPostIdOrderByCreatedAtAsc(postId), viewerOrNull, sort);
+    }
+
+    /** Flat chronological rows -> sorted tree. Target-agnostic on purpose. */
+    private List<CommentResponse> threadOf(List<ReportComment> flat, User viewerOrNull, String sort) {
         UUID viewerId = viewerOrNull == null ? null : viewerOrNull.getId();
 
         Map<UUID, CommentResponse> byId = new HashMap<>(flat.size());
@@ -133,6 +156,8 @@ public class CommentsService {
         if (req == null || req.body() == null || req.body().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "comment body required");
         }
+        if (req.postId() != null) return createOnPost(author, req);
+
         ProjectReport report = reportRepo.findById(req.reportId()).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "report not found"));
         if (report.getCommunityPublishedAt() == null) {
@@ -143,7 +168,7 @@ public class CommentsService {
         if (req.parentCommentId() != null) {
             parent = repo.findById(req.parentCommentId()).orElseThrow(() ->
                     new ResponseStatusException(HttpStatus.NOT_FOUND, "parent comment not found"));
-            if (!parent.getReport().getId().equals(report.getId())) {
+            if (parent.getReport() == null || !parent.getReport().getId().equals(report.getId())) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "parent comment belongs to a different report");
             }
@@ -177,6 +202,54 @@ public class CommentsService {
         }
 
         return toResponse(c, author.getId(), new ArrayList<>());
+    }
+
+    /**
+     * Comment on a blog post. Same threading rules; the notification is
+     * in-app only for now — the email templates are report-shaped and a post
+     * doesn't have a report id to link to.
+     */
+    private CommentResponse createOnPost(User author, CreateCommentRequest req) {
+        BlogPost post = postRepo.findById(req.postId()).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "post not found"));
+        if (!post.isPublished()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "post not found");
+        }
+
+        ReportComment parent = null;
+        if (req.parentCommentId() != null) {
+            parent = repo.findById(req.parentCommentId()).orElseThrow(() ->
+                    new ResponseStatusException(HttpStatus.NOT_FOUND, "parent comment not found"));
+            if (parent.getPost() == null || !parent.getPost().getId().equals(post.getId())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "parent comment belongs to a different post");
+            }
+        }
+
+        ReportComment c = new ReportComment();
+        c.setPost(post);
+        c.setUser(author);
+        c.setParent(parent);
+        c.setBody(req.body().strip());
+        repo.save(c);
+
+        User postAuthor = post.getAuthor();
+        if (postAuthor != null && !postAuthor.getId().equals(author.getId())) {
+            notifications.notifyCommentOnMyPost(postAuthor, author, post);
+        }
+        if (parent != null && parent.getUser() != null
+                && !parent.getUser().getId().equals(author.getId())
+                && (postAuthor == null || !parent.getUser().getId().equals(postAuthor.getId()))) {
+            notifications.notifyReplyToMyPostComment(parent.getUser(), author, post);
+        }
+
+        return toResponse(c, author.getId(), new ArrayList<>());
+    }
+
+    /** Per-post aggregate badge. */
+    @Transactional(readOnly = true)
+    public long countForPost(UUID postId) {
+        return repo.countByPostId(postId);
     }
 
     /**
@@ -217,7 +290,8 @@ public class CommentsService {
         boolean mine = !deleted && viewerId != null && viewerId.equals(author.getId());
         return new CommentResponse(
                 c.getId(),
-                c.getReport().getId(),
+                c.getReport() == null ? null : c.getReport().getId(),
+                c.getPost() == null ? null : c.getPost().getId(),
                 c.getParent() == null ? null : c.getParent().getId(),
                 deleted ? null : author.getId(),
                 displayName,
