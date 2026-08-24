@@ -1,7 +1,7 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from 'react-oidc-context'
 import { Link, useNavigate } from 'react-router-dom'
-import LetterGlitch from '../components/LetterGlitch'
+import HexDrift from '../components/HexDrift'
 import { FeatureTour } from '../components/FeatureTour'
 import logoUrl from '../assets/logo.png'
 import iconUrl from '../assets/icon.png'
@@ -17,6 +17,7 @@ export function Landing() {
   const auth = useAuth()
   const navigate = useNavigate()
   const authed = auth.isAuthenticated
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const startSignin = () => {
     sessionStorage.setItem(POST_SIGNIN_FLAG, '1')
@@ -33,16 +34,28 @@ export function Landing() {
   return (
     <div className="relative min-h-full overflow-hidden bg-black text-zinc-100">
       <div className="pointer-events-none fixed inset-0 z-0 opacity-60">
-        <LetterGlitch
-          glitchColors={['#3b0a0a', '#7c3aed', '#ef4444']}
-          glitchSpeed={55}
+        <HexDrift
+          baseColors={['#3b0a0a', '#3f3f46', '#4c1d95']}
+          accentColor="#ef4444"
           outerVignette
           centerVignette
-          smooth
         />
       </div>
 
-      <header className="relative z-10 flex items-center justify-between px-6 py-5 sm:px-10">
+      {/* Launch announcement — mirrors the openbin.ai landing bar. */}
+      <a
+        href="https://discord.gg/HQsCZBHXwc"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="relative z-20 block border-b border-purple-500/30 bg-purple-500/10 px-4 py-2 text-center text-sm text-purple-200 backdrop-blur transition hover:bg-purple-500/20"
+      >
+        <span aria-hidden className="mr-1">🚀</span>
+        <span className="font-semibold text-purple-100">We've launched:</span> v1.0 is out of beta, with{' '}
+        <span className="font-semibold text-purple-100">1000+ researchers</span> on board.{' '}
+        <span className="underline decoration-purple-400/50 underline-offset-2">Join the Discord →</span>
+      </a>
+
+      <header className="relative z-30 flex items-center justify-between px-6 py-5 sm:px-10">
         <div className="flex items-center gap-2">
           <img src={iconUrl} alt="" className="h-8 w-8" />
           <span className="text-sm font-semibold tracking-wide text-zinc-200">OPENAPK<span className="text-red-500">.AI</span></span>
@@ -65,6 +78,14 @@ export function Landing() {
           >
             Source
           </a>
+          <a
+            href="https://discord.gg/HQsCZBHXwc"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden text-zinc-400 hover:text-zinc-200 sm:inline"
+          >
+            Discord
+          </a>
           {authed ? (
             <Link
               to="/dashboard"
@@ -80,7 +101,43 @@ export function Landing() {
               Sign in
             </button>
           )}
+          {/* Mobile menu toggle for the links the phone layout hides.
+              Plain glyphs — this package doesn't ship an icon library. */}
+          <button
+            type="button"
+            onClick={() => setMenuOpen(open => !open)}
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen}
+            className="rounded-md border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 text-base leading-none text-zinc-200 backdrop-blur sm:hidden"
+          >
+            <span aria-hidden>{menuOpen ? '✕' : '☰'}</span>
+          </button>
         </div>
+        {menuOpen && (
+          <nav className="absolute inset-x-0 top-full flex flex-col border-b border-zinc-800 bg-black/95 px-6 pb-4 pt-2 text-sm backdrop-blur sm:hidden">
+            <Link to="/community" onClick={() => setMenuOpen(false)} className="py-2.5 text-amber-300 hover:text-amber-200">
+              ★ Community
+            </Link>
+            <a
+              href="https://github.com/openbin-ai/platform"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setMenuOpen(false)}
+              className="py-2.5 text-zinc-300 hover:text-zinc-100"
+            >
+              Source
+            </a>
+            <a
+              href="https://discord.gg/HQsCZBHXwc"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setMenuOpen(false)}
+              className="py-2.5 text-zinc-300 hover:text-zinc-100"
+            >
+              Discord
+            </a>
+          </nav>
+        )}
       </header>
 
       <main className="relative z-10">
@@ -137,7 +194,7 @@ export function Landing() {
             </a>
           </div>
           <p className="mt-6 text-xs text-zinc-500">
-            Beta · Free &amp; open source (AGPL v3) · BYOK (Anthropic · OpenAI · Bedrock)
+            v1.0 · Free &amp; open source (AGPL v3) · BYOK (Anthropic · OpenAI · Bedrock)
           </p>
         </section>
 
@@ -305,6 +362,8 @@ export function Landing() {
             <Link to="/community" className="hover:text-zinc-300">Community</Link>
             <span aria-hidden>·</span>
             <a href="https://github.com/openbin-ai/platform" target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">Source</a>
+            <span aria-hidden>·</span>
+            <a href="https://discord.gg/HQsCZBHXwc" target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">Discord</a>
             <span aria-hidden>·</span>
             <a href="mailto:husam@openbin.ai" className="hover:text-zinc-300">Contact</a>
             <span aria-hidden>·</span>

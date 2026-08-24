@@ -1,6 +1,7 @@
-import { Bot, GitBranch, Unlock, NotebookPen, Globe, KeyRound, Users, Share2, Cpu, Smartphone, Package, FileCode2, Terminal } from 'lucide-react'
+import { useState } from 'react'
+import { Bot, GitBranch, Unlock, NotebookPen, Globe, KeyRound, Users, Share2, Cpu, Smartphone, Package, FileCode2, Terminal, Menu, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import LetterGlitch from './components/LetterGlitch'
+import HexDrift from './components/HexDrift'
 import DecryptedText from './components/DecryptedText'
 import ElectricBorder from './components/ElectricBorder'
 import MagicBento, { type BentoCard } from './components/MagicBento'
@@ -13,16 +14,15 @@ export default function App() {
   return (
     <div className="relative min-h-full overflow-hidden bg-black text-zinc-100">
       <div className="pointer-events-none fixed inset-0 z-0 opacity-50">
-        <LetterGlitch
-          glitchColors={['#fbbf24', '#52525b', '#1a1a1a']}
-          glitchSpeed={55}
+        <HexDrift
+          baseColors={['#27272a', '#3f3f46', '#52525b']}
+          accentColor="#fbbf24"
           outerVignette
           centerVignette
-          smooth
         />
       </div>
 
-      <WindowsAnnounceBar />
+      <LaunchAnnounceBar />
       <Header />
 
       <main className="relative z-10">
@@ -40,84 +40,93 @@ export default function App() {
 }
 
 /**
- * Slim top-of-page announcement: openbin now ships a native Windows CLI (it
- * previously ran on macOS/Linux only). Links to the CLI & Docker setup docs.
- * Not dismissible — it's a marketing headline on a static page, not a
- * repeated in-app nag.
+ * Slim top-of-page announcement: we're out of beta. Links to the Discord —
+ * the launch CTA is "come hang out where the researchers are", not another
+ * docs link. Not dismissible — it's a marketing headline on a static page,
+ * not a repeated in-app nag.
  */
-function WindowsAnnounceBar() {
+function LaunchAnnounceBar() {
   return (
     <a
-      href="https://app.openbin.ai/docs/cli"
+      href="https://discord.gg/HQsCZBHXwc"
+      target="_blank"
+      rel="noopener noreferrer"
       className="relative z-20 block border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center text-sm text-amber-200 backdrop-blur transition hover:bg-amber-500/20"
     >
-      <span aria-hidden className="mr-1">🪟</span>
-      <span className="font-semibold text-amber-100">New:</span> openbin now runs natively on{' '}
-      <span className="font-semibold text-amber-100">Windows</span> — decompile locally on any OS.{' '}
-      <span className="underline decoration-amber-400/50 underline-offset-2">Set up the CLI →</span>
+      <span aria-hidden className="mr-1">🚀</span>
+      <span className="font-semibold text-amber-100">We've launched:</span> v1.0 is out of beta, with{' '}
+      <span className="font-semibold text-amber-100">1000+ researchers</span> on board · CLI v0.9 out now.{' '}
+      <span className="underline decoration-amber-400/50 underline-offset-2">Join the Discord →</span>
     </a>
   )
 }
 
+// One list drives both the desktop nav row and the mobile dropdown so the
+// two can't drift. external → new tab; accent → amber (Community only).
+const navLinks: { label: string; href: string; external?: boolean; accent?: boolean }[] = [
+  { label: 'Products', href: '#products' },
+  { label: 'Why OpenBin', href: '#why' },
+  { label: 'Docs', href: 'https://app.openbin.ai/docs' },
+  { label: 'Community', href: 'https://app.openbin.ai/community', accent: true },
+  { label: 'Sign in', href: 'https://app.openbin.ai', external: true },
+  { label: 'Source', href: 'https://github.com/openbin-ai/platform', external: true },
+  { label: 'Discord', href: 'https://discord.gg/HQsCZBHXwc', external: true },
+]
+
 function Header() {
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  const linkClass = (accent?: boolean) =>
+    accent ? 'text-amber-400 hover:text-amber-300' : 'text-zinc-200 hover:text-amber-400'
+
   return (
-    <header className="relative z-10 flex items-center justify-between px-6 py-5 sm:px-10">
+    // z-30 (above the hero) so the mobile dropdown paints over page content.
+    <header className="relative z-30 flex items-center justify-between px-6 py-5 sm:px-10">
       <div className="flex items-center gap-2">
         <img src={iconLight} alt="" className="h-9 w-9" />
         <span className="font-mono text-base font-semibold tracking-[0.08em] text-zinc-100">
           OPENBIN<span className="text-amber-400">.AI</span>
         </span>
       </div>
-      <nav className="flex items-center gap-5 text-base">
-        <a
-          href="#products"
-          className="hidden text-zinc-200 hover:text-amber-400 sm:inline"
-        >
-          Products
-        </a>
-        <a
-          href="#why"
-          className="hidden text-zinc-200 hover:text-amber-400 sm:inline"
-        >
-          Why OpenBin
-        </a>
-        <a
-          href="https://app.openbin.ai/docs"
-          className="text-zinc-200 hover:text-amber-400"
-        >
-          Docs
-        </a>
-        <a
-          href="https://app.openbin.ai/community"
-          className="text-amber-400 hover:text-amber-300"
-        >
-          Community
-        </a>
-        <a
-          href="https://app.openbin.ai"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hidden text-zinc-200 hover:text-amber-400 sm:inline"
-        >
-          Sign in
-        </a>
-        <a
-          href="https://github.com/openbin-ai/platform"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-zinc-200 hover:text-amber-400"
-        >
-          Source
-        </a>
-        <a
-          href="https://discord.gg/HQsCZBHXwc"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-zinc-200 hover:text-amber-400"
-        >
-          Discord
-        </a>
+
+      <nav className="hidden items-center gap-5 text-base sm:flex">
+        {navLinks.map(({ label, href, external, accent }) => (
+          <a
+            key={label}
+            href={href}
+            {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+            className={linkClass(accent)}
+          >
+            {label}
+          </a>
+        ))}
       </nav>
+
+      <button
+        type="button"
+        onClick={() => setMenuOpen(open => !open)}
+        aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+        aria-expanded={menuOpen}
+        className="rounded-md border border-zinc-800 bg-zinc-900/60 p-2 text-zinc-200 backdrop-blur sm:hidden"
+      >
+        {menuOpen ? <X className="h-5 w-5" aria-hidden /> : <Menu className="h-5 w-5" aria-hidden />}
+      </button>
+
+      {menuOpen && (
+        <nav className="absolute inset-x-0 top-full flex flex-col border-b border-zinc-800 bg-black/95 px-6 pb-4 pt-2 backdrop-blur sm:hidden">
+          {navLinks.map(({ label, href, external, accent }) => (
+            <a
+              key={label}
+              href={href}
+              {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+              onClick={() => setMenuOpen(false)}
+              className={`py-2.5 text-base ${linkClass(accent)}`}
+            >
+              {label}
+            </a>
+          ))}
+        </nav>
+      )}
     </header>
   )
 }
@@ -128,7 +137,7 @@ function Hero() {
       <img
         src={logoLight}
         alt="OpenBin.ai - The Open Binary Project"
-        className="mb-12 h-80 w-auto drop-shadow-[0_8px_40px_rgba(251,191,36,0.35)] sm:h-112"
+        className="mb-8 h-48 w-auto drop-shadow-[0_8px_40px_rgba(251,191,36,0.35)] sm:mb-12 sm:h-112"
       />
       {/* Visible "official name" line — needs to be real text, not just
           alt/JSON-LD, for the phrase "The Open Binary Project" to actually
@@ -223,7 +232,7 @@ function Hero() {
       <InstallCommands />
       <CloudSunsetNote />
       <p className="mt-8 font-mono text-sm uppercase tracking-[0.15em] text-zinc-300">
-        Beta · Free &amp; open source (AGPL v3) · BYOK (Anthropic · OpenAI · Bedrock) · Runs in your browser
+        v1.0 · Free &amp; open source (AGPL v3) · BYOK (Anthropic · OpenAI · Bedrock) · Runs in your browser
       </p>
     </section>
   )
@@ -240,7 +249,7 @@ function InstallCommands() {
   return (
     <div className="mt-8 w-full max-w-2xl text-left">
       <p className="mb-2 text-center font-mono text-xs uppercase tracking-[0.15em] text-zinc-400">
-        Install the CLI — macOS · Linux · Windows
+        Install the CLI — v0.9 · macOS · Linux · Windows
       </p>
       <div className="space-y-2">
         <div className="rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
@@ -473,6 +482,10 @@ const capabilityCards: BentoCard[] = [
 ]
 
 function Capabilities() {
+  // Hover-driven effects (spotlight, magnetism, particle stars) are dead
+  // weight on touch screens — they only fire on pointer movement but the
+  // listeners and GSAP tweens still cost battery. Static cards there.
+  const isTouch = window.matchMedia('(hover: none)').matches
   return (
     <section className="mx-auto max-w-6xl px-6 pt-12 pb-28">
       <h2 className="mb-4 text-center font-mono text-sm font-semibold uppercase tracking-[0.22em] text-amber-400">
@@ -484,6 +497,7 @@ function Capabilities() {
       </p>
       <MagicBento
         cards={capabilityCards}
+        disableAnimations={isTouch}
         enableStars
         enableSpotlight
         enableBorderGlow
