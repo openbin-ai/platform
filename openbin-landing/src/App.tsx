@@ -551,14 +551,16 @@ function Pillar({ title, body }: { title: string; body: string }) {
 // Launch-day shoutout to the beta researchers who carried the community —
 // answering questions in Discord, publishing public research, and generally
 // standing on BINness. Handles are Twitter/X handles; each card links to
-// x.com/<handle>.
-const hallOfFame: { handle: string; name: string; founder?: boolean }[] = [
-  { handle: '@oneandonlyhusam', name: 'Bytecode Assassin', founder: true },
-  { handle: '@0xpwnie', name: 'Pwnie' },
+// x.com/<handle>. Order matters: Pwnie is deliberately #1 — he built the
+// Discord and brought a huge share of the community in. The founder is NOT
+// in the grid (his shoutout is the signed line below it).
+const hallOfFame: { handle: string; name: string; badge?: string }[] = [
+  { handle: '@0xpwnie', name: 'Pwnie', badge: 'built the discord' },
   { handle: '@Loserlarping', name: 'Larp' },
   { handle: '@kernelstub', name: 'Prepakis Georgios' },
   { handle: '@LxlxIxlxlxL', name: 'rootkittie' },
   { handle: '@JuluisKStar', name: 'Choppery' },
+  { handle: '@noth1ng_real', name: 'http' },
 ]
 
 function HallOfFame() {
@@ -573,7 +575,7 @@ function HallOfFame() {
         it is today. Thank you.
       </p>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-        {hallOfFame.map(({ handle, name, founder }) => (
+        {hallOfFame.map(({ handle, name, badge }) => (
           <a
             key={handle}
             href={`https://x.com/${handle.slice(1)}`}
@@ -584,15 +586,26 @@ function HallOfFame() {
             <span aria-hidden className="mb-2 text-xl">🏆</span>
             <span className="break-all font-mono text-sm font-semibold text-amber-400">{handle}</span>
             <span className="mt-1 text-sm text-zinc-200">{name}</span>
-            {founder && (
+            {badge && (
               <span className="mt-2 rounded border border-amber-600/60 bg-amber-900/30 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.15em] text-amber-300">
-                founder
+                {badge}
               </span>
             )}
           </a>
         ))}
       </div>
-      <p className="mt-8 text-center text-base text-zinc-300">
+      <p className="mt-8 text-center text-sm italic text-zinc-400">
+        Thank you for building this with me — I owe you all.{' '}
+        <a
+          href="https://x.com/oneandonlyhusam"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="not-italic font-mono text-amber-400/90 underline-offset-4 hover:underline"
+        >
+          — Bytecode Assassin (@oneandonlyhusam), founder
+        </a>
+      </p>
+      <p className="mt-4 text-center text-base text-zinc-300">
         Want your name here?{' '}
         <a
           href="https://discord.gg/HQsCZBHXwc"
