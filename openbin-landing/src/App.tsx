@@ -162,12 +162,13 @@ function Hero() {
         />
       </h1>
       <p className="mt-7 max-w-3xl text-xl leading-relaxed text-zinc-100 sm:text-2xl">
-        <span className="text-amber-400">Publish</span> your reverse-engineering
-        work, <span className="text-amber-400">cite</span> other researchers, and{' '}
-        <span className="text-amber-400">build on each other's findings</span> -
-        across native binaries, Android APKs, and malicious npm, PyPI,
-        PowerShell &amp; shell packages. Accelerated by intelligent agents
-        running on your own LLM.
+        <span className="text-amber-400">Decompile</span> and{' '}
+        <span className="text-amber-400">analyze</span> native binaries, Android
+        APKs, and malicious npm, PyPI, PowerShell &amp; shell packages with
+        integrated AI assistance - then{' '}
+        <span className="text-amber-400">publish</span> your findings,{' '}
+        <span className="text-amber-400">cite</span> other researchers, and
+        build on each other's work.
       </p>
       <p className="mt-4 max-w-2xl text-base leading-relaxed text-zinc-300 sm:text-lg">
         Free and open source (AGPL). Cloud-based, so your work is accessible from
