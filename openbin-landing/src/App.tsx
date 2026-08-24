@@ -147,9 +147,12 @@ function Hero() {
       <p className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-amber-400/90 sm:text-sm">
         The Open Binary Project
       </p>
+      {/* Post-launch positioning: collaboration leads, decompilation is the
+          supporting cast. The "AI decompiler" keywords stay in index.html's
+          title/meta/JSON-LD for SEO — do not "fix" the mismatch. */}
       <h1 className="max-w-5xl text-5xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-7xl">
         <DecryptedText
-          text="AI decompilation,"
+          text="Where security research"
           animateOn="view"
           sequential
           revealDirection="start"
@@ -159,7 +162,7 @@ function Hero() {
         />
         <br className="hidden sm:block" />{' '}
         <DecryptedText
-          text="reverse engineering & debugging."
+          text="gets published."
           animateOn="view"
           sequential
           revealDirection="start"
@@ -169,12 +172,12 @@ function Hero() {
         />
       </h1>
       <p className="mt-7 max-w-3xl text-xl leading-relaxed text-zinc-100 sm:text-2xl">
-        Decompile and reverse engineer <span className="text-amber-400">native binaries</span>,{' '}
-        <span className="text-amber-400">Android APKs</span>, and malicious{' '}
-        <span className="text-amber-400">npm, PyPI, PowerShell &amp; shell</span> packages -
-        then publish your findings and{' '}
-        <span className="text-amber-400">collaborate with the security-research community</span>.
-        Accelerated by intelligent agents running on your own LLM.
+        <span className="text-amber-400">Publish</span> your reverse-engineering
+        work, <span className="text-amber-400">cite</span> other researchers, and{' '}
+        <span className="text-amber-400">build on each other's findings</span> -
+        across native binaries, Android APKs, and malicious npm, PyPI,
+        PowerShell &amp; shell packages. Accelerated by intelligent agents
+        running on your own LLM.
       </p>
       <p className="mt-4 max-w-2xl text-base leading-relaxed text-zinc-300 sm:text-lg">
         Free and open source (AGPL). Cloud-based, so your work is accessible from
