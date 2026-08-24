@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from 'react-oidc-context'
 import { Link, useNavigate } from 'react-router-dom'
+import { Rocket, Star, Menu, X, Cpu } from 'lucide-react'
 import HexDrift from '../components/HexDrift'
 import { FeatureTour } from '../components/FeatureTour'
 import logoUrl from '../assets/logo.png'
@@ -49,7 +50,7 @@ export function Landing() {
         rel="noopener noreferrer"
         className="relative z-20 block border-b border-purple-500/30 bg-purple-500/10 px-4 py-2 text-center text-sm text-purple-200 backdrop-blur transition hover:bg-purple-500/20"
       >
-        <span aria-hidden className="mr-1">🚀</span>
+        <Rocket aria-hidden className="mr-1.5 inline-block h-4 w-4 align-[-2px]" />
         <span className="font-semibold text-purple-100">We've launched:</span> v1.0 is out of beta, with{' '}
         <span className="font-semibold text-purple-100">1000+ researchers</span> on board.{' '}
         <span className="underline decoration-purple-400/50 underline-offset-2">Join the Discord →</span>
@@ -68,7 +69,7 @@ export function Landing() {
             to="/community"
             className="hidden items-center gap-1 rounded-md bg-amber-500/15 px-3 py-1 text-amber-300 hover:bg-amber-500/25 hover:text-amber-200 sm:inline-flex"
           >
-            <span aria-hidden>★</span> Community
+            <Star aria-hidden className="h-3.5 w-3.5" /> Community
           </Link>
           <a
             href="https://github.com/openbin-ai/platform"
@@ -108,15 +109,15 @@ export function Landing() {
             onClick={() => setMenuOpen(open => !open)}
             aria-label={menuOpen ? 'Close menu' : 'Open menu'}
             aria-expanded={menuOpen}
-            className="rounded-md border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 text-base leading-none text-zinc-200 backdrop-blur sm:hidden"
+            className="rounded-md border border-zinc-800 bg-zinc-900/60 p-2 text-zinc-200 backdrop-blur sm:hidden"
           >
-            <span aria-hidden>{menuOpen ? '✕' : '☰'}</span>
+            {menuOpen ? <X className="h-4 w-4" aria-hidden /> : <Menu className="h-4 w-4" aria-hidden />}
           </button>
         </div>
         {menuOpen && (
           <nav className="absolute inset-x-0 top-full flex flex-col border-b border-zinc-800 bg-black/95 px-6 pb-4 pt-2 text-sm backdrop-blur sm:hidden">
-            <Link to="/community" onClick={() => setMenuOpen(false)} className="py-2.5 text-amber-300 hover:text-amber-200">
-              ★ Community
+            <Link to="/community" onClick={() => setMenuOpen(false)} className="inline-flex items-center gap-1.5 py-2.5 text-amber-300 hover:text-amber-200">
+              <Star aria-hidden className="h-3.5 w-3.5" /> Community
             </Link>
             <a
               href="https://github.com/openbin-ai/platform"
@@ -183,7 +184,7 @@ export function Landing() {
               to="/community"
               className="inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-5 py-2.5 text-sm font-semibold text-black shadow-[0_4px_20px_rgba(251,191,36,0.4)] hover:bg-amber-400"
             >
-              <span aria-hidden>★</span>
+              <Star aria-hidden className="h-4 w-4" />
               Browse community
             </Link>
             <a
@@ -294,8 +295,8 @@ export function Landing() {
             className="group block rounded-xl border border-amber-500/30 bg-zinc-950/70 p-6 backdrop-blur transition hover:border-amber-400/50 hover:bg-zinc-900/70 sm:p-7"
           >
             <div className="flex items-start gap-5">
-              <div className="shrink-0 rounded-lg border border-amber-500/40 bg-black/40 p-3 text-2xl">
-                🧬
+              <div className="shrink-0 rounded-lg border border-amber-500/40 bg-black/40 p-3">
+                <Cpu aria-hidden className="h-7 w-7 text-amber-400" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-baseline gap-3">

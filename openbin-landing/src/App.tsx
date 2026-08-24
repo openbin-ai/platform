@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Bot, GitBranch, Unlock, NotebookPen, Globe, KeyRound, Users, Share2, Cpu, Smartphone, Package, FileCode2, Terminal, Menu, X } from 'lucide-react'
+import { Bot, GitBranch, Unlock, NotebookPen, Globe, KeyRound, Users, Share2, Cpu, Smartphone, Package, FileCode2, Terminal, Menu, X, Rocket, Star, Trophy, BookOpen } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import HexDrift from './components/HexDrift'
 import DecryptedText from './components/DecryptedText'
@@ -54,7 +54,7 @@ function LaunchAnnounceBar() {
       rel="noopener noreferrer"
       className="relative z-20 block border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center text-sm text-amber-200 backdrop-blur transition hover:bg-amber-500/20"
     >
-      <span aria-hidden className="mr-1">🚀</span>
+      <Rocket aria-hidden className="mr-1.5 inline-block h-4 w-4 align-[-2px]" />
       <span className="font-semibold text-amber-100">We've launched:</span> v1.0 is out of beta, with{' '}
       <span className="font-semibold text-amber-100">1000+ researchers</span> on board · CLI v0.9 out now.{' '}
       <span className="underline decoration-amber-400/50 underline-offset-2">Join the Discord →</span>
@@ -65,7 +65,7 @@ function LaunchAnnounceBar() {
 // One list drives both the desktop nav row and the mobile dropdown so the
 // two can't drift. external → new tab; accent → amber (Community only).
 const navLinks: { label: string; href: string; external?: boolean; accent?: boolean }[] = [
-  { label: 'Products', href: '#products' },
+  { label: 'Platforms', href: '#platforms' },
   { label: 'Why OpenBin', href: '#why' },
   { label: 'Docs', href: 'https://app.openbin.ai/docs' },
   { label: 'Community', href: 'https://app.openbin.ai/community', accent: true },
@@ -77,8 +77,12 @@ const navLinks: { label: string; href: string; external?: boolean; accent?: bool
 function Header() {
   const [menuOpen, setMenuOpen] = useState(false)
 
+  // Button treatment, not bare text — the hex-drift background makes plain
+  // links hard to read; a solid pill gives each label its own quiet ground.
   const linkClass = (accent?: boolean) =>
-    accent ? 'text-amber-400 hover:text-amber-300' : 'text-zinc-200 hover:text-amber-400'
+    accent
+      ? 'rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-sm text-amber-300 backdrop-blur transition hover:bg-amber-500/20 hover:text-amber-200'
+      : 'rounded-md border border-zinc-800 bg-zinc-900/70 px-3 py-1.5 text-sm text-zinc-200 backdrop-blur transition hover:border-amber-500/40 hover:text-amber-300'
 
   return (
     // z-30 (above the hero) so the mobile dropdown paints over page content.
@@ -90,7 +94,7 @@ function Header() {
         </span>
       </div>
 
-      <nav className="hidden items-center gap-5 text-base sm:flex">
+      <nav className="hidden items-center gap-2.5 sm:flex">
         {navLinks.map(({ label, href, external, accent }) => (
           <a
             key={label}
@@ -114,14 +118,14 @@ function Header() {
       </button>
 
       {menuOpen && (
-        <nav className="absolute inset-x-0 top-full flex flex-col border-b border-zinc-800 bg-black/95 px-6 pb-4 pt-2 backdrop-blur sm:hidden">
+        <nav className="absolute inset-x-0 top-full flex flex-col gap-2 border-b border-zinc-800 bg-black/95 px-6 pb-4 pt-3 backdrop-blur sm:hidden">
           {navLinks.map(({ label, href, external, accent }) => (
             <a
               key={label}
               href={href}
               {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
               onClick={() => setMenuOpen(false)}
-              className={`py-2.5 text-base ${linkClass(accent)}`}
+              className={`block text-center ${linkClass(accent)}`}
             >
               {label}
             </a>
@@ -194,7 +198,7 @@ function Hero() {
           rel="noopener noreferrer"
           className="inline-flex items-center gap-2 rounded-md bg-purple-600 px-6 py-3 text-base font-semibold text-white shadow-[0_6px_30px_rgba(124,58,237,0.45)] transition hover:bg-purple-500"
         >
-          <span aria-hidden>★</span>
+          <Star aria-hidden className="h-4 w-4" />
           Browse community
         </a>
         <a
@@ -221,7 +225,7 @@ function Hero() {
         href="https://app.openbin.ai/docs"
         className="mt-6 inline-flex items-center gap-2 text-base font-medium text-amber-400 underline-offset-4 hover:underline"
       >
-        <span aria-hidden>📖</span>
+        <BookOpen aria-hidden className="h-4 w-4" />
         New here? Read the 5-step guide →
       </a>
       <InstallCommands />
@@ -298,9 +302,9 @@ function CloudSunsetNote() {
 
 function AvailableNow() {
   return (
-    <section id="products" className="mx-auto max-w-6xl px-6 pt-8 pb-16">
+    <section id="platforms" className="mx-auto max-w-6xl px-6 pt-8 pb-16">
       <h2 className="mb-10 text-center font-mono text-sm font-semibold uppercase tracking-[0.22em] text-amber-400">
-        Live products
+        Live platforms
       </h2>
       <div className="grid gap-7 lg:grid-cols-2">
         <ElectricBorder color="#fbbf24" speed={0.9} chaos={0.5} borderRadius={14}>
@@ -577,7 +581,7 @@ function HallOfFame() {
             rel="noopener noreferrer"
             className="flex flex-col items-center rounded-xl border border-zinc-800/80 bg-zinc-950/70 px-4 py-5 text-center backdrop-blur transition hover:border-amber-500/40 hover:bg-zinc-900/70"
           >
-            <span aria-hidden className="mb-2 text-xl">🏆</span>
+            <Trophy aria-hidden className="mb-2 h-5 w-5 text-amber-400" />
             <span className="break-all font-mono text-sm font-semibold text-amber-400">{handle}</span>
             <span className="mt-1 text-sm text-zinc-200">{name}</span>
             {badge && (
@@ -622,7 +626,7 @@ function CTA() {
         Start researching. Publish your first finding.
       </h2>
       <p className="mt-5 text-lg text-zinc-200">
-        Both products are live. Drop in your LLM provider key, upload a binary
+        Both platforms are live. Drop in your LLM provider key, upload a binary
         or APK, put an agent to work - and when you've cracked it, share it with
         the community.
       </p>
