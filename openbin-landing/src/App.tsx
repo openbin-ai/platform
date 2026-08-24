@@ -152,17 +152,7 @@ function Hero() {
           title/meta/JSON-LD for SEO — do not "fix" the mismatch. */}
       <h1 className="max-w-5xl text-5xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-7xl">
         <DecryptedText
-          text="Where security research"
-          animateOn="view"
-          sequential
-          revealDirection="start"
-          speed={45}
-          className="text-zinc-50"
-          encryptedClassName="text-amber-400/70"
-        />
-        <br className="hidden sm:block" />{' '}
-        <DecryptedText
-          text="gets published."
+          text="Decompile. Analyze. Publish."
           animateOn="view"
           sequential
           revealDirection="start"
