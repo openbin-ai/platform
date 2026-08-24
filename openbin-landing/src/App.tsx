@@ -32,6 +32,7 @@ export default function App() {
         <Capabilities />
         <TabbedShowcase />
         <WhyOpenBin />
+        <HallOfFame />
         <CTA />
         <Footer />
       </main>
@@ -544,6 +545,66 @@ function Pillar({ title, body }: { title: string; body: string }) {
         <p className="mt-3 text-base leading-relaxed text-zinc-200">{body}</p>
       </div>
     </ElectricBorder>
+  )
+}
+
+// Launch-day shoutout to the beta researchers who carried the community —
+// answering questions in Discord, publishing public research, and generally
+// standing on BINness. Handles are Twitter/X handles; each card links to
+// x.com/<handle>.
+const hallOfFame: { handle: string; name: string; founder?: boolean }[] = [
+  { handle: '@oneandonlyhusam', name: 'Bytecode Assassin', founder: true },
+  { handle: '@0xpwnie', name: 'Pwnie' },
+  { handle: '@Loserlarping', name: 'Larp' },
+  { handle: '@kernelstub', name: 'Prepakis Georgios' },
+  { handle: '@LxlxIxlxlxL', name: 'rootkittie' },
+  { handle: '@JuluisKStar', name: 'Choppery' },
+]
+
+function HallOfFame() {
+  return (
+    <section id="hall-of-fame" className="mx-auto max-w-5xl px-6 pt-4 pb-24">
+      <h2 className="mb-3 text-center font-mono text-sm font-semibold uppercase tracking-[0.22em] text-amber-400">
+        Hall of Fame
+      </h2>
+      <p className="mx-auto mb-10 max-w-2xl text-center text-lg leading-relaxed text-zinc-200">
+        The researchers who stood on BINness through beta — answering questions
+        in Discord, publishing research, and building this community into what
+        it is today. Thank you.
+      </p>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+        {hallOfFame.map(({ handle, name, founder }) => (
+          <a
+            key={handle}
+            href={`https://x.com/${handle.slice(1)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-col items-center rounded-xl border border-zinc-800/80 bg-zinc-950/70 px-4 py-5 text-center backdrop-blur transition hover:border-amber-500/40 hover:bg-zinc-900/70"
+          >
+            <span aria-hidden className="mb-2 text-xl">🏆</span>
+            <span className="break-all font-mono text-sm font-semibold text-amber-400">{handle}</span>
+            <span className="mt-1 text-sm text-zinc-200">{name}</span>
+            {founder && (
+              <span className="mt-2 rounded border border-amber-600/60 bg-amber-900/30 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.15em] text-amber-300">
+                founder
+              </span>
+            )}
+          </a>
+        ))}
+      </div>
+      <p className="mt-8 text-center text-base text-zinc-300">
+        Want your name here?{' '}
+        <a
+          href="https://discord.gg/HQsCZBHXwc"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-semibold text-amber-400 underline-offset-4 hover:underline"
+        >
+          Join the Discord
+        </a>{' '}
+        and start publishing.
+      </p>
+    </section>
   )
 }
 
