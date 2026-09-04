@@ -4,8 +4,9 @@ import { useApi } from '@shared/api/client'
 import { ProjectView } from './ProjectView'
 import { ScriptProjectView } from './ScriptProjectView'
 import { BundleTabBar } from '../components/BundleTabBar'
+import { SampleTabBar } from '../components/SampleTabBar'
 
-type ProjectDispatch = { kind: 'APK' | 'BIN' | 'SCRIPT'; bundleId: string | null }
+type ProjectDispatch = { kind: 'APK' | 'BIN' | 'SCRIPT'; bundleId: string | null; name: string }
 
 /**
  * Top-level dispatch for {@code /projects/:id}. Loads the project's kind
@@ -23,6 +24,7 @@ export function ProjectViewRoute() {
   const api = useApi()
   const [kind, setKind] = useState<'APK' | 'BIN' | 'SCRIPT' | null>(null)
   const [bundleId, setBundleId] = useState<string | null>(null)
+  const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -36,6 +38,7 @@ export function ProjectViewRoute() {
         if (!cancelled) {
           setKind(p.kind)
           setBundleId(p.bundleId)
+          setName(p.name)
         }
       } catch (e) {
         if (!cancelled) setError((e as Error).message)
@@ -63,6 +66,11 @@ export function ProjectViewRoute() {
     <div className="flex h-full min-h-0 flex-col">
       {kind === 'BIN' && bundleId && (
         <BundleTabBar bundleId={bundleId} currentProjectId={id} />
+      )}
+      {kind === 'BIN' && (
+        // Multi-sample projects: renders only when the project actually has
+        // attached samples (self-hides otherwise, like BundleTabBar).
+        <SampleTabBar projectId={id} primaryLabel={name || 'primary'} />
       )}
       <div className="min-h-0 flex-1">
         <ProjectView />

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { Network } from 'lucide-react'
 import { useApi } from '@shared/api/client'
@@ -24,6 +24,7 @@ import { ScreenshotModal } from '../components/ScreenshotModal'
 import { ListingPane, type ListingBlock, type ListingTarget } from '../components/ListingPane'
 import { captureScreen } from '../components/captureScreen'
 import { estimateCost } from '../lib/llmCost'
+import type { ProjectSample as ActiveSample } from '../api/samples'
 
 // Identifier alphabet used to find function-name occurrences in both
 // pseudocode (post-Shiki) and disassembly (raw text). Wider than a typical
@@ -400,6 +401,13 @@ type AnalysisResponse = {
 export function ProjectView() {
   const { id = '' } = useParams<{ id: string }>()
   const api = useApi()
+  // Multi-sample projects: ?sample=<id> switches the analysis source to one of
+  // the project's attached samples (see SampleTabBar). Renames / deobfs /
+  // highlights stay scoped to the PRIMARY sample — function names collide
+  // across samples, so applying them to an attached sample would corrupt it.
+  const [searchParams] = useSearchParams()
+  const sampleId = searchParams.get('sample')
+  const [activeSample, setActiveSample] = useState<ActiveSample | null>(null)
 
   const [project, setProject] = useState<ProjectSummary | null>(null)
   const [shareOpen, setShareOpen] = useState(false)
@@ -542,6 +550,35 @@ export function ProjectView() {
       // Fetch project detail FIRST so we know whether to go CloudFront
       // or fall back to the legacy backend endpoint for the analysis.
       const p = await api<ProjectSummary>(`/api/projects/${id}`)
+
+      // Attached-sample view: the analysis comes from the sample's own blob
+      // (signed URL when available, inline fallback otherwise). Renames and
+      // deobfs are primary-sample concepts — skipped entirely here.
+      if (sampleId) {
+        const samples = await api<ActiveSample[]>(`/api/projects/${id}/samples`)
+        const s = samples.find((x) => x.id === sampleId)
+        if (!s) throw new Error('sample not found on this project')
+        if (s.status !== 'READY') throw new Error(`sample is ${s.status} — decompile hasn't finished`)
+        const a: BinaryAnalysis = s.analysisDownloadUrl
+          ? await fetchFromSignedUrl<BinaryAnalysis>(s.analysisDownloadUrl)
+          : await api<BinaryAnalysis>(`/api/projects/${id}/samples/${s.id}/binary-analysis`)
+        setProject(p)
+        setActiveSample(s)
+        setAnalysis(a)
+        setDeobfs(new Map())
+        setSelectedName((prev) => {
+          if (preserveName) return preserveName
+          if (prev && a.functions.some((f) => f.name === prev)) return prev
+          const fns = a.functions
+          const main = fns.find((f) => f.name === 'main')
+          const concrete = fns.find((f) => !f.external && !f.thunk)
+          return main?.name ?? concrete?.name ?? fns[0]?.name ?? null
+        })
+        setError(null)
+        return
+      }
+      setActiveSample(null)
+
       const useCloudFront = !!p.analysisDownloadUrl
       const analysisFetch: Promise<BinaryAnalysis> =
         useCloudFront
@@ -582,7 +619,7 @@ export function ProjectView() {
     } finally {
       setLoading(false)
     }
-  }, [api, id])
+  }, [api, id, sampleId])
 
   useEffect(() => { void reload() }, [reload])
 
@@ -795,6 +832,7 @@ export function ProjectView() {
     <div className="flex h-full flex-col bg-zinc-950 text-zinc-200">
       <Header
         project={project}
+        sample={activeSample}
         functionCount={analysis.functions.length}
         onPickScreenshot={() => setShot({ mode: 'pick' })}
         onStartCapture={() => { void startCapture() }}
@@ -968,12 +1006,14 @@ function PanelRail({
 
 function Header({
   project,
+  sample,
   functionCount,
   onPickScreenshot,
   onStartCapture,
   onShare,
 }: {
   project: ProjectSummary
+  sample: ActiveSample | null
   functionCount: number
   onPickScreenshot: () => void
   onStartCapture: () => void
@@ -988,6 +1028,14 @@ function Header({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <div className="truncate font-medium text-zinc-100">{project.name}</div>
+          {sample && (
+            <span
+              className="shrink-0 rounded border border-amber-700/60 bg-amber-950/30 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-amber-300"
+              title="Viewing an attached sample — renames, highlights, and the report belong to the primary sample"
+            >
+              sample: {sample.label}
+            </span>
+          )}
           {project.role === 'VIEWER' && (
             <span
               className="shrink-0 rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-zinc-400"
@@ -1006,8 +1054,9 @@ function Header({
           )}
         </div>
         <div className="mt-0.5 truncate text-xs text-zinc-500">
-          {project.executableFormat ?? '—'} · {project.arch ?? 'arch unknown'} ·{' '}
-          {project.languageId ?? '—'} · {functionCount} functions
+          {(sample ? sample.executableFormat : project.executableFormat) ?? '—'} ·{' '}
+          {(sample ? sample.arch : project.arch) ?? 'arch unknown'} ·{' '}
+          {(sample ? sample.languageId : project.languageId) ?? '—'} · {functionCount} functions
           {project.forkedFromId && (
             <>
               {' · '}
