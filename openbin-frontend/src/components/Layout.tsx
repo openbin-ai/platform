@@ -123,7 +123,7 @@ function SettingsNavItem() {
 // notice (not version-aware) — dismissible, and re-shown for the NEXT
 // announcement by bumping the key suffix. Bump in lockstep with a meaningful
 // worker/CLI release the user should pick up.
-const CLI_BANNER_KEY = 'openbin.cliUpdateBanner.dismissed.v4'
+const CLI_BANNER_KEY = 'openbin.cliUpdateBanner.dismissed.v5'
 
 function CliUpdateBanner() {
   const [dismissed, setDismissed] = useState(true)
@@ -134,12 +134,18 @@ function CliUpdateBanner() {
   return (
     <div className="border-b border-amber-900/50 bg-amber-950/40">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-6 py-2 text-xs text-amber-200">
-        <span aria-hidden>🪟</span>
+        <span aria-hidden>🧙</span>
         <span className="flex-1">
-          <strong>openbin v0.7.0 is out — now on Windows.</strong> Plus XAPK / split-APK support and a
-          fix for empty Entry/Exports panels. Update with{' '}
-          <code className="rounded bg-amber-900/40 px-1 py-0.5 font-mono text-amber-100">openbin update</code>, or install fresh —{' '}
-          <a href="/docs/cli" className="font-semibold text-amber-100 underline decoration-amber-400/60 underline-offset-2 hover:text-white">CLI &amp; Docker setup</a>.
+          <strong>openbin v0.10.0 is out — firmware support &amp; multi-sample projects.</strong> New{' '}
+          <code className="rounded bg-amber-900/40 px-1 py-0.5 font-mono text-amber-100">openbin tui</code> wizard,
+          automatic architecture detection for raw firmware images, and several samples in one project. Update with{' '}
+          <code className="rounded bg-amber-900/40 px-1 py-0.5 font-mono text-amber-100">openbin update</code> —{' '}
+          <a
+            href="https://github.com/openbin-ai/platform/releases/tag/openbin-v0.10.0"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-amber-100 underline decoration-amber-400/60 underline-offset-2 hover:text-white"
+          >release notes</a>.
         </span>
         <button
           onClick={() => {

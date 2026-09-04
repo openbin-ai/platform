@@ -114,10 +114,10 @@ function SettingsNavItem() {
 }
 
 // CLI release announcement. The `openbin` CLI (shared across openapk +
-// openbin) now ships for Windows plus XAPK/split-APK support. Links to the
-// canonical CLI docs on the openbin app (absolute — that's where the CLI docs
-// live). Bump the key suffix to re-show for a future release.
-const CLI_BANNER_KEY = 'openapk.cliReleaseBanner.dismissed.v1'
+// openbin) — v0.10.0 adds an interactive wizard + raw-firmware support.
+// Links to the release notes on GitHub. Bump the key suffix to re-show for a
+// future release.
+const CLI_BANNER_KEY = 'openapk.cliReleaseBanner.dismissed.v2'
 
 function CliReleaseBanner() {
   const [dismissed, setDismissed] = useState(true)
@@ -128,19 +128,20 @@ function CliReleaseBanner() {
   return (
     <div className="border-b border-amber-900/50 bg-amber-950/40">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-6 py-2 text-xs text-amber-200">
-        <span aria-hidden>🪟</span>
+        <span aria-hidden>🧙</span>
         <span className="flex-1">
-          <strong>openbin CLI v0.7.0 — now on Windows.</strong> Plus XAPK / split-APK support:{' '}
-          <code className="rounded bg-amber-900/40 px-1 py-0.5 font-mono text-amber-100">openbin apk app.xapk</code>{' '}
-          decompiles every split into one project. Update with{' '}
+          <strong>openbin CLI v0.10.0 is out.</strong> New{' '}
+          <code className="rounded bg-amber-900/40 px-1 py-0.5 font-mono text-amber-100">openbin tui</code>{' '}
+          interactive wizard, automatic architecture detection for raw firmware images, and
+          multi-sample BIN projects. Update with{' '}
           <code className="rounded bg-amber-900/40 px-1 py-0.5 font-mono text-amber-100">openbin update</code> —{' '}
           <a
-            href="https://app.openbin.ai/docs/cli"
+            href="https://github.com/openbin-ai/platform/releases/tag/openbin-v0.10.0"
             target="_blank"
             rel="noopener noreferrer"
             className="font-semibold text-amber-100 underline decoration-amber-400/60 underline-offset-2 hover:text-white"
           >
-            CLI &amp; Docker setup
+            release notes
           </a>.
         </span>
         <button
