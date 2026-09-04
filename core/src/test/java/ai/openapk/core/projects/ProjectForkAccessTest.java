@@ -56,7 +56,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
-        "spring.datasource.url=jdbc:postgresql://localhost:5432/openapk_test",
+        "spring.datasource.url=${OPENAPK_TEST_DB_URL:jdbc:postgresql://localhost:5432/openapk_test}",
         "spring.datasource.username=openapk",
         "spring.datasource.password=openapk",
         "spring.docker.compose.enabled=false",

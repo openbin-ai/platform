@@ -181,6 +181,30 @@ public class AnalysisStorageService {
         }
     }
 
+    /**
+     * Server-side copy of an analysis blob to a new key (multi-sample "move
+     * an existing project in as a sample"). Copying — rather than re-pointing
+     * the sample row at the source key — keeps the fork/refcount story simple:
+     * project blobs may be SHARED with forks and are refcounted at delete
+     * time over the projects table only, so a sample referencing a project
+     * key would dangle when the last project drops it. A fresh copy under the
+     * samples/ layout is owned by exactly one sample row. Tags are REPLACED
+     * with {@code status=ready} so the copy can never inherit a stale
+     * {@code pending} tag and get reaped by the lifecycle rule.
+     */
+    public void copyObject(String srcKey, String dstKey) {
+        s3.copyObject(software.amazon.awssdk.services.s3.model.CopyObjectRequest.builder()
+                .sourceBucket(cfg.bucket())
+                .sourceKey(srcKey)
+                .destinationBucket(cfg.bucket())
+                .destinationKey(dstKey)
+                .taggingDirective(software.amazon.awssdk.services.s3.model.TaggingDirective.REPLACE)
+                .tagging(Tagging.builder()
+                        .tagSet(Tag.builder().key("status").value("ready").build())
+                        .build())
+                .build());
+    }
+
     /** Mints a CloudFront signed GET URL for the frontend. */
     public String signDownloadUrl(String key) {
         Duration ttl = cfg.presignedGetTtl() != null ? cfg.presignedGetTtl() : Duration.ofMinutes(5);

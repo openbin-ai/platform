@@ -4,13 +4,16 @@ import ai.openapk.core.auth.CurrentUserService;
 import ai.openapk.core.projects.samples.dto.FinalizeSampleIngestRequest;
 import ai.openapk.core.projects.samples.dto.InitiateSampleIngestRequest;
 import ai.openapk.core.projects.samples.dto.InitiateSampleIngestResponse;
+import ai.openapk.core.projects.samples.dto.MoveSampleFromProjectRequest;
 import ai.openapk.core.projects.samples.dto.SampleView;
+import ai.openapk.core.projects.samples.dto.UpdateSampleRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -69,6 +72,29 @@ public class ProjectSampleController {
             @Valid @RequestBody FinalizeSampleIngestRequest req
     ) {
         return ResponseEntity.ok(service.finalize(currentUser.current(), id, req));
+    }
+
+    /**
+     * Web flow: absorb an existing standalone BIN project as a sample of this
+     * one. The source project is DELETED afterwards (frontend warns). EDIT on
+     * the target + OWNER on the source; public sources must unpublish first.
+     */
+    @PostMapping("/move-from")
+    public ResponseEntity<SampleView> moveFrom(
+            @PathVariable("id") UUID id,
+            @Valid @RequestBody MoveSampleFromProjectRequest req
+    ) {
+        return ResponseEntity.ok(service.moveFrom(currentUser.current(), id, req));
+    }
+
+    /** Rename a sample's display label (EDITOR+). */
+    @PatchMapping("/{sampleId}")
+    public SampleView rename(
+            @PathVariable("id") UUID id,
+            @PathVariable("sampleId") UUID sampleId,
+            @Valid @RequestBody UpdateSampleRequest req
+    ) {
+        return service.rename(currentUser.current(), id, sampleId, req);
     }
 
     /** Remove an attached sample (EDITOR+); its S3 blob is deleted too. */

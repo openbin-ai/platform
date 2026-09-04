@@ -4,12 +4,17 @@ import ai.openapk.core.auth.User;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectKind;
+import ai.openapk.core.projects.ProjectService;
+import ai.openapk.core.projects.ProjectStatus;
 import ai.openapk.core.projects.analysis.AnalysisMetadataExtractor;
 import ai.openapk.core.projects.analysis.AnalysisStorageService;
 import ai.openapk.core.projects.samples.dto.FinalizeSampleIngestRequest;
 import ai.openapk.core.projects.samples.dto.InitiateSampleIngestRequest;
 import ai.openapk.core.projects.samples.dto.InitiateSampleIngestResponse;
+import ai.openapk.core.projects.samples.dto.MoveSampleFromProjectRequest;
 import ai.openapk.core.projects.samples.dto.SampleView;
+import ai.openapk.core.projects.samples.dto.UpdateSampleRequest;
+import org.springframework.context.annotation.Lazy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,17 +63,25 @@ public class ProjectSampleService {
     /** Null when openapk.analysis-storage.bucket is unset (dev/local). */
     private final AnalysisStorageService analysisStorage;
     private final AnalysisMetadataExtractor metadataExtractor;
+    // Used only by moveFrom() to delete the absorbed source project through
+    // the one blessed delete path (blob refcount, bundle cleanup, fork-count).
+    // @Lazy breaks the constructor cycle: ProjectService -> ProjectSampleRepository
+    // is a repo edge, but ProjectSampleService -> ProjectService closes a loop
+    // at construction time otherwise.
+    private final ProjectService projects;
 
     public ProjectSampleService(
             ProjectSampleRepository sampleRepo,
             ProjectAccessGuard guard,
             @Autowired(required = false) AnalysisStorageService analysisStorage,
-            @Autowired(required = false) AnalysisMetadataExtractor metadataExtractor
+            @Autowired(required = false) AnalysisMetadataExtractor metadataExtractor,
+            @Lazy ProjectService projects
     ) {
         this.sampleRepo = sampleRepo;
         this.guard = guard;
         this.analysisStorage = analysisStorage;
         this.metadataExtractor = metadataExtractor;
+        this.projects = projects;
     }
 
     /** Every attached sample of the project, oldest first, with signed URLs when READY. */
@@ -251,6 +264,149 @@ public class ProjectSampleService {
 
         log.info("sample ingest finalized: user={} project={} sample={} key={} etag={} size={}b",
                 user.getId(), projectId, row.getId(), key, head.etag(), head.sizeBytes());
+        return SampleView.from(row, urlSigner());
+    }
+
+    /**
+     * Web flow: absorb an existing standalone BIN project into {@code targetId}
+     * as a sample, then DELETE the source project (the modal warns that its
+     * report/renames/highlights die with it). Requires EDIT on the target and
+     * OWNER on the source (delete is owner-only). Public sources are blocked —
+     * unpublish first, so community links never 404 silently.
+     *
+     * <p>The blob is server-side COPIED to a fresh sample key rather than
+     * re-pointed: project blobs can be shared with forks and are refcounted
+     * over the projects table only, so a sample referencing a project key
+     * would dangle. The source's own attached samples are re-parented to the
+     * target (flushed BEFORE the delete so the delete's blob sweep doesn't
+     * see them).
+     */
+    @Transactional
+    public SampleView moveFrom(User user, UUID targetId, MoveSampleFromProjectRequest req) {
+        if (analysisStorage == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "S3 storage is not configured on this backend");
+        }
+        UUID srcId;
+        try {
+            srcId = UUID.fromString(req.sourceProjectId());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "sourceProjectId is not a valid UUID");
+        }
+        if (srcId.equals(targetId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "a project can't be moved into itself");
+        }
+        Project target = guard.requireEdit(user, targetId);
+        if (target.getKind() != ProjectKind.BIN) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "samples can only be added to BIN projects (target kind=" + target.getKind() + ")");
+        }
+        Project src = guard.requireOwner(user, srcId);
+        if (src.getKind() != ProjectKind.BIN) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "only BIN projects can be moved in as samples (source kind=" + src.getKind() + ")");
+        }
+        if (src.getStatus() != ProjectStatus.READY) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "source project is " + src.getStatus() + " — only READY analyses can be moved");
+        }
+        if (src.getPublicReadAt() != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "source project is public — unpublish it first (moving deletes its page, which would break community links)");
+        }
+        String srcKey = src.getBinaryAnalysisS3Key();
+        if (srcKey == null || srcKey.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "source project predates S3 analysis storage — re-decompile it with the CLI first");
+        }
+        String srcSha = src.getSha256() == null ? "" : src.getSha256().toLowerCase(Locale.ROOT);
+        assertShaFreeOnTarget(target, srcSha, src.getName());
+
+        // The source's own attached samples come along — check their hashes
+        // against the target BEFORE any mutation so a collision aborts cleanly.
+        List<ProjectSample> srcSamples = sampleRepo.findAllByProjectIdOrderByCreatedAtAsc(srcId);
+        for (ProjectSample s : srcSamples) {
+            assertShaFreeOnTarget(target, s.getSha256(), s.getLabel());
+        }
+
+        // New sample row for the source's PRIMARY analysis. Saved first so the
+        // row id can key the blob copy (per-row leaf, same as ingest).
+        ProjectSample row = new ProjectSample();
+        row.setProjectId(targetId);
+        row.setLabel(src.getName());
+        row.setOriginalFilename(src.getOriginalFilename());
+        row.setSha256(srcSha);
+        row.setSizeBytes(src.getSizeBytes());
+        row.setArch(src.getArch());
+        row.setExecutableFormat(src.getExecutableFormat());
+        row.setCompiler(src.getCompiler());
+        row.setLanguageId(src.getLanguageId());
+        row.setImageBase(src.getImageBase());
+        row.setStatus(ProjectSampleStatus.INGEST_PENDING);
+        row = sampleRepo.saveAndFlush(row);
+
+        String dstKey = "analysis/samples/" + target.getUser().getId() + "/" + targetId
+                + "/" + row.getId() + "/result.json.gz";
+        analysisStorage.copyObject(srcKey, dstKey);
+        // If anything below rolls the transaction back, don't leak the copy.
+        final String cleanupKey = dstKey;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status == TransactionSynchronization.STATUS_ROLLED_BACK) {
+                    analysisStorage.deleteObject(cleanupKey);
+                }
+            }
+        });
+        AnalysisStorageService.ObjectMetadata head = analysisStorage.head(dstKey);
+        row.setAnalysisS3Key(dstKey);
+        row.setAnalysisS3Etag(head.etag());
+        row.setAnalysisSizeBytes(head.sizeBytes());
+        row.setStatus(ProjectSampleStatus.READY);
+        row.setAnalyzedAt(src.getDecompiledAt() != null ? src.getDecompiledAt() : Instant.now());
+        sampleRepo.save(row);
+
+        // Re-parent the source's attached samples (their blobs move as-is —
+        // sample keys are plain pointers, never shared). MUST flush before the
+        // delete below so the delete's sample-blob sweep sees none of them.
+        for (ProjectSample s : srcSamples) {
+            s.setProjectId(targetId);
+        }
+        if (!srcSamples.isEmpty()) {
+            sampleRepo.saveAllAndFlush(srcSamples);
+        }
+
+        // Delete the source through the blessed path: blob refcount (forks may
+        // share it — our COPY is unaffected either way), bundle auto-cleanup,
+        // fork-count decrement, filesystem workspace removal.
+        projects.delete(user, srcId);
+
+        log.info("sample moved from project: user={} src={} target={} sample={} (+{} re-parented)",
+                user.getId(), srcId, targetId, row.getId(), srcSamples.size());
+        return SampleView.from(row, urlSigner());
+    }
+
+    private void assertShaFreeOnTarget(Project target, String sha, String what) {
+        if (sha == null || sha.isBlank()) {
+            return;
+        }
+        if (sha.equalsIgnoreCase(target.getSha256())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "\"" + what + "\" is the same binary as the target's primary sample");
+        }
+        if (sampleRepo.findByProjectIdAndSha256(target.getId(), sha.toLowerCase(Locale.ROOT)).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "\"" + what + "\" is already attached to the target as a sample");
+        }
+    }
+
+    /** Rename a sample's display label (EDITOR+). */
+    @Transactional
+    public SampleView rename(User user, UUID projectId, UUID sampleId, UpdateSampleRequest req) {
+        guard.requireEdit(user, projectId);
+        ProjectSample row = requireSample(projectId, sampleId);
+        row.setLabel(req.label().trim());
+        sampleRepo.save(row);
         return SampleView.from(row, urlSigner());
     }
 
