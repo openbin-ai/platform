@@ -4,6 +4,7 @@ import { ApiError, API_BASE, useApi } from '@shared/api/client'
 import { canEdit, isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { useAuth } from 'react-oidc-context'
 import { ScriptUploadCard } from '../components/ScriptUploadCard'
+import { CombineProjectsModal } from '../components/CombineProjectsModal'
 import type { BundleSummary } from '../api/bundles'
 
 /**
@@ -36,6 +37,9 @@ type Project = {
   // Non-null = this project is a member of a bundle; hidden from the top-level
   // list (the bundle card stands in for it).
   bundleId: string | null
+  // Non-null = publicly readable. A public project can be a combine PRIMARY
+  // but can't be moved in as a sample (its page would 404 community links).
+  publicReadAt: string | null
 }
 
 type ReportSummary = {
@@ -87,6 +91,10 @@ export function Projects() {
   const [arch, setArch] = useState<(typeof ARCHES)[number]>('auto')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [tab, setTab] = useState<Tab>('projects')
+  // Multi-select → "Combine into one project" (multi-sample). Only standalone
+  // BIN projects the caller OWNS are selectable (moving deletes the source).
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [combineOpen, setCombineOpen] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -199,6 +207,15 @@ export function Projects() {
   const standalone = projects.filter((p) => !p.bundleId)
   const topLevelCount = bundles.length + standalone.length
 
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const selectedProjects = standalone.filter((p) => selected.has(p.id))
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
       <div>
@@ -223,6 +240,17 @@ export function Projects() {
         </TabBtn>
       </div>
 
+      {combineOpen && selectedProjects.length >= 2 && (
+        <CombineProjectsModal
+          projects={selectedProjects}
+          onClose={() => setCombineOpen(false)}
+          onDone={() => {
+            setSelected(new Set())
+            void refresh()
+          }}
+        />
+      )}
+
       {tab === 'projects' ? (
         <ProjectsTab
           projects={standalone}
@@ -237,6 +265,10 @@ export function Projects() {
           onFiles={handleFiles}
           onDelete={handleDelete}
           onPatch={patchProject}
+          selected={selected}
+          onToggleSelect={toggleSelect}
+          onCombine={() => setCombineOpen(true)}
+          onClearSelection={() => setSelected(new Set())}
         />
       ) : (
         <ReportsTab projects={projects} loading={loading} onError={setError} />
@@ -262,6 +294,10 @@ function ProjectsTab({
   onFiles,
   onDelete,
   onPatch,
+  selected,
+  onToggleSelect,
+  onCombine,
+  onClearSelection,
 }: {
   projects: Project[]
   bundles: BundleSummary[]
@@ -275,6 +311,10 @@ function ProjectsTab({
   onFiles: (f: FileList | null) => void
   onDelete: (id: string, name: string) => void
   onPatch: (id: string, body: Partial<{ name: string; workflowStatus: WorkflowStatus }>) => void
+  selected: Set<string>
+  onToggleSelect: (id: string) => void
+  onCombine: () => void
+  onClearSelection: () => void
 }) {
   // Cloud decompile is sunset — the live upload state still flows in from
   // the parent so we can restore the dropzone in one revert. For now we
@@ -307,6 +347,30 @@ function ProjectsTab({
         />
       </div>
 
+      {/* Multi-select action bar: appears once anything is checked. Combining
+          moves every non-primary selection into the chosen primary as samples. */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-amber-800/60 bg-amber-950/30 px-4 py-2 text-sm text-amber-200">
+          <span className="flex-1">
+            {selected.size} selected
+            {selected.size < 2 && <span className="text-amber-200/60"> — select at least 2 to combine</span>}
+          </span>
+          <button
+            onClick={onCombine}
+            disabled={selected.size < 2}
+            className="rounded bg-amber-600 px-3 py-1 text-xs font-medium text-zinc-950 hover:bg-amber-500 disabled:opacity-40"
+          >
+            Combine into one project
+          </button>
+          <button
+            onClick={onClearSelection}
+            className="rounded border border-amber-800/60 px-2 py-1 text-xs text-amber-200/80 hover:bg-amber-900/40"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <p className="text-zinc-500">Loading…</p>
       ) : projects.length === 0 && bundles.length === 0 ? (
@@ -318,7 +382,14 @@ function ProjectsTab({
             <BundleRow key={b.id} bundle={b} />
           ))}
           {projects.map((p) => (
-            <ProjectRow key={p.id} project={p} onDelete={onDelete} onPatch={onPatch} />
+            <ProjectRow
+              key={p.id}
+              project={p}
+              onDelete={onDelete}
+              onPatch={onPatch}
+              selected={selected.has(p.id)}
+              onToggleSelect={onToggleSelect}
+            />
           ))}
         </ul>
       )}
@@ -366,13 +437,20 @@ function ProjectRow({
   project,
   onDelete,
   onPatch,
+  selected,
+  onToggleSelect,
 }: {
   project: Project
   onDelete: (id: string, name: string) => void
   onPatch: (id: string, body: Partial<{ name: string; workflowStatus: WorkflowStatus }>) => void
+  selected: boolean
+  onToggleSelect: (id: string) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draftName, setDraftName] = useState(project.name)
+  // Combine eligibility: standalone READY BIN projects the caller owns
+  // (combining deletes the moved sources, and delete is owner-only).
+  const selectable = project.kind === 'BIN' && project.status === 'READY' && isOwner(project.role)
 
   function saveName() {
     const trimmed = draftName.trim()
@@ -390,6 +468,17 @@ function ProjectRow({
 
   return (
     <li className="flex items-center gap-4 p-4">
+      {selectable ? (
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelect(project.id)}
+          title="Select to combine with other projects into one multi-sample project"
+          className="size-3.5 shrink-0 accent-amber-500"
+        />
+      ) : (
+        <span className="w-3.5 shrink-0" aria-hidden />
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           {editing ? (

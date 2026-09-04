@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { Network } from 'lucide-react'
 import { useApi } from '@shared/api/client'
-import { isOwner, type ProjectRole } from '@shared/api/collaborators'
+import { canEdit, isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { forkedFromHref } from '@shared/api/forkLink'
 import { ShareProjectModal } from '@shared/components/ShareProjectModal'
 import { RenameSymbolDialog } from '@shared/components/RenameSymbolDialog'
@@ -25,6 +25,7 @@ import { ListingPane, type ListingBlock, type ListingTarget } from '../component
 import { captureScreen } from '../components/captureScreen'
 import { estimateCost } from '../lib/llmCost'
 import type { ProjectSample as ActiveSample } from '../api/samples'
+import { AddSampleModal, ADD_SAMPLE_EVENT } from '../components/AddSampleModal'
 
 // Identifier alphabet used to find function-name occurrences in both
 // pseudocode (post-Shiki) and disassembly (raw text). Wider than a typical
@@ -411,6 +412,14 @@ export function ProjectView() {
 
   const [project, setProject] = useState<ProjectSummary | null>(null)
   const [shareOpen, setShareOpen] = useState(false)
+  // "+ Sample" modal (multi-sample projects). Also openable from the
+  // SampleTabBar (different component tree) via a window event.
+  const [addSampleOpen, setAddSampleOpen] = useState(false)
+  useEffect(() => {
+    const onOpen = () => setAddSampleOpen(true)
+    window.addEventListener(ADD_SAMPLE_EVENT, onOpen)
+    return () => window.removeEventListener(ADD_SAMPLE_EVENT, onOpen)
+  }, [])
   const [analysis, setAnalysis] = useState<BinaryAnalysis | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -837,7 +846,15 @@ export function ProjectView() {
         onPickScreenshot={() => setShot({ mode: 'pick' })}
         onStartCapture={() => { void startCapture() }}
         onShare={() => setShareOpen(true)}
+        onAddSample={() => setAddSampleOpen(true)}
       />
+      {addSampleOpen && (
+        <AddSampleModal
+          projectId={project.id}
+          projectName={project.name}
+          onClose={() => setAddSampleOpen(false)}
+        />
+      )}
       {shareOpen && (
         <ShareProjectModal
           projectId={project.id}
@@ -1011,6 +1028,7 @@ function Header({
   onPickScreenshot,
   onStartCapture,
   onShare,
+  onAddSample,
 }: {
   project: ProjectSummary
   sample: ActiveSample | null
@@ -1018,8 +1036,10 @@ function Header({
   onPickScreenshot: () => void
   onStartCapture: () => void
   onShare: () => void
+  onAddSample: () => void
 }) {
   const callerIsOwner = isOwner(project.role)
+  const callerCanEdit = canEdit(project.role)
   return (
     <header className="flex items-center gap-3 border-b border-zinc-800 px-4 py-2.5 text-sm">
       <Link to="/" className="text-zinc-500 hover:text-zinc-300">
@@ -1072,6 +1092,15 @@ function Header({
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <MembersBar projectId={project.id} />
+        {callerCanEdit && (
+          <button
+            onClick={onAddSample}
+            title="Add a sample to this project — move an existing project in, or decompile a new binary via the CLI"
+            className="rounded border border-amber-700/60 bg-amber-950/30 px-2 py-1 text-[11px] font-medium text-amber-200 hover:bg-amber-900/40"
+          >
+            ＋ Sample
+          </button>
+        )}
         <button
           onClick={onPickScreenshot}
           title="Paste / drop / browse an image — saves to Gallery"
