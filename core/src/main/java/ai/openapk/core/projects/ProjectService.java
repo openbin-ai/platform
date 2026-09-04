@@ -84,6 +84,10 @@ public class ProjectService {
     // deleted. ProjectService never depends on BundleService, so there's no
     // cycle (BundleService -> ProjectService is the one-way edge).
     private final BundleRepository bundleRepo;
+    // Multi-sample projects: delete() must remove the attached samples' S3
+    // blobs (the rows themselves cascade with the project row). Repository
+    // only — no service dependency, so no cycle.
+    private final ai.openapk.core.projects.samples.ProjectSampleRepository sampleRepo;
 
     public ProjectService(
             @Lazy ProjectService self,
@@ -101,7 +105,8 @@ public class ProjectService {
             BinaryAnalysisLoader analysisLoader,
             ProjectAccessGuard guard,
             ProjectPublicGuard publicGuard,
-            BundleRepository bundleRepo
+            BundleRepository bundleRepo,
+            ai.openapk.core.projects.samples.ProjectSampleRepository sampleRepo
     ) {
         this.self = self;
         this.repo = repo;
@@ -119,6 +124,7 @@ public class ProjectService {
         this.guard = guard;
         this.publicGuard = publicGuard;
         this.bundleRepo = bundleRepo;
+        this.sampleRepo = sampleRepo;
     }
 
     /**
@@ -643,6 +649,14 @@ public class ProjectService {
         String blobKey = project.getBinaryAnalysisS3Key();
         long blobRefs = (blobKey != null && !blobKey.isBlank())
                 ? repo.countByBinaryAnalysisS3Key(blobKey) : 0;
+        // Attached samples: their rows cascade with the project row, but the
+        // S3 blobs must be deleted explicitly. Sample blobs are never shared
+        // (fork copies only the primary blob), so no refcount — collect the
+        // keys now, delete after commit alongside the primary blob.
+        List<String> sampleKeys = sampleRepo.findAllByProjectIdOrderByCreatedAtAsc(project.getId()).stream()
+                .map(s -> s.getAnalysisS3Key())
+                .filter(k -> k != null && !k.isBlank())
+                .toList();
         Project parent = project.getForkedFrom();
         // Capture the bundle id BEFORE the delete so we can auto-remove the
         // wrapper once its last member is gone. Bundle deletion from the
@@ -671,6 +685,20 @@ public class ProjectService {
                 @Override
                 public void afterCommit() {
                     analysisStorage.deleteObject(key);
+                }
+            });
+        }
+        if (analysisStorage != null && !sampleKeys.isEmpty()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    for (String key : sampleKeys) {
+                        try {
+                            analysisStorage.deleteObject(key);
+                        } catch (Exception e) {
+                            log.warn("failed to delete sample blob {} for deleted project: {}", key, e.toString());
+                        }
+                    }
                 }
             });
         }
