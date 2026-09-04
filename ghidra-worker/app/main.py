@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -63,13 +64,46 @@ def health() -> dict:
     }
 
 
+# A Ghidra language ID: family:endianness:size:variant (e.g. ARM:LE:32:v7).
+# Validated so a caller-supplied value can't smuggle arbitrary argv tokens.
+_PROCESSOR_RE = re.compile(r"^[A-Za-z0-9_.+-]+:[LB]E:[0-9]+:[A-Za-z0-9_.+-]+$")
+
+
 @app.post("/analyze")
 async def analyze(
     binary: UploadFile = File(..., description="A single native library (.so / .dll / .dylib)"),
     arch: str = Form("unknown", description="Caller-supplied arch label; round-tripped in metadata"),
+    processor: str = Form(
+        "",
+        description="Ghidra language ID to FORCE (-processor), e.g. ARM:LE:32:v7. "
+        "Empty/'auto' = let Ghidra autodetect. Required for raw firmware whose "
+        "arch Ghidra can't autodetect.",
+    ),
+    loader: str = Form(
+        "",
+        description="'binary' forces Ghidra's raw BinaryLoader for headerless "
+        "images (requires processor). Empty = loader autodetect.",
+    ),
 ) -> JSONResponse:
     if not ANALYZE_HEADLESS.is_file():
         raise HTTPException(status_code=503, detail=f"analyzeHeadless not found at {ANALYZE_HEADLESS}")
+
+    processor = (processor or "").strip()
+    if processor.lower() in ("", "auto", "unknown"):
+        processor = ""
+    elif not _PROCESSOR_RE.match(processor):
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid processor {processor!r} — expected a Ghidra language ID like ARM:LE:32:v7",
+        )
+    loader = (loader or "").strip().lower()
+    if loader not in ("", "binary"):
+        raise HTTPException(status_code=400, detail="loader must be empty or 'binary'")
+    if loader == "binary" and not processor:
+        raise HTTPException(
+            status_code=400,
+            detail="loader=binary (raw image) requires a processor — Ghidra has no headers to autodetect from",
+        )
 
     job_id = uuid.uuid4().hex[:8]
     tmp_root = Path(tempfile.mkdtemp(prefix=f"ghidra-{job_id}-"))
@@ -107,6 +141,14 @@ async def analyze(
             "-overwrite",
             "-log", str(ghidra_log),
         ]
+        # Forced language for firmware/raw images Ghidra can't autodetect.
+        # -processor alone still lets a real ELF/PE loader run; -loader
+        # BinaryLoader is the headerless-image case (validated above to
+        # always come with a processor).
+        if processor:
+            cmd += ["-processor", processor]
+        if loader == "binary":
+            cmd += ["-loader", "BinaryLoader"]
         log.info("job=%s running: %s", job_id, " ".join(cmd))
 
         # Hand extract.py an absolute wall-clock deadline for its decompile
@@ -169,6 +211,10 @@ async def analyze(
         meta["arch"] = arch
         meta["bytes"] = size
         meta["filename"] = in_name
+        if processor:
+            # Record that the language was forced (and what to), so consumers
+            # can tell a forced-arch analysis from an autodetected one.
+            meta["forced_processor"] = processor
 
         log.info(
             "job=%s done functions=%d strings=%d imports=%d",

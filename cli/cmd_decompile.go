@@ -11,6 +11,8 @@ import (
 
 var (
 	decompileArch            string
+	decompileProcessor       string
+	decompileProject         string
 	decompileName            string
 	decompileImage           string
 	decompileFork            bool
@@ -57,10 +59,25 @@ Large binaries:
     --analysis-timeout tunes just the Ghidra auto-analysis phase and must stay
     below --timeout so the decompile pass keeps some of the budget.
 
+Raw firmware (unknown architecture):
+    Ghidra can only autodetect files with a real executable header (ELF / PE /
+    Mach-O). A raw firmware dump has none, so the import fails unless you tell
+    Ghidra the processor. Pass a Ghidra language ID with --processor and the
+    CLI forces it (plus the raw-binary loader for headerless files):
+
+        openbin decompile --processor ARM:LE:32:v7 router-fw.bin
+        openbin decompile --processor MIPS:BE:32:default camera-dump.bin
+
+    Common IDs: ARM:LE:32:v7 · AARCH64:LE:64:v8A · MIPS:BE:32:default ·
+    MIPS:LE:32:default · x86:LE:32:default · x86:LE:64:default ·
+    PowerPC:BE:32:default · RISCV:LE:64:RV64GC. Not sure which? binwalk and
+    file(1) usually tell you — or point BINNY at it (it identifies the arch
+    and decompiles locally).
+
 Examples:
     openbin decompile firmware.elf
     openbin decompile --arch x86_64 windows-malware.exe
-    openbin decompile --name "Acme Firmware v2.3" fw.bin
+    openbin decompile --processor ARM:LE:32:v7 raw-fw.bin
     openbin decompile --timeout 3600 --analysis-timeout 2400 big-stripped.so
 `,
 	Args: cobra.MinimumNArgs(1),
@@ -106,6 +123,26 @@ Examples:
 			return tok, nil
 		}
 
+		// Multi-sample: --project uploads the result as an ADDITIONAL sample
+		// of an existing BIN project instead of creating a new one.
+		if decompileProject != "" {
+			if decompileBundle != "" {
+				return fmt.Errorf("--project and --bundle are mutually exclusive")
+			}
+			if len(args) != 1 {
+				return fmt.Errorf("--project takes exactly one binary (got %d)", len(args))
+			}
+			if info, statErr := os.Stat(args[0]); statErr != nil {
+				return fmt.Errorf("stat %s: %w", args[0], statErr)
+			} else if info.IsDir() {
+				return fmt.Errorf("--project takes a single file, not a directory")
+			}
+			if !uuidRe.MatchString(decompileProject) {
+				return fmt.Errorf("--project must be a project UUID (copy it from the project URL)")
+			}
+			return decompileIntoProject(cfg, tokenLookup, args[0], arch, image, limits)
+		}
+
 		// Resolve the file list + whether this is a bundle run.
 		files, bundleName, err := resolveDecompileTargets(args)
 		if err != nil {
@@ -118,7 +155,7 @@ Examples:
 			if name == "" {
 				name = filepath.Base(files[0])
 			}
-			url, err := decompileOne(cfg, tokenLookup, files[0], name, arch, image, limits, "", true)
+			url, err := decompileOne(cfg, tokenLookup, files[0], name, arch, decompileProcessor, image, limits, "", true)
 			if err != nil {
 				return err
 			}
@@ -143,7 +180,7 @@ Examples:
 		var failed []string
 		for i, f := range files {
 			fmt.Printf("\n[%d/%d] %s\n", i+1, len(files), filepath.Base(f))
-			url, err := decompileOne(cfg, tokenLookup, f, filepath.Base(f), arch, image, limits, bundleID, false)
+			url, err := decompileOne(cfg, tokenLookup, f, filepath.Base(f), arch, decompileProcessor, image, limits, bundleID, false)
 			if err != nil {
 				// Continue the sweep — one bad binary shouldn't abort the rest.
 				fmt.Fprintf(os.Stderr, "  failed: %v\n", err)
@@ -224,7 +261,7 @@ func resolveDecompileTargets(args []string) (files []string, bundleName string, 
 // pre-decompile fork offer; it's off in bundle mode so a sweep never blocks on
 // a prompt. bundleID (may be "") tags the ingest.
 func decompileOne(cfg config, tokenLookup func() (string, error),
-	binaryPath, displayName, arch, image string, limits workerLimits,
+	binaryPath, displayName, arch, processor, image string, limits workerLimits,
 	bundleID string, allowDedup bool) (string, error) {
 
 	filename := filepath.Base(binaryPath)
@@ -247,10 +284,25 @@ func decompileOne(cfg config, tokenLookup func() (string, error),
 		}
 	}
 
+	// Raw image with no forced processor: run the firmware detectors BEFORE
+	// spending 20 minutes in Ghidra on an import that cannot succeed. A
+	// detection is adopted automatically (loudly, overridable); a miss fails
+	// fast with the honest "you'll have to figure it out" message.
+	if processor == "" && !looksLikeBinary(binaryPath) {
+		p, err := resolveRawProcessor(binaryPath)
+		if err != nil {
+			return "", err
+		}
+		processor = p
+	}
+
 	fmt.Printf("Decompiling %s (%.1f MB, sha256=%s) locally...\n",
 		filename, float64(size)/(1024*1024), sha[:12])
+	if processor != "" {
+		fmt.Printf("Forcing Ghidra processor %s\n", processor)
+	}
 	start := time.Now()
-	workerJSON, err := runLocalGhidra(binaryPath, arch, image, limits)
+	workerJSON, err := runLocalGhidra(binaryPath, arch, processor, image, limits)
 	if err != nil {
 		return "", err
 	}
@@ -269,6 +321,55 @@ func decompileOne(cfg config, tokenLookup func() (string, error),
 	return projectURL, nil
 }
 
+// decompileIntoProject runs the local decompile then uploads the result as an
+// additional SAMPLE of an existing multi-sample BIN project (--project). The
+// dedup/fork offer is skipped — the user has explicitly said where this goes.
+func decompileIntoProject(cfg config, tokenLookup func() (string, error),
+	binaryPath, arch, image string, limits workerLimits) error {
+
+	filename := filepath.Base(binaryPath)
+	label := decompileName
+	if label == "" {
+		label = filename
+	}
+
+	fmt.Println("Hashing...")
+	sha, size, err := fileSha256(binaryPath)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Decompiling %s (%.1f MB, sha256=%s) locally...\n",
+		filename, float64(size)/(1024*1024), sha[:12])
+	if decompileProcessor != "" {
+		fmt.Printf("Forcing Ghidra processor %s\n", decompileProcessor)
+	}
+	processor := decompileProcessor
+	if processor == "" && !looksLikeBinary(binaryPath) {
+		p, perr := resolveRawProcessor(binaryPath)
+		if perr != nil {
+			return perr
+		}
+		processor = p
+		if processor != "" {
+			fmt.Printf("Forcing Ghidra processor %s\n", processor)
+		}
+	}
+	start := time.Now()
+	workerJSON, err := runLocalGhidra(binaryPath, arch, processor, image, limits)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Local decompile finished in %s. Uploading as a sample of project %s...\n",
+		roundDuration(time.Since(start)), decompileProject)
+
+	if _, err := ingestSampleV2(cfg, tokenLookup, decompileProject, label, filename,
+		arch, sha, size, workerJSON); err != nil {
+		return err
+	}
+	fmt.Println("Done!", projectWebURL(cfg, projectKindBin, decompileProject))
+	return nil
+}
+
 // dirBaseName returns a friendly bundle name for a directory path, cleaning up
 // "." and trailing slashes to something usable.
 func dirBaseName(dir string) string {
@@ -285,7 +386,9 @@ func dirBaseName(dir string) string {
 
 func init() {
 	decompileCmd.Flags().StringVar(&decompileArch, "arch", "",
-		"architecture hint (auto|x86_64|x86|arm64|arm); default auto")
+		"architecture LABEL stored in project metadata (auto|x86_64|x86|arm64|arm); does NOT change how Ghidra decompiles — use --processor for that")
+	decompileCmd.Flags().StringVar(&decompileProcessor, "processor", "",
+		"force a Ghidra processor/language ID (e.g. ARM:LE:32:v7, MIPS:BE:32:default) — required for raw firmware Ghidra can't autodetect; headerless files also get the raw-binary loader")
 	decompileCmd.Flags().StringVar(&decompileName, "name", "",
 		"project display name (single-file only; default: binary filename)")
 	decompileCmd.Flags().StringVar(&decompileImage, "image", "",
@@ -300,6 +403,8 @@ func init() {
 		"cap in seconds for Ghidra's auto-analysis phase (default: worker built-in 1200s/20m). Must be < --timeout.")
 	decompileCmd.Flags().StringVar(&decompileBundle, "bundle", "",
 		"group the result(s) into a bundle with this name or id (created if it doesn't exist)")
+	decompileCmd.Flags().StringVar(&decompileProject, "project", "",
+		"upload the result as an ADDITIONAL sample of this existing BIN project (multi-sample; project UUID). --name sets the sample label.")
 	rootCmd.AddCommand(decompileCmd)
 }
 

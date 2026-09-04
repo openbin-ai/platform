@@ -81,9 +81,9 @@ Required flags:
 		arch := attachNativeArch
 		if arch == "" {
 			// .so files always carry their ABI in the OpenAPK lib path, so
-			// derive a default hint from that instead of "auto" — Ghidra
-			// usually figures it out anyway but the hint helps when the
-			// file's headers are stripped.
+			// derive a default label from that instead of "auto". NOTE: this
+			// is a metadata LABEL only — it is not passed to Ghidra, which
+			// autodetects from the ELF header (always present on an APK .so).
 			arch = inferArchFromLibPath(attachNativeLibPath)
 			if arch == "" {
 				arch = "auto"
@@ -103,7 +103,8 @@ Required flags:
 		fmt.Printf("Decompiling %s (%.1f MB, sha256=%s) locally...\n",
 			filename, float64(size)/(1024*1024), sha[:12])
 		start := time.Now()
-		workerJSON, err := runLocalGhidra(localPath, arch, image, workerLimits{})
+		// No forced processor — an APK .so is a well-formed ELF Ghidra autodetects.
+		workerJSON, err := runLocalGhidra(localPath, arch, "", image, workerLimits{})
 		if err != nil {
 			return err
 		}

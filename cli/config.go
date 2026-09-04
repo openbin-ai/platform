@@ -53,7 +53,13 @@ const (
 	//              view style) — every instruction in executable blocks plus
 	//              defined-data/hexdump rows for data blocks. Powers the web
 	//              UI's full-disassembly / sections view.
-	ghidraWorkerImage  = "openbin/ghidra-worker:6"
+	//   :7       — accepts `processor` + `loader` form fields and passes them
+	//              to analyzeHeadless as -processor / -loader BinaryLoader:
+	//              the rescue path for raw firmware whose arch Ghidra can't
+	//              autodetect (pairs with `decompile --processor` and BINNY's
+	//              decompile_sample). Backward compatible — omitted fields
+	//              behave exactly like :6.
+	ghidraWorkerImage  = "openbin/ghidra-worker:7"
 	ghidraImageTarball = "ghidra-worker.tar.gz"
 
 	// Same bundling scheme for the JADX worker (APK decompiles).

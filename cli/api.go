@@ -263,6 +263,111 @@ func ingestNativeLib(cfg config, tokenLookup func() (string, error),
 	return ir.NativeAnalysisID, nil
 }
 
+// --- v2.0 multi-sample ingest -----------------------------------------------
+//
+// Mirrors ingestNativeLib but targets the per-(BIN project, sample) endpoints:
+// one project can hold decompile results for SEVERAL samples (a dropper + its
+// payloads, several firmware revisions, the ABIs of one library). The first
+// sample lives on the project row as always; extra samples are added here.
+//   - Initiate URL: /api/projects/{id}/samples/ingest/initiate
+//   - Finalize URL: /api/projects/{id}/samples/ingest/finalize
+
+type initiateSampleRequest struct {
+	SchemaVersion    string `json:"schemaVersion"`
+	Label            string `json:"label"`
+	OriginalFilename string `json:"originalFilename"`
+	ArchHint         string `json:"archHint,omitempty"`
+	Sha256           string `json:"sha256"`
+	SizeBytes        int64  `json:"sizeBytes"`
+	UploadSizeBytes  int64  `json:"uploadSizeBytes"`
+}
+
+type initiateSampleResponse struct {
+	SampleID         string            `json:"sampleId"`
+	UploadURL        string            `json:"uploadUrl"`
+	S3Key            string            `json:"s3Key"`
+	ExpiresInSeconds int               `json:"expiresInSeconds"`
+	RequiredHeaders  map[string]string `json:"requiredHeaders"`
+}
+
+type finalizeSampleRequest struct {
+	SampleID string `json:"sampleId"`
+}
+
+// ingestSampleV2 uploads a Ghidra worker JSON as an ADDITIONAL sample of an
+// existing BIN project. Returns the sample id.
+func ingestSampleV2(cfg config, tokenLookup func() (string, error),
+	projectID, label, filename, archHint, sha256Hex string, sizeBytes int64,
+	workerJSON []byte) (string, error) {
+
+	tmpFile, err := os.CreateTemp("", "openbin-sample-*.json.gz")
+	if err != nil {
+		return "", fmt.Errorf("create temp gz: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	gzWriter := gzip.NewWriter(tmpFile)
+	if _, err := gzWriter.Write(workerJSON); err != nil {
+		tmpFile.Close()
+		return "", fmt.Errorf("gzip worker json: %w", err)
+	}
+	if err := gzWriter.Close(); err != nil {
+		tmpFile.Close()
+		return "", fmt.Errorf("flush gzip: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return "", fmt.Errorf("close gz tmpfile: %w", err)
+	}
+	gzInfo, err := os.Stat(tmpPath)
+	if err != nil {
+		return "", fmt.Errorf("stat gz tmpfile: %w", err)
+	}
+	gzSize := gzInfo.Size()
+	fmt.Fprintf(os.Stderr, "Compressed: %.2f MB → %.2f MB (%.0f%% of original)\n",
+		float64(len(workerJSON))/(1024*1024),
+		float64(gzSize)/(1024*1024),
+		float64(gzSize)*100/float64(len(workerJSON)))
+
+	token, err := tokenLookup()
+	if err != nil {
+		return "", fmt.Errorf("pre-initiate auth: %w", err)
+	}
+	initReq := initiateSampleRequest{
+		SchemaVersion:    ingestSchemaVersion,
+		Label:            label,
+		OriginalFilename: filename,
+		ArchHint:         archHint,
+		Sha256:           sha256Hex,
+		SizeBytes:        sizeBytes,
+		UploadSizeBytes:  gzSize,
+	}
+	initURL := cfg.apiBase + "/api/projects/" + projectID + "/samples/ingest/initiate"
+	initBody, err := postJSONRetry(initURL, token, initReq)
+	if err != nil {
+		return "", fmt.Errorf("initiate: %w", err)
+	}
+	var ir initiateSampleResponse
+	if err := json.Unmarshal(initBody, &ir); err != nil {
+		return "", fmt.Errorf("parse initiate response: %w", err)
+	}
+
+	if err := putToS3Retry(ir.UploadURL, tmpPath, gzSize, ir.RequiredHeaders); err != nil {
+		return "", fmt.Errorf("s3 upload: %w", err)
+	}
+
+	token, err = tokenLookup()
+	if err != nil {
+		return "", fmt.Errorf("pre-finalize auth: %w", err)
+	}
+	finURL := cfg.apiBase + "/api/projects/" + projectID + "/samples/ingest/finalize"
+	if _, err := postJSONRetry(finURL, token,
+		finalizeSampleRequest{SampleID: ir.SampleID}); err != nil {
+		return "", fmt.Errorf("finalize: %w", err)
+	}
+	return ir.SampleID, nil
+}
+
 // postJSONRetry POSTs a JSON body with a Bearer token, retrying on 5xx /
 // network errors. Returns the response body on the first 2xx. 4xx responses
 // are not retried — those are caller errors that won't get better.

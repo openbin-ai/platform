@@ -50,7 +50,12 @@ func (l workerLimits) env() []string {
 	return e
 }
 
-func runLocalGhidra(binaryPath, arch, image string, limits workerLimits) ([]byte, error) {
+// processor, when non-empty, is a Ghidra language ID (e.g. ARM:LE:32:v7)
+// forced onto analyzeHeadless via -processor — the rescue path for raw
+// firmware whose arch Ghidra can't autodetect. For files with no recognizable
+// executable magic the worker is also told to use the raw BinaryLoader.
+// Requires ghidra-worker:7+.
+func runLocalGhidra(binaryPath, arch, processor, image string, limits workerLimits) ([]byte, error) {
 	if err := ensureDockerImage(image, ghidraImageTarball); err != nil {
 		return nil, err
 	}
@@ -82,7 +87,7 @@ func runLocalGhidra(binaryPath, arch, image string, limits workerLimits) ([]byte
 		return nil, err
 	}
 
-	body, err := postBinary(port, binaryPath, arch, limits)
+	body, err := postBinary(port, binaryPath, arch, processor, limits)
 	cancelStream()
 	streamWG.Wait()
 	if err != nil {
@@ -472,7 +477,7 @@ func waitForHealth(port int, timeout time.Duration) error {
 	return fmt.Errorf("ghidra-worker did not become healthy within %s", timeout)
 }
 
-func postBinary(port int, path, arch string, limits workerLimits) ([]byte, error) {
+func postBinary(port int, path, arch, processor string, limits workerLimits) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open binary: %w", err)
@@ -483,6 +488,18 @@ func postBinary(port int, path, arch string, limits workerLimits) ([]byte, error
 	mw := multipart.NewWriter(&buf)
 	if err := mw.WriteField("arch", arch); err != nil {
 		return nil, err
+	}
+	if processor != "" {
+		if err := mw.WriteField("processor", processor); err != nil {
+			return nil, err
+		}
+		// Headerless file + forced processor ⇒ Ghidra's raw BinaryLoader
+		// (an ELF/PE/Mach-O keeps its real loader; -processor still applies).
+		if !looksLikeBinary(path) {
+			if err := mw.WriteField("loader", "binary"); err != nil {
+				return nil, err
+			}
+		}
 	}
 	part, err := mw.CreateFormFile("binary", filenameOnly(path))
 	if err != nil {
