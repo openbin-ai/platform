@@ -30,6 +30,16 @@ import { EntryPoints } from '../components/EntryPoints'
 import { NativeViewer } from '../components/Native'
 import { NativeBridge } from '../components/NativeBridge'
 import { StringTools } from '@shared/components/StringTools'
+import {
+  applyRenames,
+  gzipUncompressedSize,
+  loadLocalTree,
+  searchLocalTree,
+  LOCAL_TREE_MAX_BYTES,
+  type LocalTree,
+  type RenameEntry,
+  type SourceBundle,
+} from '../lib/localTree'
 
 // =========================================================================
 // Types
@@ -186,9 +196,65 @@ export function ProjectView() {
   useEffect(() => {
     fileCache.current.clear()
   }, [id])
+
+  // Client-side source tree: the whole decompiled tree downloaded once from
+  // S3 (via /source-bundle) and held in memory, so file opens and search
+  // never hit the backend. 'off' = server-side fallback (endpoint 404'd,
+  // tree too big, or download failed). Renames are applied at read time from
+  // appliedRenames, refreshed whenever a rename mutation clears the cache.
+  const localTree = useRef<LocalTree | null>(null)
+  const appliedRenames = useRef<RenameEntry[]>([])
+  const [localStatus, setLocalStatus] = useState<'off' | 'loading' | 'ready'>('off')
+  const [localProgress, setLocalProgress] = useState(0)
+
+  const refreshAppliedRenames = useCallback(async () => {
+    if (!id || !localTree.current) return
+    try {
+      const all = await api<RenameEntry[]>(`/api/projects/${id}/renames`)
+      appliedRenames.current = all.filter(r => r.status === 'APPLIED')
+    } catch { /* keep the previous map — next mutation retries */ }
+  }, [api, id])
+
   const clearFileCache = useCallback(() => {
     fileCache.current.clear()
-  }, [])
+    // Local mode derives content from raw source + rename map, so the map
+    // must track the mutation that just invalidated the cache.
+    void refreshAppliedRenames()
+  }, [refreshAppliedRenames])
+
+  useEffect(() => {
+    if (!id || !project || project.status !== 'READY') return
+    let cancelled = false
+    void (async () => {
+      try {
+        const bundle = await api<SourceBundle>(`/api/projects/${id}/source-bundle`)
+        // Exact uncompressed size from the gzip trailer (4-byte ranged GET);
+        // fall back to a conservative ratio estimate if Range is unsupported.
+        const uncompressed = (await gzipUncompressedSize(bundle.url)) ?? bundle.compressedBytes * 5
+        if (cancelled || uncompressed > LOCAL_TREE_MAX_BYTES) return
+        setLocalStatus('loading')
+        const [treeData, renames] = await Promise.all([
+          loadLocalTree(bundle, frac => { if (!cancelled) setLocalProgress(frac) }),
+          api<RenameEntry[]>(`/api/projects/${id}/renames`).catch(() => [] as RenameEntry[]),
+        ])
+        if (cancelled) return
+        localTree.current = treeData
+        appliedRenames.current = renames.filter(r => r.status === 'APPLIED')
+        setLocalStatus('ready')
+      } catch {
+        // 404 (fs backend / no tarball) or download failure — server-side
+        // endpoints keep working exactly as before.
+        if (!cancelled) setLocalStatus('off')
+      }
+    })()
+    return () => {
+      cancelled = true
+      localTree.current = null
+      setLocalStatus('off')
+      setLocalProgress(0)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, id, project?.status])
 
   /**
    * Persist mode to the project + flip local state in lockstep so the next
@@ -211,13 +277,37 @@ export function ProjectView() {
     }
   }, [api, id])
 
+  /** Derive a FileContent from the in-browser tree, or null if not local. */
+  const readLocal = useCallback((path: string): FileContent | null => {
+    const lt = localTree.current
+    if (!lt) return null
+    const raw = lt.text.get(path)
+    if (raw !== undefined) {
+      return {
+        path,
+        size: raw.length,
+        truncated: false,
+        encoding: 'utf-8',
+        content: applyRenames(raw, appliedRenames.current),
+      }
+    }
+    const binSize = lt.binary.get(path)
+    if (binSize !== undefined) {
+      return { path, size: binSize, truncated: false, encoding: 'binary', content: '' }
+    }
+    return null // not in the tarball snapshot — fall back to the server
+  }, [])
+
   const refetchOpenFile = useCallback(async () => {
     if (!id || !selected) return
     try {
-      // Bypass + bust the cache entry so a fresh read picks up server-side
-      // changes (e.g. just-applied renames rewriting file content on-read).
+      // Bypass + bust the cache entry so a fresh read picks up rename
+      // changes (server rewrites content on-read; local mode re-applies the
+      // just-refreshed rename map over the raw source).
       fileCache.current.delete(selected)
-      const data = await api<FileContent>(
+      if (localTree.current) await refreshAppliedRenames()
+      const local = readLocal(selected)
+      const data = local ?? await api<FileContent>(
         `/api/projects/${id}/file?path=${encodeURIComponent(selected)}`,
       )
       fileCache.current.set(selected, data)
@@ -225,7 +315,7 @@ export function ProjectView() {
     } catch (e) {
       setError((e as Error).message)
     }
-  }, [api, id, selected])
+  }, [api, id, selected, readLocal, refreshAppliedRenames])
 
   async function suggestRenames() {
     if (!id || !selected || !credentialId || !content) return
@@ -349,6 +439,14 @@ export function ProjectView() {
       setLoadingContent(false)
       return
     }
+    // Local fast path — content is derived in-browser, no network at all.
+    const local = readLocal(path)
+    if (local) {
+      fileCache.current.set(path, local)
+      setContent(local)
+      setLoadingContent(false)
+      return
+    }
     setLoadingContent(true)
     setContent(null)
     try {
@@ -362,7 +460,7 @@ export function ProjectView() {
     } finally {
       setLoadingContent(false)
     }
-  }, [api, id])
+  }, [api, id, readLocal])
 
   // Close a tab and pick a sensible neighbor to activate. Prefers the tab to
   // the right (matches VS Code); falls back to the left, then null if it was
@@ -534,6 +632,11 @@ export function ProjectView() {
                 projectId={id}
                 onOpen={(file, line) => void openFile(file, line)}
                 onActiveChange={setSearchActive}
+                localSearch={
+                  localStatus === 'ready'
+                    ? (q, opts) => searchLocalTree(localTree.current!, q, opts)
+                    : undefined
+                }
               />
             )}
           </div>
@@ -550,6 +653,16 @@ export function ProjectView() {
           )}
           {!searchActive && !symbolQuery && (
             <div className="flex-1 overflow-auto p-2">
+              {localStatus === 'loading' && (
+                <p className="px-2 pb-1 text-[10px] text-amber-400/80" title="Downloading the decompiled tree so file opens and search run instantly in your browser">
+                  ⚡ loading sources locally… {Math.round(localProgress * 100)}%
+                </p>
+              )}
+              {localStatus === 'ready' && (
+                <p className="px-2 pb-1 text-[10px] text-emerald-500/70" title="Sources are held in browser memory — file opens and search don't touch the server">
+                  ⚡ local mode
+                </p>
+              )}
               {tree ? (
                 <FileTreeNode node={tree} depth={0} selected={selected} onOpen={(p) => void openFile(p)} />
               ) : (

@@ -11,15 +11,21 @@ type SearchHit = { file: string; line: number; snippet: string }
  * The component is render-controlled by the parent — when the user clears the
  * input, the parent decides to show the file tree again (via `active` derived
  * from the query). This component is "active" when query.trim() is non-empty.
+ *
+ * When the parent has the project source loaded client-side it passes
+ * `localSearch` and queries never leave the browser; otherwise each query
+ * hits the server-side grep endpoint.
  */
 export function Search({
   projectId,
   onOpen,
   onActiveChange,
+  localSearch,
 }: {
   projectId: string
   onOpen: (file: string, line: number) => void
   onActiveChange: (active: boolean) => void
+  localSearch?: (q: string, opts: { caseSensitive: boolean; regex: boolean; includeSdks: boolean }) => Promise<SearchHit[]>
 }) {
   const api = useApi()
   const [query, setQuery] = useState('')
@@ -46,13 +52,18 @@ export function Search({
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({
-        q,
-        caseSensitive: String(caseSensitive),
-        regex: String(regex),
-        includeSdks: String(includeSdks),
-      })
-      const r = await api<SearchHit[]>(`/api/projects/${projectId}/search?${params.toString()}`)
+      let r: SearchHit[]
+      if (localSearch) {
+        r = await localSearch(q, { caseSensitive, regex, includeSdks })
+      } else {
+        const params = new URLSearchParams({
+          q,
+          caseSensitive: String(caseSensitive),
+          regex: String(regex),
+          includeSdks: String(includeSdks),
+        })
+        r = await api<SearchHit[]>(`/api/projects/${projectId}/search?${params.toString()}`)
+      }
       if (myId === reqIdRef.current) setHits(r)
     } catch (e) {
       if (myId === reqIdRef.current) {
@@ -62,7 +73,7 @@ export function Search({
     } finally {
       if (myId === reqIdRef.current) setLoading(false)
     }
-  }, [api, projectId, caseSensitive, regex, includeSdks])
+  }, [api, projectId, caseSensitive, regex, includeSdks, localSearch])
 
   useEffect(() => {
     const t = setTimeout(() => void run(query), 250)
