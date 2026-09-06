@@ -161,7 +161,7 @@ function buildGraph(
       source,
       target,
       markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12 },
-      style: { stroke: '#52525b', strokeWidth: 1.25 },
+      style: { stroke: 'var(--color-zinc-600)', strokeWidth: 1.25 },
     })
   }
 
@@ -280,7 +280,7 @@ function FunctionNode({ data }: NodeProps) {
       className={`relative w-[200px] rounded-md border-2 ${borderClass} ${bgClass} px-2 py-1.5 shadow-sm transition-shadow hover:shadow-md`}
       title={fn ? `${d.name}\n${fn.signature || ''}\n${fn.size} bytes` : `${d.name} (not in functions list)`}
     >
-      <Handle type="target" position={Position.Top} style={{ background: '#52525b', width: 6, height: 6 }} />
+      <Handle type="target" position={Position.Top} style={{ background: 'var(--color-zinc-600)', width: 6, height: 6 }} />
       <div className={`truncate text-[12px] font-mono ${textClass}`}>
         {d.name}
       </div>
@@ -307,7 +307,7 @@ function FunctionNode({ data }: NodeProps) {
           )}
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} style={{ background: '#52525b', width: 6, height: 6 }} />
+      <Handle type="source" position={Position.Bottom} style={{ background: 'var(--color-zinc-600)', width: 6, height: 6 }} />
     </div>
   )
 }
@@ -650,9 +650,9 @@ function GraphCanvas({
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable
-          style={{ backgroundColor: '#0b0d12' }}
+          style={{ backgroundColor: 'var(--color-zinc-950)' }}
         >
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#27272a" />
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--color-zinc-800)" />
           <Controls
             showInteractive={false}
             position="bottom-right"

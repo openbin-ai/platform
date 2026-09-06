@@ -126,7 +126,7 @@ export function MembersBar({ projectId }: { projectId: string }) {
         className="flex items-center rounded-full py-0.5 pl-0.5 pr-2 transition hover:bg-zinc-800/60"
         title="Who's working this project"
       >
-        <span className="flex items-center" style={{ ['--members-ring' as string]: '#18181b' }}>
+        <span className="flex items-center" style={{ ['--members-ring' as string]: 'var(--color-zinc-900)' }}>
           {shown.map((m, i) => (
             <span key={m.userId} style={{ marginLeft: i === 0 ? 0 : -8 }}>
               <Avatar m={m} />
@@ -150,7 +150,7 @@ export function MembersBar({ projectId }: { projectId: string }) {
           </div>
           {sorted.map((m) => (
             <div key={m.userId} className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-zinc-800/60">
-              <span style={{ ['--members-ring' as string]: '#18181b' }}>
+              <span style={{ ['--members-ring' as string]: 'var(--color-zinc-900)' }}>
                 <Avatar m={m} size={28} ring={false} />
               </span>
               <div className="min-w-0 flex-1">

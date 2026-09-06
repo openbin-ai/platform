@@ -3,8 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0a0a0a" />
+    <!-- Apply the stored theme before first paint (dark is the classless
+         default; color-scheme comes from shared/theme/light.css). -->
+    <script>
+      try {
+        if (localStorage.getItem('openapk.theme') === 'light') {
+          document.documentElement.classList.add('light')
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#f6f7f9')
+        }
+      } catch (e) { /* private mode */ }
+    </script>
 
     <!-- =================================================================
          Primary SEO

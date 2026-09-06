@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from 'react-oidc-context'
 import { NotificationsBell } from '@shared/components/NotificationsBell'
+import { ThemeToggle } from '@shared/components/ThemeToggle'
 import iconUrl from '../assets/icon.png'
 
 // This SAME chrome wraps both the authed app routes and the anonymous
@@ -55,6 +56,7 @@ export function Layout() {
               <span aria-hidden>★</span>
               Community
             </NavLink>
+            <ThemeToggle storageKey="openapk.theme" />
             {auth.isAuthenticated ? (
               <>
                 <SettingsNavItem />

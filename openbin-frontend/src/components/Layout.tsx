@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from 'react-oidc-context'
 import { NotificationsBell } from '@shared/components/NotificationsBell'
+import { ThemeToggle } from '@shared/components/ThemeToggle'
 import iconUrl from '../assets/icon.png'
 
 // Top-bar chrome shared across every page that isn't the immersive
@@ -61,6 +62,7 @@ export function Layout() {
               <span aria-hidden>★</span>
               Community
             </NavLink>
+            <ThemeToggle storageKey="openbin.theme" />
             {auth.isAuthenticated ? (
               <>
                 <SettingsNavItem />

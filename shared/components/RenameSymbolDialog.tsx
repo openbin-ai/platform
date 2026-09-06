@@ -104,8 +104,7 @@ export function RenameSymbolDialog({
       <form
         onSubmit={(e) => { e.preventDefault(); void save() }}
         onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-lg border border-zinc-700 p-4 shadow-2xl"
-        style={{ backgroundColor: '#18181b' }}
+        className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 p-4 shadow-2xl"
       >
         <h2 className="text-sm font-semibold text-zinc-100">
           {title ?? `Rename ${scope}`}

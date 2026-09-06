@@ -165,8 +165,7 @@ export function ShareProjectModal({
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
-        className={`flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-zinc-800 shadow-2xl ring-1 ${ac.ring}`}
-        style={{ backgroundColor: '#18181b' }}
+        className={`flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 shadow-2xl ring-1 ${ac.ring}`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
