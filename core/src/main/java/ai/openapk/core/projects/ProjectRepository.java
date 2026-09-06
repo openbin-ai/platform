@@ -64,6 +64,15 @@ public interface ProjectRepository extends JpaRepository<Project, UUID> {
     Optional<Project> findByIdAndPublicReadAtIsNotNull(UUID id);
 
     /**
+     * findById with the owner eagerly fetched. For code that runs OUTSIDE any
+     * transaction (the async decompile/ingest pipeline) and then dereferences
+     * {@code project.getUser()} — e.g. the decompile-complete notification —
+     * where the default lazy proxy would throw LazyInitializationException.
+     */
+    @Query("SELECT p FROM Project p JOIN FETCH p.user WHERE p.id = :id")
+    Optional<Project> findByIdWithUser(@Param("id") UUID id);
+
+    /**
      * "Is this project anonymously readable?" without hydrating it. Used to
      * decide whether a fork's "forked from" link should point at the public
      * view — the fork's owner usually has no role on the source, so the

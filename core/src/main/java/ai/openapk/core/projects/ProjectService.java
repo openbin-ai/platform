@@ -38,6 +38,7 @@ import java.nio.file.Path;
 import java.security.DigestOutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -427,12 +428,7 @@ public class ProjectService {
     @Async("decompileExecutor")
     public void scheduleCliTreeIngest(UUID userId, UUID projectId) {
         try {
-            // Through the self proxy, NOT a plain call: @Transactional on
-            // runCliTreeIngest only takes effect when invoked via the Spring
-            // proxy. A plain this.runCliTreeIngest() bypasses it (same hazard
-            // the @Async dispatch above guards against), leaving no open
-            // session for finishApkDecompile's lazy Project.user deref.
-            self.runCliTreeIngest(userId, projectId);
+            runCliTreeIngest(userId, projectId);
         } catch (Exception e) {
             log.error("CLI tree ingest failed for project {}: {}", projectId, e.toString(), e);
             markFailed(projectId, abbreviate(e.toString()));
@@ -440,19 +436,30 @@ public class ProjectService {
     }
 
     /**
-     * Transactional body of the CLI ingest — keeps the Hibernate session open
-     * across {@link #finishApkDecompile} (the completion notification
-     * dereferences the lazy {@code Project.user} proxy; with open-in-view off
-     * and no surrounding tx it would fail). MUST be invoked through {@code
-     * self} so the proxy applies the transaction.
+     * CLI ingest body. Deliberately NOT {@code @Transactional} — this runs
+     * for minutes on big trees, and wrapping it in one tx meant every
+     * intermediate write (markStartedAt, each markPhase, and crucially the
+     * READY flip in {@link #finishApkDecompile}) stayed invisible to the
+     * polling frontend until the WHOLE pipeline — S3 push + tree build +
+     * usage indexing — committed at the end. It also pinned a DB connection
+     * and Hibernate session for the duration. Like the cloud-worker path,
+     * each repo.save now lands in its own short tx and the project pops
+     * READY as soon as it's actually readable. (The lazy {@code Project.user}
+     * deref that originally motivated the tx is handled by
+     * {@code findByIdWithUser} in finishApkDecompile instead.)
      */
-    @Transactional
     public void runCliTreeIngest(UUID userId, UUID projectId) throws IOException {
         markStartedAt(projectId);
         Path tarGz = cliTreePath(userId, projectId);
         Path out = storage.srcDir(userId, projectId);
+        // null user/project: skip ingestTree's afterDecompile hook — it would
+        // re-tar the ~100k files we just extracted. The CLI's own tarball is
+        // byte-identical to what afterDecompile would produce, so push it
+        // verbatim instead (below), then delete the transient copy.
         var result = jadx.ingestTree(tarGz, out, phase -> markPhase(projectId, phase),
-                userId, projectId);
+                null, null);
+        markPhase(projectId, "PERSISTING");
+        storage.pushSrcTarball(userId, projectId, tarGz);
         Files.deleteIfExists(tarGz);
         finishApkDecompile(userId, projectId, result.packageName(), out);
     }
@@ -478,7 +485,10 @@ public class ProjectService {
      */
     private void finishApkDecompile(UUID userId, UUID projectId, String packageName, Path out) throws IOException {
         markPhase(projectId, "BUILDING_TREE");
-        var project = repo.findById(projectId)
+        // Eager-fetch the owner: this runs outside any transaction (both the
+        // cloud-worker and CLI-ingest paths), and the completion notification
+        // below dereferences project.getUser() — a lazy proxy would throw.
+        var project = repo.findByIdWithUser(projectId)
                 .orElseThrow(() -> new IllegalStateException("project disappeared: " + projectId));
         project.setPackageName(packageName);
         project.setStatus(ProjectStatus.READY);
@@ -878,6 +888,35 @@ public class ProjectService {
         // The frontend stays rename-agnostic; /ask-function still works
         // because it inverse-resolves through RenameService.resolveOriginal.
         return renameService.applyMapToBinaryAnalysisJson(id, json);
+    }
+
+    /**
+     * Presigned GET for the project's whole decompiled tree (src.tar.gz).
+     * The openapk frontend downloads + extracts it client-side and serves
+     * file opens and search from browser memory — zero core CPU per read.
+     * 404s when the backend can't presign (fs backend) or the tarball isn't
+     * in S3; the frontend treats that as "use the server-side /file +
+     * /search endpoints", which remain the fallback (and what the AI/agent
+     * flows keep using regardless).
+     */
+    @Transactional(readOnly = true)
+    public ProjectStorage.SrcBundle sourceBundle(User user, UUID id) {
+        var project = guard.requireRead(user, id);
+        requireReady(project);
+        if (project.getKind() != ProjectKind.APK) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "source bundle is only available for APK projects (kind=" + project.getKind() + ")");
+        }
+        Duration ttl = props.storage() != null && props.storage().presignedUrlTtl() != null
+                ? props.storage().presignedUrlTtl()
+                : Duration.ofMinutes(15);
+        // Owner-keyed storage path; see fileTree() comment.
+        var bundle = storage.presignSrcBundle(project.getUser().getId(), id, ttl);
+        if (bundle == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "no source bundle available for this project");
+        }
+        return bundle;
     }
 
     /**

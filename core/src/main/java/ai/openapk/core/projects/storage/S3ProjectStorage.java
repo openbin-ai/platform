@@ -265,6 +265,24 @@ public class S3ProjectStorage implements ProjectStorage {
     }
 
     @Override
+    public void pushSrcTarball(UUID userId, UUID projectId, Path tarGz) throws IOException {
+        if (!Files.isRegularFile(tarGz)) {
+            throw new IOException("pushSrcTarball called but tarball doesn't exist: " + tarGz);
+        }
+        putFile(tarGz, s3Key(userId, projectId, "src.tar.gz"));
+        // Same cache-extracted marker afterDecompile writes — the caller has
+        // already exploded this tarball into srcDir, so reads must not
+        // round-trip back to S3.
+        Path dir = projectDir(userId, projectId).resolve("src");
+        if (Files.isDirectory(dir)) {
+            Path marker = dir.resolve(SRC_READY_MARKER);
+            if (!Files.exists(marker)) {
+                Files.createFile(marker);
+            }
+        }
+    }
+
+    @Override
     public void afterMediaWrite(UUID userId, UUID projectId, String filename) throws IOException {
         Path file = projectDir(userId, projectId).resolve("media").resolve(filename);
         putFile(file, s3Key(userId, projectId, "media/" + filename));
@@ -278,6 +296,24 @@ public class S3ProjectStorage implements ProjectStorage {
                 .getObjectRequest(GetObjectRequest.builder().bucket(bucket).key(key).build())
                 .build());
         return presigned.url() != null ? URI.create(presigned.url().toString()) : null;
+    }
+
+    @Override
+    public SrcBundle presignSrcBundle(UUID userId, UUID projectId, Duration ttl) {
+        String key = s3Key(userId, projectId, "src.tar.gz");
+        software.amazon.awssdk.services.s3.model.HeadObjectResponse head;
+        try {
+            head = s3.headObject(HeadObjectRequest.builder().bucket(bucket).key(key).build());
+        } catch (NoSuchKeyException e) {
+            // Pre-S3-cutover project, or ingest hasn't pushed the tarball yet.
+            return null;
+        }
+        var presigned = presigner.presignGetObject(GetObjectPresignRequest.builder()
+                .signatureDuration(ttl)
+                .getObjectRequest(GetObjectRequest.builder().bucket(bucket).key(key).build())
+                .build());
+        if (presigned.url() == null) return null;
+        return new SrcBundle(URI.create(presigned.url().toString()), head.contentLength(), head.eTag());
     }
 
     @Override

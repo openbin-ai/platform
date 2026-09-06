@@ -82,6 +82,16 @@ public interface ProjectStorage {
     default void afterDecompile(UUID userId, UUID projectId) throws IOException { /* no-op for fs */ }
 
     /**
+     * Persist an already-packed decompiled tree verbatim. The CLI ingest flow
+     * receives the tree as a tar.gz and extracts it into {@link #srcDir};
+     * calling {@link #afterDecompile} would re-tar the ~100k files it just
+     * extracted, so the S3 impl uploads the received tarball instead (and
+     * marks the local cache extracted). The fs impl is a no-op — the
+     * extracted dir is already the source of truth.
+     */
+    default void pushSrcTarball(UUID userId, UUID projectId, Path tarGz) throws IOException { /* no-op for fs */ }
+
+    /**
      * Called when a single media file has been written to {@link #mediaDir}.
      * The S3 impl uploads that one file. The fs impl is a no-op.
      */
@@ -94,6 +104,19 @@ public interface ProjectStorage {
      * {@code openapk.storage.presigned-url-ttl}.
      */
     default URI presignMedia(UUID userId, UUID projectId, String filename, Duration ttl) { return null; }
+
+    /** Presigned-GET descriptor for the whole decompiled tree (src.tar.gz). */
+    record SrcBundle(URI url, long compressedBytes, String etag) {}
+
+    /**
+     * Presigned GET for the single-object decompiled tree, or {@code null}
+     * when the backend doesn't presign (fs impl — the extracted dir is the
+     * source of truth, there is no tarball) or the object doesn't exist yet.
+     * This is what lets the frontend pull the whole tree straight from S3
+     * and serve file reads + search client-side; callers getting {@code null}
+     * fall back to the server-side {@code /file} + {@code /search} paths.
+     */
+    default SrcBundle presignSrcBundle(UUID userId, UUID projectId, Duration ttl) { return null; }
 
     /**
      * Stream the contents of {@link #mediaDir}'s single file. Defaults to

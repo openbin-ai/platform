@@ -7,6 +7,7 @@ import ai.openapk.core.projects.dto.DedupMatch;
 import ai.openapk.core.projects.dto.ProjectMemberResponse;
 import ai.openapk.core.projects.dto.FileContentResponse;
 import ai.openapk.core.projects.dto.FileNode;
+import ai.openapk.core.projects.dto.SourceBundleResponse;
 import ai.openapk.core.projects.dto.ProjectResponse;
 import ai.openapk.core.projects.dto.UpdateProjectRequest;
 import jakarta.validation.Valid;
@@ -135,6 +136,17 @@ public class ProjectController {
     @GetMapping("/{id}/file")
     public FileContentResponse file(@PathVariable UUID id, @RequestParam("path") String path) {
         return service.readFile(currentUser.current(), id, path);
+    }
+
+    /**
+     * Presigned GET for the whole decompiled tree as one tar.gz. The frontend
+     * extracts it in the browser and serves file opens + search locally;
+     * {@link #file} and the search endpoint stay as the fallback (fs backend,
+     * oversized trees, older projects with no tarball in S3 → 404 here).
+     */
+    @GetMapping("/{id}/source-bundle")
+    public SourceBundleResponse sourceBundle(@PathVariable UUID id) {
+        return SourceBundleResponse.from(service.sourceBundle(currentUser.current(), id));
     }
 
     /**
