@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useApi } from '../api/client'
 import { Gravatar } from '@shared/components/Gravatar'
 import { FollowButton } from '@shared/components/FollowButton'
+import { MessageButton } from '@shared/components/dm/MessageButton'
 import { UpvoteButton } from '@shared/components/UpvoteButton'
 import { profilePath, type ProfileResponse } from '@shared/api/social'
 
@@ -13,6 +14,7 @@ import { profilePath, type ProfileResponse } from '@shared/api/social'
 // permitted in SecurityConfig so anonymous fetch works.
 export function AuthorProfilePage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const api = useApi()
   const [profile, setProfile] = useState<ProfileResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -69,11 +71,19 @@ export function AuthorProfilePage() {
                   </Link>
                 </div>
               </div>
-              <FollowButton
-                userId={profile.userId}
-                initialFollowing={profile.amFollowing}
-                onChange={(_, count) => setFollowerCount(count)}
-              />
+              <div className="flex shrink-0 items-center gap-2">
+                <MessageButton
+                  userId={profile.userId}
+                  isSelf={profile.isMe}
+                  canMessage={profile.canMessage}
+                  onOpen={(cid) => navigate(`/messages/${cid}`)}
+                />
+                <FollowButton
+                  userId={profile.userId}
+                  initialFollowing={profile.amFollowing}
+                  onChange={(_, count) => setFollowerCount(count)}
+                />
+              </div>
             </div>
           </section>
 

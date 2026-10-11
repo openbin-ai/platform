@@ -2,10 +2,22 @@ import { useCallback } from 'react'
 import { useAuth } from 'react-oidc-context'
 import { API_BASE } from './client'
 
+export type ToolCallEvent = { id: string; name: string; input: Record<string, unknown> }
+export type ToolResultEvent = {
+  id: string
+  name: string
+  ok: boolean
+  summary: string
+  artifact?: { kind: 'highlight' | 'report_section' | 'script'; id: string; label: string }
+}
+
 export type StreamCallbacks = {
   onChunk: (text: string) => void
-  onDone: (info: { model: string; inputTokens: number; outputTokens: number }) => void
+  onDone: (info: { model: string; inputTokens: number; outputTokens: number; iterations?: number }) => void
   onError: (message: string) => void
+  // Agent endpoints (BINNY light) also announce each tool call and its result.
+  onToolCall?: (e: ToolCallEvent) => void
+  onToolResult?: (e: ToolResultEvent) => void
 }
 
 /**
@@ -91,6 +103,24 @@ function dispatch(raw: string, cb: StreamCallbacks) {
       model: typeof obj.model === 'string' ? obj.model : '',
       inputTokens: typeof obj.inputTokens === 'number' ? obj.inputTokens : 0,
       outputTokens: typeof obj.outputTokens === 'number' ? obj.outputTokens : 0,
+      iterations: typeof obj.iterations === 'number' ? obj.iterations : undefined,
+    })
+  } else if (name === 'tool_call') {
+    cb.onToolCall?.({
+      id: String(obj.id ?? ''),
+      name: String(obj.name ?? ''),
+      input: (obj.input && typeof obj.input === 'object' ? obj.input : {}) as Record<string, unknown>,
+    })
+  } else if (name === 'tool_result') {
+    const art = obj.artifact as Record<string, unknown> | undefined
+    cb.onToolResult?.({
+      id: String(obj.id ?? ''),
+      name: String(obj.name ?? ''),
+      ok: obj.ok === true,
+      summary: typeof obj.summary === 'string' ? obj.summary : '',
+      artifact: art && typeof art.kind === 'string'
+        ? { kind: art.kind as 'highlight' | 'report_section' | 'script', id: String(art.id ?? ''), label: String(art.label ?? '') }
+        : undefined,
     })
   } else if (name === 'error') {
     cb.onError(typeof obj.message === 'string' ? obj.message : 'stream error')

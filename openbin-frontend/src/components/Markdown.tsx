@@ -20,7 +20,9 @@ import { HIGHLIGHT_LANGS, langFromClassName, type HighlightLang } from '@shared/
  * promise, so N code blocks cost one engine load.
  */
 
-type Loaded = { codeToHtml: (code: string, opts: { lang: string; theme: string }) => string }
+type Loaded = {
+  codeToHtml: (code: string, opts: { lang: string; themes: Record<string, string>; defaultColor: 'dark' }) => string
+}
 
 let highlighterPromise: Promise<Loaded> | null = null
 
@@ -29,7 +31,7 @@ async function getHighlighter(): Promise<Loaded> {
   highlighterPromise = (async () => {
     const { createHighlighter } = await import('shiki')
     return createHighlighter({
-      themes: ['github-dark-default'],
+      themes: ['github-dark-default', 'github-light-default'],
       langs: [...HIGHLIGHT_LANGS],
     }) as unknown as Promise<Loaded>
   })()
@@ -45,7 +47,11 @@ function CodeBlock({ code, lang }: { code: string; lang: HighlightLang | null })
     void (async () => {
       try {
         const hl = await getHighlighter()
-        const out = hl.codeToHtml(code, { lang, theme: 'github-dark-default' })
+        const out = hl.codeToHtml(code, {
+          lang,
+          themes: { dark: 'github-dark-default', light: 'github-light-default' },
+          defaultColor: 'dark',
+        })
         if (alive) setHtml(out)
       } catch {
         // Leave the plain-text rendering in place.

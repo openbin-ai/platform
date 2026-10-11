@@ -2,18 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useApi } from '@shared/api/client'
 import { useStreamingApi } from '@shared/api/streaming'
-import { SCRIPT_PATHS } from '@shared/api/scripts'
 import {
   SHARED_KEY, UNTITLED, sessionMessageCount, useAskSessions,
   type ChatTurn, type SessionMode,
 } from '@shared/api/askSessions'
 import { ModelSelect } from '@shared/components/ModelSelect'
+import { BinnyToolCards } from '@shared/components/BinnyToolCards'
 import { estimateCost } from '../lib/llmCost'
 
 type Credential = { id: string; provider: string; label: string }
 
-const ASK_MAX_FILE_BYTES = 60 * 1024  // matches backend ASK_MAX_FILE_BYTES
-const PRIOR_TURN_MAX = 50000          // matches AskRequest.PriorTurn @Size
+const ASK_MAX_FILE_BYTES = 60 * 1024  // matches BinnyAgentService.MAX_CONTEXT_BYTES
+const PRIOR_TURN_MAX = 16000          // matches BinnyRequest.PriorTurn @Size
 
 /**
  * Ask AI panel for SCRIPT projects, with the same named multi-session
@@ -144,14 +144,21 @@ export function AskAiPanel({
     ))
     setQuestion('')
 
+    // Patch the in-flight assistant turn (always the last one in the thread).
+    const patchLast = (mut: (t: ChatTurn) => ChatTurn) => setTurns((prev) => {
+      if (prev.length === 0) return prev
+      const next = prev.slice()
+      next[next.length - 1] = mut(next[next.length - 1])
+      return next
+    })
+
     await streamingApi(
-      SCRIPT_PATHS.askStream(projectId),
+      `/api/projects/${projectId}/binny/stream`,
       {
-        filePath,
+        // The deobfuscated views are labelled in the path so a thread about
+        // them never reads as the original bytes.
+        filePath: sourceMode === 'original' ? filePath : `${filePath} (deobfuscated)`,
         fileContent: content,
-        // Both deobfuscated views are "not the original bytes" as far as
-        // the system prompt is concerned.
-        deobfuscated: sourceMode !== 'original',
         question: trimmed,
         credentialId,
         model: model || undefined,
@@ -159,17 +166,16 @@ export function AskAiPanel({
       },
       {
         onChunk: (text) => {
-          setTurns((prev) => {
-            if (prev.length === 0) return prev
-            const next = prev.slice()
-            const last = next[next.length - 1]
-            next[next.length - 1] = { ...last, content: last.content + text }
-            return next
-          })
+          patchLast((last) => ({ ...last, content: last.content + text }))
           requestAnimationFrame(() => {
             tailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
           })
         },
+        onToolCall: (e) => patchLast((last) => ({ ...last, tools: [...(last.tools ?? []), { id: e.id, name: e.name, input: e.input }] })),
+        onToolResult: (e) => patchLast((last) => ({
+          ...last,
+          tools: (last.tools ?? []).map((t) => (t.id === e.id ? { ...t, ok: e.ok, summary: e.summary, artifact: e.artifact } : t)),
+        })),
         onDone: (info) => {
           setTurns((prev) => {
             if (prev.length === 0) return prev
@@ -346,7 +352,12 @@ export function AskAiPanel({
               )}
             </div>
             <p className="mt-2 text-xs">
-              Try: <em>“What does this file do?”</em> · <em>“Where is the data exfiltrated to?”</em>
+              Try: <em>“What does this file do?”</em> · <em>“Where is the data exfiltrated to?”</em> ·{' '}
+              <em>“Highlight the dropper and draft the findings section.”</em>
+            </p>
+            <p className="mt-2 text-[11px] text-zinc-500">
+              BINNY light reads the open file and, when you ask, pins highlights, writes report sections and saves
+              scripts on this project. The full BINNY with a sandbox runs in your terminal.
             </p>
             {active?.mode === 'shared' && (
               <p className="mt-2 text-[11px] text-zinc-500">
@@ -366,7 +377,7 @@ export function AskAiPanel({
             >
               <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-zinc-500">
                 <span>
-                  {t.role === 'user' ? 'You' : 'AI'}
+                  {t.role === 'user' ? 'You' : 'BINNY'}
                   {/* In shared mode one thread spans many files, so say
                       which one each question was about. */}
                   {t.role === 'user' && active?.mode === 'shared' && t.context && (
@@ -392,13 +403,16 @@ export function AskAiPanel({
                 </span>
               </div>
               {t.role === 'assistant' ? (
-                t.content ? (
-                  <div className="prose prose-sm prose-invert max-w-none prose-pre:bg-black/40 prose-pre:text-[11px]">
-                    <ReactMarkdown>{t.content}</ReactMarkdown>
-                  </div>
-                ) : (
-                  <div className="text-xs italic text-zinc-500">Waiting for first token…</div>
-                )
+                <>
+                  {t.tools && t.tools.length > 0 && <BinnyToolCards events={t.tools} projectId={projectId} />}
+                  {t.content ? (
+                    <div className="prose prose-sm prose-invert max-w-none prose-pre:bg-black/40 prose-pre:text-[11px]">
+                      <ReactMarkdown>{t.content}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <div className="text-xs italic text-zinc-500">{t.tools && t.tools.length > 0 ? 'Working…' : 'Waiting for first token…'}</div>
+                  )}
+                </>
               ) : (
                 <div className="whitespace-pre-wrap">{t.content}</div>
               )}
@@ -426,7 +440,7 @@ export function AskAiPanel({
             }
           }}
           disabled={!filePath || streaming}
-          placeholder={filePath ? 'Ask about this file… (Enter to send, Shift+Enter for newline)' : 'Pick a file first'}
+          placeholder={filePath ? 'Ask BINNY about this file… (Enter to send, Shift+Enter for newline)' : 'Pick a file first'}
           className="min-h-0 flex-1 resize-none rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-purple-600/60 focus:outline-none disabled:opacity-50"
         />
         <button

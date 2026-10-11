@@ -21,7 +21,7 @@ type Tile = {
 
 const HERO: Tile = {
   title: 'Decompile + AI analysis, side by side',
-  caption: 'See the agent reason about the code in real time. JADX-powered Java + Kotlin extraction with persistent hotspots, IOCs, and next-step recommendations cached on the project.',
+  caption: 'Watch the agent work through the code as it streams. JADX Java and Kotlin extraction, with hotspots, IOCs and suggested next steps cached on the project.',
   body: '',
   src: decompiledShot,
   href: '/projects/<id>/code',
@@ -37,14 +37,14 @@ const TILES: Tile[] = [
   },
   {
     title: 'Trace data flow with call chains',
-    caption: 'Cmd-click any method to walk callers + callees with AI-narrated summaries. Honest about truncation — see exactly how many SDK callers were hidden at hot methods.',
+    caption: 'Cmd-click any method to walk its callers and callees, with a summary on each node. When SDK callers are hidden at a hot method, the view says how many.',
     body: '',
     src: callChainShot,
     href: '/projects/<id>/callchain',
   },
   {
     title: 'Native libraries via Ghidra',
-    caption: 'JNI .so files dispatched to a containerised Ghidra worker. Functions, strings, imports, decompiled pseudo-C — all syntax-highlighted, all in the same code viewer.',
+    caption: 'JNI .so files go through Ghidra via the CLI. Functions, strings, imports and decompiled pseudo-C, syntax-highlighted in the same code viewer as the Java.',
     body: '',
     src: nativeShot,
     href: '/projects/<id>/native',
@@ -72,7 +72,7 @@ const TILES: Tile[] = [
   },
   {
     title: 'Bring your own model',
-    caption: 'Anthropic · OpenAI · AWS Bedrock. Keys encrypted at rest with your KEK. Per-user token budgets + full audit log so a runaway loop never surprises your bill.',
+    caption: 'Anthropic, OpenAI or AWS Bedrock. Keys are encrypted at rest with your KEK. Per-user token budgets and a full audit log, so a runaway loop never surprises your bill.',
     body: '',
     src: apiKeysShot,
     href: '/settings/api-keys',
@@ -84,11 +84,11 @@ export function FeatureTour() {
 
   return (
     <section id="tour" className="mx-auto max-w-6xl px-6 pb-24">
-      <h2 className="mb-3 text-center text-xs font-medium uppercase tracking-[0.2em] text-zinc-400">
-        See it in action
+      <h2 className="mb-3 text-center text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
+        Screenshots from the product, not mockups.
       </h2>
-      <p className="mx-auto mb-12 max-w-2xl text-center text-sm text-zinc-400">
-        Tap any frame to zoom. This is the actual product, no mockups.
+      <p className="mx-auto mb-12 max-w-2xl text-center text-base text-zinc-400">
+        Tap any frame to zoom.
       </p>
 
       {/* Hero shot — centered, full-width emphasis */}
@@ -158,19 +158,15 @@ function ZigZagRow({ tile, imageRight, onZoom }: { tile: Tile; imageRight: boole
 }
 
 /**
- * Mac-style window chrome around a screenshot. The fake URL bar reads as
- * "real product" without the cost of an actual interactive demo.
+ * Plain frame around a screenshot. The one line of chrome is the in-app
+ * path, so the reader knows which screen they are looking at; no fake
+ * window buttons.
  */
 function BrowserFrame({ href, src, alt }: { href: string; src: string; alt: string }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/70 shadow-[0_20px_60px_rgba(124,58,237,0.20)] ring-1 ring-purple-500/10 backdrop-blur transition group-hover:border-purple-500/40 group-hover:shadow-[0_24px_80px_rgba(124,58,237,0.35)]">
-      <div className="flex items-center gap-2 border-b border-zinc-800/80 bg-zinc-900/60 px-3 py-2">
-        <span className="h-3 w-3 rounded-full bg-red-500/80" />
-        <span className="h-3 w-3 rounded-full bg-amber-400/80" />
-        <span className="h-3 w-3 rounded-full bg-emerald-500/80" />
-        <div className="ml-3 hidden flex-1 truncate rounded-md bg-zinc-950/60 px-3 py-1 font-mono text-[10px] text-zinc-500 sm:block">
-          openapk.ai{href}
-        </div>
+    <div className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 transition group-hover:border-purple-500/50">
+      <div className="truncate border-b border-zinc-800 px-4 py-2 font-mono text-xs text-zinc-400">
+        openapk.ai{href}
       </div>
       <img
         src={src}

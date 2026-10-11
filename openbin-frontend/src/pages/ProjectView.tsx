@@ -9,6 +9,7 @@ import { ShareProjectModal } from '@shared/components/ShareProjectModal'
 import { RenameSymbolDialog } from '@shared/components/RenameSymbolDialog'
 import { MembersBar } from '@shared/components/MembersBar'
 import { ProjectVisibilityToggle } from '@shared/components/ProjectVisibilityToggle'
+import { ProjectChatPanel } from '@shared/components/dm/ProjectChatPanel'
 import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleContext'
 import { HighlightsPanel } from '@shared/components/HighlightsPanel'
 import { AddHighlightModal } from '@shared/components/AddHighlightModal'
@@ -16,6 +17,8 @@ import { StringTools } from '@shared/components/StringTools'
 import { mediaKeyFromUrl } from '@shared/api/highlights'
 import { ModelSelect } from '@shared/components/ModelSelect'
 import { useStreamingApi } from '@shared/api/streaming'
+import { BinnyToolCards, type ToolEvent } from '@shared/components/BinnyToolCards'
+import { REPORT_CHANGED_EVENT } from '@shared/api/reportEvents'
 import { highlightC } from '../syntax/highlight'
 import { ReportEditor } from './Report'
 import { Gallery } from '../components/Gallery'
@@ -293,7 +296,7 @@ type ViewMode = 'pseudo' | 'disasm' | 'deobf'
 type SidePanelKind =
   | 'xrefs' | 'chain' | 'network' | 'ask' | 'ai' | 'crypto'
   | 'renames' | 'report' | 'gallery' | 'highlights'
-  | 'strings' | 'imports' | 'tools'
+  | 'strings' | 'imports' | 'tools' | 'chat'
 // Tab in the LEFT sidebar (next to the Call Graph button). Default is the
 // existing function list; the rest are symbol-navigation views surfaced
 // from the v2 worker output. Lives on the LEFT because they share the
@@ -341,6 +344,8 @@ type SymbolLookups = {
   fnByAddr: Map<string, BinaryFunction>
   dataByName: Map<string, DataSymbol>
   dataByAddr: Map<string, DataSymbol>
+  /** Canonical address falls inside a block the program listing covers. */
+  inListing: (canon: string) => boolean
 }
 type PendingHighlight = {
   fnName: string
@@ -674,6 +679,26 @@ export function ProjectView() {
     return m
   }, [analysis])
 
+  // Which listing block (section) an address lives in. Drives "open the
+  // program listing at this address" for globals and bare pointers: the
+  // per-function disassembly only holds that function's instructions, so a
+  // data address can only be shown in the full listing.
+  const listingBlockFor = useCallback((addr: string): string | undefined => {
+    const k = canonAddr(addr)
+    if (!k || !analysis?.listing?.length) return undefined
+    let v: bigint
+    try { v = BigInt('0x' + k) } catch { return undefined }
+    for (const b of analysis.listing) {
+      const s = canonAddr(b.start)
+      const e = canonAddr(b.end)
+      if (!s || !e) continue
+      try {
+        if (v >= BigInt('0x' + s) && v <= BigInt('0x' + e)) return b.block
+      } catch { /* malformed range: skip */ }
+    }
+    return undefined
+  }, [analysis])
+
   const filtered = useMemo(() => {
     if (!analysis) return []
     const q = filter.trim().toLowerCase()
@@ -688,7 +713,8 @@ export function ProjectView() {
   // unless one of the underlying maps actually changes.
   const lookups: SymbolLookups = useMemo(() => ({
     fnByName, fnByAddr, dataByName, dataByAddr,
-  }), [fnByName, fnByAddr, dataByName, dataByAddr])
+    inListing: (canon: string) => listingBlockFor(canon) !== undefined,
+  }), [fnByName, fnByAddr, dataByName, dataByAddr, listingBlockFor])
 
   const selected = selectedName ? fnByName.get(selectedName) ?? null : null
 
@@ -745,14 +771,23 @@ export function ProjectView() {
       if (fn) { selectFn(fn.name); return true }
       return false
     }
+    // A global: show its memory in the program listing (the disassembly at
+    // that address), keeping the Data tab's selection in sync without
+    // switching to it. Analyses without a listing (pre worker :6) keep the
+    // old behaviour and open the Data tab instead.
+    const showData = (d: DataSymbol): true => {
+      setSelectedDataName(d.name)
+      const block = listingBlockFor(d.address)
+      if (analysis?.listing?.length) {
+        setListingTarget({ addr: d.address, block, nonce: Date.now() })
+      } else {
+        setLeftTab('data')
+      }
+      return true
+    }
     if (target.kind === 'data') {
       const d = dataByName.get(target.value)
-      if (d) {
-        setSelectedDataName(d.name)
-        setLeftTab('data')
-        return true
-      }
-      return false
+      return d ? showData(d) : false
     }
     // kind === 'addr' — canonicalize then probe both indexes.
     const k = canonAddr(target.value)
@@ -760,13 +795,16 @@ export function ProjectView() {
     const fn = fnByAddr.get(k)
     if (fn) { selectFn(fn.name); return true }
     const d = dataByAddr.get(k)
-    if (d) {
-      setSelectedDataName(d.name)
-      setLeftTab('data')
+    if (d) return showData(d)
+    // No symbol at that address, but it points into a mapped section: land
+    // in the listing anyway (an unnamed pointer into .rdata, a jump table).
+    const block = listingBlockFor(k)
+    if (block) {
+      setListingTarget({ addr: k, block, nonce: Date.now() })
       return true
     }
     return false
-  }, [fnByName, fnByAddr, dataByName, dataByAddr, selectFn])
+  }, [fnByName, fnByAddr, dataByName, dataByAddr, selectFn, listingBlockFor, analysis])
 
   // Walk one step back/forward through the selection history. Selection is
   // applied directly (not via selectFn) so the walk itself doesn't push a
@@ -1042,8 +1080,8 @@ function Header({
   const callerCanEdit = canEdit(project.role)
   return (
     <header className="flex items-center gap-3 border-b border-zinc-800 px-4 py-2.5 text-sm">
-      <Link to="/" className="text-zinc-500 hover:text-zinc-300">
-        ← Projects
+      <Link to={`/projects/${project.id}/overview`} className="text-zinc-500 hover:text-zinc-300" title="Project overview: description, members, samples, settings">
+        ← Project
       </Link>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
@@ -2043,13 +2081,15 @@ function resolveJump(token: string, lookups: SymbolLookups, selfName: string): L
   const ghidra = /^(?:FUN|SUB|DAT|LAB)_([0-9a-fA-F]{5,})$/i.exec(token)
   if (ghidra) {
     const k = canonAddr(ghidra[1])
-    if (k && (lookups.fnByAddr.has(k) || lookups.dataByAddr.has(k))) {
+    if (k && (lookups.fnByAddr.has(k) || lookups.dataByAddr.has(k) || lookups.inListing(k))) {
       return { className: 'addr-link', attr: 'data-jump-addr', value: token }
     }
   }
+  // A bare pointer is a link when it names a symbol OR falls inside a mapped
+  // section (the listing can show the bytes even with no symbol there).
   if (/^0x[0-9a-fA-F]{5,}$/i.test(token)) {
     const k = canonAddr(token)
-    if (k && (lookups.fnByAddr.has(k) || lookups.dataByAddr.has(k))) {
+    if (k && (lookups.fnByAddr.has(k) || lookups.dataByAddr.has(k) || lookups.inListing(k))) {
       return { className: 'addr-link', attr: 'data-jump-addr', value: token }
     }
   }
@@ -2884,6 +2924,8 @@ function SidePanel({
   // fire their fetches until the user first opens them, matching the
   // openapk pattern.
   const [activated, setActivated] = useState<Set<SidePanelKind>>(() => new Set([panel]))
+  // Bumped when BINNY pins a highlight, so the Highlights panel refetches.
+  const [toolBump, setToolBump] = useState(0)
   useEffect(() => {
     setActivated((prev) => (prev.has(panel) ? prev : new Set([...prev, panel])))
   }, [panel])
@@ -2915,7 +2957,7 @@ function SidePanel({
             Network
           </SideTab>
           <SideTab active={panel === 'ask'} onClick={() => onPanelChange('ask')}>
-            Ask
+            BINNY
           </SideTab>
           <SideTab active={panel === 'crypto'} onClick={() => onPanelChange('crypto')}>
             Crypto
@@ -2937,6 +2979,9 @@ function SidePanel({
           </SideTab>
           <SideTab active={panel === 'imports'} onClick={() => onPanelChange('imports')}>
             Imports
+          </SideTab>
+          <SideTab active={panel === 'chat'} onClick={() => onPanelChange('chat')}>
+            Chat
           </SideTab>
           <SideTab active={panel === 'tools'} onClick={() => onPanelChange('tools')}>
             Tools
@@ -2978,7 +3023,15 @@ function SidePanel({
         )}
         {activated.has('ask') && (
           <div className={`h-full ${panel === 'ask' ? '' : 'hidden'}`}>
-            <AskPanel projectId={projectId} fn={fn} />
+            <AskPanel
+              projectId={projectId}
+              fn={fn}
+              onOpenPanel={onPanelChange}
+              onArtifact={(kind) => {
+                if (kind === 'highlight') setToolBump((k) => k + 1)
+                if (kind === 'report_section') window.dispatchEvent(new Event(REPORT_CHANGED_EVENT))
+              }}
+            />
           </div>
         )}
         {activated.has('ai') && (
@@ -3031,7 +3084,7 @@ function SidePanel({
               canEdit={canEditHighlights}
               Img={AuthenticatedImg}
               ScreenshotPicker={ScreenshotModal}
-              refreshKey={highlightsKey}
+              refreshKey={highlightsKey + toolBump}
               defaultTarget={selectedName ? { type: 'FUNCTION', ref: selectedName } : null}
               onNavigate={(h) => { if (h.type === 'FUNCTION' && h.targetRef) onSelect(h.targetRef) }}
             />
@@ -3045,6 +3098,11 @@ function SidePanel({
         {activated.has('imports') && (
           <div className={panel === 'imports' ? '' : 'hidden'}>
             <ImportsPanel imports={analysis.imports} />
+          </div>
+        )}
+        {activated.has('chat') && (
+          <div className={`h-full ${panel === 'chat' ? '' : 'hidden'}`}>
+            <ProjectChatPanel projectId={projectId} accent="amber" />
           </div>
         )}
         {activated.has('tools') && (
@@ -4841,6 +4899,8 @@ type ChatTurn = {
   /** Only present in shared-session turns — the function the user was looking
    *  at when they asked. Helps them remember the context later. */
   functionName?: string | null
+  /** BINNY's tool calls during this answer, in order (assistant turns only). */
+  tools?: ToolEvent[]
 }
 
 // A named Ask AI conversation. Each session has a mode:
@@ -4958,9 +5018,15 @@ function saveStringRecord<V>(key: string, m: Map<string, V>): void {
 function AskPanel({
   projectId,
   fn,
+  onOpenPanel,
+  onArtifact,
 }: {
   projectId: string
   fn: BinaryFunction | null
+  /** Switch the side panel (tool cards link to Highlights / Report). */
+  onOpenPanel: (p: 'highlights' | 'report') => void
+  /** BINNY wrote something; the host refreshes the matching panel. */
+  onArtifact: (kind: 'highlight' | 'report_section' | 'script') => void
 }) {
   const api = useApi()
   const streamingApi = useStreamingApi()
@@ -5127,19 +5193,27 @@ function AskPanel({
     }))
     setQuestion('')
 
+    // Patch the in-flight assistant turn (always the last one in the thread).
+    const patchLast = (mut: (t: ChatTurn) => ChatTurn) => updateActive((s) => {
+      const thread = s.threads[threadKey] ?? []
+      if (thread.length === 0) return s
+      const next = thread.slice()
+      next[next.length - 1] = mut(next[next.length - 1])
+      return { ...s, threads: { ...s.threads, [threadKey]: next } }
+    })
+
     await streamingApi(
-      `/api/projects/${projectId}/ask-function/stream`,
+      `/api/projects/${projectId}/binny/stream`,
       { functionName: fn.name, question: trimmed, credentialId, model: model || undefined, priorTurns },
       {
-        onChunk: (text) => {
-          updateActive((s) => {
-            const thread = s.threads[threadKey] ?? []
-            if (thread.length === 0) return s
-            const next = thread.slice()
-            const last = next[next.length - 1]
-            next[next.length - 1] = { ...last, content: last.content + text }
-            return { ...s, threads: { ...s.threads, [threadKey]: next } }
-          })
+        onChunk: (text) => patchLast((last) => ({ ...last, content: last.content + text })),
+        onToolCall: (e) => patchLast((last) => ({ ...last, tools: [...(last.tools ?? []), { id: e.id, name: e.name, input: e.input }] })),
+        onToolResult: (e) => {
+          patchLast((last) => ({
+            ...last,
+            tools: (last.tools ?? []).map((t) => (t.id === e.id ? { ...t, ok: e.ok, summary: e.summary, artifact: e.artifact } : t)),
+          }))
+          if (e.ok && e.artifact) onArtifact(e.artifact.kind)
         },
         onDone: (info) => {
           updateActive((s) => {
@@ -5296,10 +5370,20 @@ function AskPanel({
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           {turns.length === 0 ? (
             <div className="text-[11px] leading-relaxed text-zinc-600">
-              {active.mode === 'per-function'
-                ? <>Ask anything about <span className="font-mono text-zinc-400">{fnLabel ?? 'the selected function'}</span> — what it does, calling conventions, suspicious patterns, what an unfamiliar instruction sequence does. The model gets the signature, decompiled C, and first ~500 disasm lines. Each function keeps its own thread.</>
-                : <>Shared mode: one thread spans every function you open. The agent always sees the function you're currently looking at, plus the full conversation history.</>
-              }
+              <p>
+                <span className="text-zinc-400">BINNY light.</span> Ask about{' '}
+                <span className="font-mono text-zinc-400">{fnLabel ?? 'the selected function'}</span>: what it does,
+                suspicious patterns, what an instruction sequence means. BINNY starts from the signature, decompiled C
+                and first disassembly lines, and can read other functions and search strings on its own.
+              </p>
+              <p className="mt-2">
+                Ask it to <span className="text-zinc-400">highlight</span> a finding, <span className="text-zinc-400">draft</span> a
+                report section, or <span className="text-zinc-400">write a script</span> and it will do that on the project.
+                No sandbox and no sample bytes here: the full BINNY runs in your terminal.
+              </p>
+              <p className="mt-2 text-zinc-700">
+                {active.mode === 'per-function' ? 'Each function keeps its own thread.' : 'Shared mode: one thread across every function you open.'}
+              </p>
             </div>
           ) : (
             <ul className="space-y-3">
@@ -5313,12 +5397,21 @@ function AskPanel({
                     )}
                     {t.role === 'user' ? (
                       <div className="whitespace-pre-wrap break-words text-[12px]">{t.content}</div>
-                    ) : t.content === '' && streaming && i === turns.length - 1 ? (
-                      <div className="text-[11px] italic text-zinc-500">Waiting for first token…</div>
                     ) : (
-                      <div className="markdown-answer text-[12px] leading-relaxed">
-                        <ReactMarkdown>{t.content}</ReactMarkdown>
-                      </div>
+                      <>
+                        {t.tools && t.tools.length > 0 && (
+                          <BinnyToolCards events={t.tools} projectId={projectId} onOpenPanel={onOpenPanel} />
+                        )}
+                        {t.content === '' && streaming && i === turns.length - 1 ? (
+                          <div className="text-[11px] italic text-zinc-500">
+                            {t.tools && t.tools.length > 0 ? 'Working…' : 'Waiting for first token…'}
+                          </div>
+                        ) : (
+                          <div className="markdown-answer text-[12px] leading-relaxed">
+                            <ReactMarkdown>{t.content}</ReactMarkdown>
+                          </div>
+                        )}
+                      </>
                     )}
                     {t.role === 'assistant' && t.content !== '' && (
                       <div className="mt-2 flex items-center gap-3 border-t border-zinc-800 pt-1.5 text-[9px] text-zinc-500">
@@ -5392,7 +5485,7 @@ function AskPanel({
                   void send()
                 }
               }}
-              placeholder={active.mode === 'shared' ? 'Ask anything about this binary…' : 'Ask anything about this function…'}
+              placeholder={active.mode === 'shared' ? 'Ask BINNY about this binary…' : 'Ask BINNY about this function…'}
               rows={2}
               disabled={streaming}
               className="flex-1 resize-none rounded border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-[12px] text-zinc-100 focus:border-purple-500 focus:outline-none disabled:opacity-60"

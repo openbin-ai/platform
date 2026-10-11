@@ -204,9 +204,11 @@ function AddCredentialForm({ onCreated }: { onCreated: () => void }) {
         if (sessionToken) body.sessionToken = sessionToken
       } else {
         body.apiKey = apiKey
-        // Only the generic OpenAI-compatible provider needs a base URL; named
-        // providers get theirs from the backend.
+        // The generic OpenAI-compatible provider needs a base URL. Anthropic
+        // takes an optional one for a gateway that fronts the Messages API on
+        // another host; the other named providers get theirs from the backend.
         if (provider === 'OPENAI_COMPAT') body.baseUrl = baseUrl
+        if (provider === 'ANTHROPIC' && baseUrl.trim()) body.baseUrl = baseUrl.trim()
       }
       await api('/api/credentials', { method: 'POST', body: JSON.stringify(body) })
       setLabel(''); setApiKey(''); setBaseUrl(''); setAccessKeyId(''); setSecretAccessKey(''); setSessionToken('')
@@ -257,7 +259,7 @@ function AddCredentialForm({ onCreated }: { onCreated: () => void }) {
 
         {provider !== 'BEDROCK' ? (
           <>
-            <Field label="API key" wide={provider !== 'OPENAI_COMPAT'}>
+            <Field label="API key" wide={provider !== 'OPENAI_COMPAT' && provider !== 'ANTHROPIC'}>
               <input
                 type="password"
                 required
@@ -279,6 +281,21 @@ function AddCredentialForm({ onCreated }: { onCreated: () => void }) {
                   className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100"
                   autoComplete="off"
                 />
+              </Field>
+            )}
+            {provider === 'ANTHROPIC' && (
+              <Field label="Gateway URL (optional)">
+                <input
+                  type="url"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder="https://api.anthropic.com"
+                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100"
+                  autoComplete="off"
+                />
+                <p className="mt-1 text-xs text-zinc-500">
+                  Leave empty for Anthropic directly. Set it if your key belongs to a service that hosts Claude behind its own domain.
+                </p>
               </Field>
             )}
           </>

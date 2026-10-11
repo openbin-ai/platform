@@ -24,6 +24,8 @@ export type ChatTurn = {
    * wall of questions.
    */
   context?: string
+  /** BINNY's tool calls during this answer, in order (assistant turns only). */
+  tools?: import('@shared/components/BinnyToolCards').ToolEvent[]
 }
 
 /**

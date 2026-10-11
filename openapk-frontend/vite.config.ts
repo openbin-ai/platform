@@ -27,6 +27,7 @@ export default defineConfig({
       'react-dom':          path.join(appNodeModules, 'react-dom'),
       'react-oidc-context': path.join(appNodeModules, 'react-oidc-context'),
       'oidc-client-ts':     path.join(appNodeModules, 'oidc-client-ts'),
+      'lucide-react':       path.join(appNodeModules, 'lucide-react'),
     },
     // Defend against the dual-react hazard: even with the aliases above, an
     // intermediate dep could try to walk up and find its own copy. dedupe

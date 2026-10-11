@@ -6,7 +6,7 @@ import { ScriptProjectView } from './ScriptProjectView'
 import { BundleTabBar } from '../components/BundleTabBar'
 import { SampleTabBar } from '../components/SampleTabBar'
 
-type ProjectDispatch = { kind: 'APK' | 'BIN' | 'SCRIPT'; bundleId: string | null; name: string }
+type ProjectDispatch = { kind: 'APK' | 'BIN' | 'SCRIPT'; bundleId: string | null; name: string; originalFilename: string }
 
 /**
  * Top-level dispatch for {@code /projects/:id}. Loads the project's kind
@@ -38,7 +38,7 @@ export function ProjectViewRoute() {
         if (!cancelled) {
           setKind(p.kind)
           setBundleId(p.bundleId)
-          setName(p.name)
+          setName(p.originalFilename || p.name)
         }
       } catch (e) {
         if (!cancelled) setError((e as Error).message)
@@ -69,7 +69,9 @@ export function ProjectViewRoute() {
       )}
       {kind === 'BIN' && (
         // Multi-sample projects: renders only when the project actually has
-        // attached samples (self-hides otherwise, like BundleTabBar).
+        // attached samples (self-hides otherwise, like BundleTabBar). The
+        // primary tab is labelled with its file name: the project name is
+        // the project's, not this sample's.
         <SampleTabBar projectId={id} primaryLabel={name || 'primary'} />
       )}
       <div className="min-h-0 flex-1">

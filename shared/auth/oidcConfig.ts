@@ -1,5 +1,6 @@
 import type { AuthProviderProps } from 'react-oidc-context'
 import { WebStorageStateStore } from 'oidc-client-ts'
+import { runtimeConfig } from '../config/runtime'
 
 /**
  * Build an OIDC config for either openapk-frontend or openbin-frontend.
@@ -8,8 +9,8 @@ import { WebStorageStateStore } from 'oidc-client-ts'
  * so the only thing that varies is the {@link clientId} — each frontend is
  * registered as its own OIDC client in Keycloak.
  *
- * Authority defaults to the local dev Keycloak; override via env when we
- * deploy.
+ * Authority comes from the runtime config (self-hosted /openbin-config.js),
+ * then Vite env, then the local dev Keycloak.
  */
 export type OidcConfigOptions = {
   clientId: string
@@ -18,7 +19,7 @@ export type OidcConfigOptions = {
 
 export function makeOidcConfig({
   clientId,
-  authority = import.meta.env.VITE_KEYCLOAK_AUTHORITY ?? 'http://localhost:8080/realms/openapk',
+  authority = runtimeConfig().authority,
 }: OidcConfigOptions): AuthProviderProps {
   return {
     authority,

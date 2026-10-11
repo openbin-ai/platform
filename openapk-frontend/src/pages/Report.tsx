@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { REPORT_CHANGED_EVENT } from '@shared/api/reportEvents'
 import { Link, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { API_BASE, ApiError, useApi } from '../api/client'
@@ -131,6 +132,24 @@ export function ReportEditor({
       .catch(e => { if (!cancelled) setError((e as Error).message) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
+  }, [projectId])
+
+  // BINNY light wrote a section. Refetch unless the analyst has unsaved
+  // edits: a full-replace save from a stale copy would erase what the agent
+  // just wrote, and clobbering their draft would be worse.
+  const dirtyRef = useRef(dirty)
+  useEffect(() => { dirtyRef.current = dirty })
+  useEffect(() => {
+    const onChanged = () => {
+      if (dirtyRef.current) return
+      apiRef.current<ReportResponse>(`/api/projects/${projectId}/report`)
+        .then(r => applyResponse(r))
+        .catch(() => { /* next explicit load will surface it */ })
+    }
+    window.addEventListener(REPORT_CHANGED_EVENT, onChanged)
+    return () => window.removeEventListener(REPORT_CHANGED_EVENT, onChanged)
+    // applyResponse is a plain function of this render; the listener only
+    // needs the latest projectId.
   }, [projectId])
 
   // Browser-level safety net: if the user closes the tab / navigates

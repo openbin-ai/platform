@@ -71,22 +71,46 @@ const (
 )
 
 // config groups the runtime endpoints + Keycloak details. Resolved once at
-// command start (apiBase + authBase from env or defaults; everything else is
-// compiled in for the alpha).
+// command start. Precedence per value: env var, then the saved server
+// (~/.config/openbin/server.json, written by `openbin login --server`),
+// then the compiled-in production default. The web hosts and release base
+// are empty on the hosted product, which keeps the historical behaviour in
+// projectWebURL / releaseBase.
 type config struct {
 	apiBase  string
 	authBase string
 	realm    string
 	clientID string
+
+	// Set only when a server was saved (self-hosted installs).
+	releaseBase string
+	openbinWeb  string
+	openapkWeb  string
+	selfHosted  bool
 }
 
 func loadConfig() config {
-	return config{
-		apiBase:  envOr("OPENBIN_API_URL", defaultAPIBaseURL),
-		authBase: envOr("OPENBIN_AUTH_URL", defaultAuthBaseURL),
+	cfg := config{
+		apiBase:  defaultAPIBaseURL,
+		authBase: defaultAuthBaseURL,
 		realm:    keycloakRealm,
 		clientID: cliClientID,
 	}
+	if sc, err := loadServerConfig(); err == nil && sc != nil {
+		if sc.APIURL != "" {
+			cfg.apiBase = sc.APIURL
+		}
+		if sc.AuthURL != "" {
+			cfg.authBase = sc.AuthURL
+		}
+		cfg.releaseBase = sc.ReleaseBase
+		cfg.openbinWeb = sc.OpenbinWebURL
+		cfg.openapkWeb = sc.OpenapkWebURL
+		cfg.selfHosted = sc.SelfHosted
+	}
+	cfg.apiBase = envOr("OPENBIN_API_URL", cfg.apiBase)
+	cfg.authBase = envOr("OPENBIN_AUTH_URL", cfg.authBase)
+	return cfg
 }
 
 // tokenEndpoint returns the Keycloak token URL — used by both the device flow
@@ -147,6 +171,13 @@ const (
 // dev/self-host) there's no known web host, so we best-effort swap an `api.`
 // subdomain to `app.` and otherwise fall back to the API base.
 func projectWebURL(cfg config, kind, projectID string) string {
+	// A saved server names its web hosts explicitly; nothing to guess.
+	if kind == projectKindBin && cfg.openbinWeb != "" {
+		return strings.TrimRight(cfg.openbinWeb, "/") + "/projects/" + projectID
+	}
+	if kind != projectKindBin && cfg.openapkWeb != "" {
+		return strings.TrimRight(cfg.openapkWeb, "/") + "/projects/" + projectID
+	}
 	if cfg.apiBase == defaultAPIBaseURL {
 		if kind == projectKindBin {
 			return "https://app.openbin.ai/projects/" + projectID
@@ -166,6 +197,9 @@ func projectWebURL(cfg config, kind, projectID string) string {
 // a native-binary (BIN) concept, so they always live on the openbin web app —
 // mirrors projectWebURL's host resolution.
 func bundleWebURL(cfg config, bundleID string) string {
+	if cfg.openbinWeb != "" {
+		return strings.TrimRight(cfg.openbinWeb, "/") + "/bundles/" + bundleID
+	}
 	if cfg.apiBase == defaultAPIBaseURL {
 		return "https://app.openbin.ai/bundles/" + bundleID
 	}

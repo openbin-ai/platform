@@ -19,6 +19,7 @@ import { Community } from './pages/Community'
 import { CommunityReport } from './pages/CommunityReport'
 import { PublicProject } from './pages/PublicProject'
 import { AuthorProfilePage } from './pages/AuthorProfilePage'
+import { Messages } from './pages/Messages'
 import { FollowListPage } from './pages/FollowListPage'
 import { ResearcherSearch } from './pages/ResearcherSearch'
 import { Terms } from './pages/Terms'
@@ -70,6 +71,8 @@ export default function App() {
           >
             <Route path="/dashboard" element={<Home />} />
             <Route path="/projects" element={<Projects />} />
+            <Route path="/messages" element={<Messages />} />
+            <Route path="/messages/:id" element={<Messages />} />
             <Route path="/projects/:id" element={<ProjectView />} />
             <Route path="/projects/:id/report" element={<Report />} />
             {/* Settings is a tabbed page (was a navbar dropdown); each tab

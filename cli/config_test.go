@@ -23,6 +23,16 @@ func TestProjectWebURL(t *testing.T) {
 			config{apiBase: "http://localhost:8081"}, projectKindApk, "y",
 			"http://localhost:8081/projects/y",
 		},
+		{
+			"saved server names the BIN web host explicitly",
+			config{apiBase: "https://api.re.example", openbinWeb: "https://app.re.example/"}, projectKindBin, "s",
+			"https://app.re.example/projects/s",
+		},
+		{
+			"saved server names the APK web host explicitly",
+			config{apiBase: "https://api.re.example", openapkWeb: "https://apk.re.example"}, projectKindApk, "s",
+			"https://apk.re.example/projects/s",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -21,42 +21,42 @@ const TABS: Tab[] = [
   {
     key: 'analysis',
     label: 'AI analysis',
-    caption: 'Persistent agent analysis cached per project: hotspots, IOCs, next-step recommendations - visible the moment you open the binary, refined as you ask questions.',
+    caption: 'The agent\'s first pass is cached on the project. Hotspots, IOCs and suggested next steps are there when you open the binary, and they update as you ask questions.',
     src: aiAnalysisShot,
     href: '/projects/<id>',
   },
   {
     key: 'ask',
-    label: 'Ask the agent',
-    caption: 'Talk to a researcher-grade AI that reads decompiled code like an IDE. Every answer cites file:line and a stable function name so you can verify it.',
+    label: 'BINNY light',
+    caption: 'The in-browser agent. Ask about the code and it reads what it needs, cites lines and addresses, and when you ask, pins highlights, writes report sections and saves scripts on the project.',
     src: askAiShot,
     href: '/projects/<id>/ask',
   },
   {
     key: 'callchain',
     label: 'Call graph',
-    caption: 'Cmd-click any function to walk callers + callees with AI-narrated summaries - and honest fan-out telling you how many SDK callers were elided.',
+    caption: 'Cmd-click a function to walk its callers and callees, with a summary on each node. When SDK callers are elided, the view says how many.',
     src: graphShot,
     href: '/projects/<id>/graph',
   },
   {
     key: 'network',
     label: 'Network call sites',
-    caption: 'Every HTTP endpoint, header, and request body cross-referenced to the call site that built them. Retrofit, OkHttp, libcurl, raw sockets - all one view.',
+    caption: 'Every HTTP endpoint, header and request body, cross-referenced to the call site that built it. Retrofit, OkHttp, libcurl and raw sockets in one view.',
     src: networkShot,
     href: '/projects/<id>/network',
   },
   {
     key: 'community',
     label: 'Community',
-    caption: 'Publish finished analyses for the world to read. Browse other researchers, cite their findings in your reports, build a public corpus of how things actually work.',
+    caption: 'Publish a finished analysis for anyone to read. Browse other researchers\' reports and cite their findings in your own.',
     src: communityShot,
     href: '/community',
   },
   {
     key: 'reports',
     label: 'Reports',
-    caption: 'Mode-aware MAR / VRR templates ship by default. Annotate any view in the workspace, drop it straight in, export to Markdown or PDF.',
+    caption: 'Malware-analysis and vuln-research templates ship by default. Annotate any view in the workspace, drop it into a section, and export to Markdown or PDF.',
     src: reportShot,
     href: '/projects/<id>/report',
   },
@@ -69,12 +69,15 @@ export function TabbedShowcase() {
 
   return (
     <section id="showcase" className="mx-auto max-w-400 px-6 pt-8 pb-24 lg:px-10">
-      <h2 className="mb-4 text-center font-mono text-sm font-semibold uppercase tracking-[0.22em] text-amber-400">
-        See what shipped
-      </h2>
-      <p className="mx-auto mb-10 max-w-2xl text-center text-base leading-relaxed text-zinc-300">
-        Real product, today. Click a tab to switch the view; click the frame to zoom.
-      </p>
+      <div className="mx-auto mb-10 max-w-3xl text-center">
+        <p className="mb-3 font-mono text-xs uppercase tracking-[0.3em] text-amber-400/90">The workspace</p>
+        <h2 className="text-3xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-4xl">
+          Screenshots from app.openbin.ai, not mockups.
+        </h2>
+        <p className="mt-4 text-lg leading-relaxed text-zinc-300">
+          Pick a tab to switch screens. Click the frame to zoom.
+        </p>
+      </div>
 
       <div role="tablist" className="mb-5 flex flex-wrap justify-center gap-2">
         {TABS.map(t => (
@@ -85,7 +88,7 @@ export function TabbedShowcase() {
             onClick={() => setActive(t.key)}
             className={`rounded-md border px-4 py-2 text-sm font-medium transition ${
               t.key === active
-                ? 'border-amber-500/60 bg-amber-900/30 text-amber-200 shadow-[0_0_24px_rgba(251,191,36,0.18)]'
+                ? 'border-amber-500/60 bg-amber-900/30 text-amber-200'
                 : 'border-zinc-800 bg-zinc-950/60 text-zinc-300 hover:border-zinc-700 hover:text-zinc-100'
             }`}
           >
@@ -112,19 +115,15 @@ export function TabbedShowcase() {
 }
 
 /**
- * Mac-style window chrome around a screenshot. Same idea as the OpenAPK
- * FeatureTour frame but tinted amber to match the OpenBin palette.
+ * Plain frame around a screenshot. The one line of chrome is the in-app
+ * path, so the reader knows which screen of the real product they are
+ * looking at; no fake window buttons.
  */
 function BrowserFrame({ href, src, alt }: { href: string; src: string; alt: string }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-950/70 shadow-[0_20px_60px_rgba(251,191,36,0.15)] ring-1 ring-amber-500/10 backdrop-blur transition group-hover:border-amber-500/40 group-hover:shadow-[0_24px_80px_rgba(251,191,36,0.28)]">
-      <div className="flex items-center gap-2 border-b border-zinc-800/80 bg-zinc-900/60 px-3 py-2">
-        <span className="h-3 w-3 rounded-full bg-red-500/80" />
-        <span className="h-3 w-3 rounded-full bg-amber-400/80" />
-        <span className="h-3 w-3 rounded-full bg-emerald-500/80" />
-        <div className="ml-3 hidden flex-1 truncate rounded-md bg-zinc-950/60 px-3 py-1 font-mono text-[10px] text-zinc-500 sm:block">
-          openapk.ai{href}
-        </div>
+    <div className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/80 transition group-hover:border-amber-500/50">
+      <div className="truncate border-b border-zinc-800 px-4 py-2 font-mono text-xs text-zinc-400">
+        app.openbin.ai{href}
       </div>
       <img
         src={src}

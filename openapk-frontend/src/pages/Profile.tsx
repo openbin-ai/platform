@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useAuth } from 'react-oidc-context'
 import { useApi } from '@shared/api/client'
 import { setMeCache } from '@shared/api/me'
 import { EmailPreferences } from '@shared/components/EmailPreferences'
+import { DmPrivacySettings } from '@shared/components/dm/DmPrivacySettings'
 import { Gravatar } from '@shared/components/Gravatar'
 
 // Self-profile settings — currently just display_name (the public label
@@ -165,6 +167,87 @@ export function Profile() {
       </section>
 
       <EmailPreferences accent="purple" />
+
+      <DmPrivacySettings accent="purple" />
+
+      <AccountDangerZone email={me.email} />
     </div>
+  )
+}
+
+// Irreversible account deletion. Kept as a separate component so its own
+// confirm/busy/error state doesn't tangle with the profile form above. The
+// backend hard-deletes private data (projects + uploaded bytes, BYOK keys,
+// audit log, usage) and anonymizes public contributions (published reports,
+// blog posts) rather than deleting them. Styling is red regardless of brand
+// accent — this is a danger zone in both apps.
+function AccountDangerZone({ email }: { email: string | null }) {
+  const api = useApi()
+  const auth = useAuth()
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const typed = confirm.trim()
+  const canDelete =
+    typed.toUpperCase() === 'DELETE' ||
+    (!!email && typed.toLowerCase() === email.toLowerCase())
+
+  const remove = useCallback(async () => {
+    setBusy(true)
+    setErr(null)
+    try {
+      await api('/api/account', {
+        method: 'DELETE',
+        body: JSON.stringify({ confirm: typed }),
+      })
+      // Account is gone. Clear the local OIDC session and leave; the Keycloak
+      // user may already be deleted, so removeUser (local-only) is the reliable
+      // way out — signoutRedirect could hit a now-missing session.
+      try {
+        await auth.removeUser()
+      } catch {
+        /* ignore — we're navigating away regardless */
+      }
+      window.location.href = '/'
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Deletion failed')
+      setBusy(false)
+    }
+  }, [api, auth, typed])
+
+  return (
+    <section className="mt-10 rounded border border-red-900/60 bg-red-950/20 p-4">
+      <h2 className="text-sm font-medium text-red-300">Delete account</h2>
+      <p className="mt-1 text-xs text-zinc-400">
+        Permanently deletes your account and all private data — your projects and
+        uploaded files, decompiled output, saved AI credentials, and usage history.
+        Anything you published to the community (reports, blog posts) is kept but
+        anonymized. <span className="text-red-300">This cannot be undone.</span>
+      </p>
+      <label className="mt-3 block text-xs text-zinc-400">
+        Type <span className="font-mono text-zinc-200">DELETE</span>
+        {email ? <> (or your email) </> : ' '}
+        to confirm:
+      </label>
+      <div className="mt-1.5 flex items-center gap-2">
+        <input
+          type="text"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          placeholder="DELETE"
+          autoComplete="off"
+          className="flex-1 rounded border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-red-600 focus:outline-none"
+        />
+        <button
+          onClick={() => void remove()}
+          disabled={!canDelete || busy}
+          className="rounded border border-red-700 bg-red-900/40 px-4 py-2 text-sm font-medium text-red-200 hover:bg-red-800/50 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {busy ? 'Deleting…' : 'Delete my account'}
+        </button>
+      </div>
+      {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
+    </section>
   )
 }

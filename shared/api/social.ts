@@ -29,6 +29,9 @@ export type ProfileResponse = {
   mastodonUrl?: string | null
   linkedinUrl?: string | null
   isMe?: boolean
+  // May the viewer DM this user (their DM privacy setting, evaluated for the
+  // viewer)? Optional so an older backend response still parses.
+  canMessage?: boolean
   reports: CommunityReportSummary[] // where this user is the LEAD (owner)
   // Reports where this user is a credited CONTRIBUTOR but not the lead.
   // Empty for legacy reports; optional so an older backend response parses.

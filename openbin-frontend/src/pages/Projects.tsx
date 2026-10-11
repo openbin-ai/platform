@@ -6,6 +6,7 @@ import { useAuth } from 'react-oidc-context'
 import { ScriptUploadCard } from '../components/ScriptUploadCard'
 import { CombineProjectsModal } from '../components/CombineProjectsModal'
 import type { BundleSummary } from '../api/bundles'
+import { installScriptUrl } from '@shared/config/runtime'
 
 /**
  * Upload progress state for the dropzone. {@code null} means no upload in
@@ -21,6 +22,7 @@ type Project = {
   id: string
   kind: 'APK' | 'BIN' | 'SCRIPT'
   name: string
+  description: string | null
   originalFilename: string
   sizeBytes: number
   sha256: string
@@ -495,9 +497,9 @@ function ProjectRow({
             />
           ) : (
             <Link
-              to={`/projects/${project.id}`}
-              className={`truncate font-medium ${linkActive ? 'text-zinc-100 hover:text-purple-300' : 'text-zinc-400'}`}
-              onClick={(e) => { if (!linkActive) e.preventDefault() }}
+              to={`/projects/${project.id}/overview`}
+              className={`truncate font-medium ${linkActive ? 'text-zinc-100 hover:text-purple-300' : 'text-zinc-300 hover:text-zinc-100'}`}
+              title="Open the project overview"
             >
               {project.name}
             </Link>
@@ -539,6 +541,9 @@ function ProjectRow({
             </>
           )}
         </div>
+        {project.description && (
+          <div className="mt-1 line-clamp-2 text-xs text-zinc-400">{project.description}</div>
+        )}
         {project.errorMessage && (
           <div className="mt-1 text-xs text-red-400">Error: {project.errorMessage}</div>
         )}
@@ -956,7 +961,7 @@ function slugify(s: string): string {
  * husam@openbin.ai.
  */
 function GhidraSunsetCard() {
-  const installCmd = 'curl -fsSL https://openbin.ai/install.sh | sh'
+  const installCmd = `curl -fsSL ${installScriptUrl('install.sh')} | sh`
   return (
     <div className="overflow-hidden rounded-lg border border-amber-700/50 bg-linear-to-br from-amber-950/40 via-zinc-950/40 to-zinc-950/60 p-6 shadow-[0_8px_40px_rgba(251,191,36,0.08)]">
       <div className="flex items-start gap-3">

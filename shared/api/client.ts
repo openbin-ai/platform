@@ -1,15 +1,17 @@
 import { useCallback } from 'react'
 import { useAuth } from 'react-oidc-context'
+import { runtimeConfig } from '../config/runtime'
 
 // Both openapk.ai and openbin.ai talk to the same Spring Boot backend, so
 // this base URL is shared. In prod each frontend sets VITE_API_BASE to the
-// public api domain (eg `https://api.openapk.ai`); dev falls back to the
-// local backend.
+// public api domain (eg `https://api.openapk.ai`); a self-hosted install
+// overrides it at runtime through /openbin-config.js (see
+// shared/config/runtime.ts); dev falls back to the local backend.
 //
 // Exported so report download / print views can build raw fetch URLs for
 // non-JSON responses — useApi parses content-type and expects JSON/text, so
 // blob endpoints bypass it.
-export const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8081'
+export const API_BASE = runtimeConfig().apiBase
 
 export class ApiError extends Error {
   readonly status: number

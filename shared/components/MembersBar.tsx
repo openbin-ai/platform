@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useApi } from '@shared/api/client'
 import {
   type ProjectMember,
@@ -70,6 +71,9 @@ export function MembersBar({ projectId }: { projectId: string }) {
   const [members, setMembers] = useState<ProjectMember[] | null>(null)
   const [open, setOpen] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
+  // Fixed-position coordinates for the portaled list (see below).
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -93,14 +97,38 @@ export function MembersBar({ projectId }: { projectId: string }) {
     return () => { alive = false; clearInterval(hb); clearInterval(rf) }
   }, [beat, load])
 
-  // Close the dropdown on outside click.
+  // Close on outside click (the list lives in a portal, so check both the
+  // trigger and the list) and on Escape.
   useEffect(() => {
     if (!open) return
     const h = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
+      const t = e.target as Node
+      if (boxRef.current?.contains(t) || popRef.current?.contains(t)) return
+      setOpen(false)
     }
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
     window.addEventListener('mousedown', h)
-    return () => window.removeEventListener('mousedown', h)
+    window.addEventListener('keydown', k)
+    return () => { window.removeEventListener('mousedown', h); window.removeEventListener('keydown', k) }
+  }, [open])
+
+  // The list is rendered through a portal on document.body with `fixed`
+  // coordinates. The project header sits above panes that are
+  // overflow-hidden and carry their own stacking contexts (editor, graph,
+  // split panes), so an `absolute` child of the header gets clipped or
+  // painted underneath them. Anchor to the trigger's rect, right-aligned,
+  // and re-anchor on scroll/resize while open.
+  useLayoutEffect(() => {
+    if (!open) { setPos(null); return }
+    const place = () => {
+      const r = boxRef.current?.getBoundingClientRect()
+      if (!r) return
+      setPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) })
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true) }
   }, [open])
 
   if (!members || members.length === 0) return null
@@ -143,14 +171,20 @@ export function MembersBar({ projectId }: { projectId: string }) {
         </span>
       </button>
 
-      {open && (
-        <div className="absolute right-0 z-30 mt-2 w-64 rounded-lg border border-zinc-800 bg-zinc-900 p-1.5 shadow-xl">
+      {open && pos && createPortal(
+        <div
+          ref={popRef}
+          role="dialog"
+          aria-label="Project members"
+          style={{ position: 'fixed', top: pos.top, right: pos.right }}
+          className="z-[1000] w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-zinc-700 bg-zinc-950 p-1.5 shadow-2xl ring-1 ring-black/40"
+        >
           <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
             Members · {members.length}
           </div>
           {sorted.map((m) => (
             <div key={m.userId} className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-zinc-800/60">
-              <span style={{ ['--members-ring' as string]: 'var(--color-zinc-900)' }}>
+              <span style={{ ['--members-ring' as string]: 'var(--color-zinc-950)' }}>
                 <Avatar m={m} size={28} ring={false} />
               </span>
               <div className="min-w-0 flex-1">
@@ -166,7 +200,8 @@ export function MembersBar({ projectId }: { projectId: string }) {
               {isOnline(m.lastActiveAt) && <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />}
             </div>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

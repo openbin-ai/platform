@@ -1,10 +1,7 @@
 import { useState } from 'react'
-import { Bot, GitBranch, Unlock, NotebookPen, Globe, KeyRound, Users, Share2, Cpu, Smartphone, Package, FileCode2, Terminal, Menu, X, Rocket, Star, Trophy, BookOpen } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { Menu, X, Star, BookOpen } from 'lucide-react'
 import HexDrift from './components/HexDrift'
 import DecryptedText from './components/DecryptedText'
-import ElectricBorder from './components/ElectricBorder'
-import MagicBento, { type BentoCard } from './components/MagicBento'
 import { TabbedShowcase } from './components/TabbedShowcase'
 import logoLight from './assets/logo-light.png'
 import iconLight from './assets/icon-light.png'
@@ -22,14 +19,14 @@ export default function App() {
         />
       </div>
 
-      <LaunchAnnounceBar />
+      <BinnyAnnounceBar />
       <Header />
 
       <main className="relative z-10">
         <Hero />
-        <AvailableNow />
-        <Ecosystems />
-        <Capabilities />
+        <BinnyBeta />
+        <Platforms />
+        <Inputs />
         <TabbedShowcase />
         <WhyOpenBin />
         <HallOfFame />
@@ -41,23 +38,19 @@ export default function App() {
 }
 
 /**
- * Slim top-of-page announcement: we're out of beta. Links to the Discord —
- * the launch CTA is "come hang out where the researchers are", not another
- * docs link. Not dismissible — it's a marketing headline on a static page,
- * not a repeated in-app nag.
+ * Announcement bar: the BINNY beta. Links down to the install section on this
+ * page. Not dismissible: it's a marketing headline on a static page, not a
+ * repeated in-app nag. Mirrored on the openapk.ai landing.
  */
-function LaunchAnnounceBar() {
+function BinnyAnnounceBar() {
   return (
     <a
-      href="https://discord.gg/HQsCZBHXwc"
-      target="_blank"
-      rel="noopener noreferrer"
+      href="#binny"
       className="relative z-20 block border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center text-sm text-amber-200 backdrop-blur transition hover:bg-amber-500/20"
     >
-      <Rocket aria-hidden className="mr-1.5 inline-block h-4 w-4 align-[-2px]" />
-      <span className="font-semibold text-amber-100">We've launched:</span> v1.0 is out of beta, with{' '}
-      <span className="font-semibold text-amber-100">1000+ researchers</span> on board · CLI v0.9 out now.{' '}
-      <span className="underline decoration-amber-400/50 underline-offset-2">Join the Discord →</span>
+      <span className="font-semibold text-amber-100">BINNY beta is out.</span> A terminal agent that
+      investigates your sample and drafts the report, with your own LLM key.{' '}
+      <span className="underline decoration-amber-400/50 underline-offset-2">Install it</span>
     </a>
   )
 }
@@ -65,6 +58,7 @@ function LaunchAnnounceBar() {
 // One list drives both the desktop nav row and the mobile dropdown so the
 // two can't drift. external → new tab; accent → amber (Community only).
 const navLinks: { label: string; href: string; external?: boolean; accent?: boolean }[] = [
+  { label: 'BINNY', href: '#binny' },
   { label: 'Platforms', href: '#platforms' },
   { label: 'Why OpenBin', href: '#why' },
   { label: 'Docs', href: 'https://app.openbin.ai/docs' },
@@ -248,7 +242,7 @@ function InstallCommands() {
   return (
     <div className="mt-8 w-full max-w-2xl text-left">
       <p className="mb-2 text-center font-mono text-xs uppercase tracking-[0.15em] text-zinc-400">
-        Install the CLI — v0.9 · macOS · Linux · Windows
+        Install the CLI · v0.9 · macOS · Linux · Windows
       </p>
       <div className="space-y-2">
         <div className="rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
@@ -265,7 +259,7 @@ function InstallCommands() {
         </div>
       </div>
       <p className="mt-2 text-center text-xs text-zinc-500">
-        Decompiling runs locally in Docker — Docker Desktop (WSL 2 on Windows) must be installed and running.
+        Decompiling runs locally in Docker. Docker Desktop (WSL 2 on Windows) must be installed and running.
       </p>
     </div>
   )
@@ -283,8 +277,8 @@ function CloudSunsetNote() {
   return (
     <div className="mt-6 max-w-2xl rounded-lg border border-amber-700/40 bg-amber-950/20 px-5 py-3 text-center text-sm text-zinc-200">
       <p>
-        <span className="font-semibold text-amber-300">Cloud decompile is paused</span>{' '}
-        — AWS compute outpaced what a free OSS project can carry. The CLI
+        <span className="font-semibold text-amber-300">Cloud decompile is paused.</span>{' '}
+        AWS compute outpaced what a free OSS project can carry. The CLI
         runs Ghidra on your own machine; your binary never leaves your laptop.
       </p>
       <p className="mt-1.5 text-xs text-zinc-400">
@@ -300,249 +294,224 @@ function CloudSunsetNote() {
   )
 }
 
-function AvailableNow() {
+/**
+ * Section label + heading pair used below the hero. The mono amber label is
+ * the hero's own "The Open Binary Project" treatment reused as the page's
+ * identity motif; the sentence-case heading carries the actual content.
+ */
+function SectionHeading({ label, title, intro }: { label: string; title: string; intro?: string }) {
   return (
-    <section id="platforms" className="mx-auto max-w-6xl px-6 pt-8 pb-16">
-      <h2 className="mb-10 text-center font-mono text-sm font-semibold uppercase tracking-[0.22em] text-amber-400">
-        Live platforms
-      </h2>
-      <div className="grid gap-7 lg:grid-cols-2">
-        <ElectricBorder color="#fbbf24" speed={0.9} chaos={0.5} borderRadius={14}>
-          <a
-            href="https://app.openbin.ai"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group block h-full rounded-[14px] bg-zinc-950/85 p-7 backdrop-blur transition hover:bg-zinc-900/85 sm:p-8"
-          >
-            <div className="flex items-start gap-5">
-              <div className="shrink-0 rounded-lg border border-amber-500/40 bg-black/40 p-3">
-                <img src={iconLight} alt="OpenBin" className="h-12 w-12" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-baseline gap-3">
-                  <h3 className="text-2xl font-semibold text-zinc-50 sm:text-3xl">
-                    OpenBin<span className="text-amber-400">.ai</span>
-                  </h3>
-                  <span className="rounded border border-emerald-600 bg-emerald-900/40 px-2 py-0.5 font-mono text-xs font-semibold uppercase tracking-[0.15em] text-emerald-300">
-                    live
-                  </span>
-                </div>
-                <p className="mt-4 text-base leading-relaxed text-zinc-100 sm:text-lg">
-                  Agent-native reverse engineering for native binaries - ELF, PE,
-                  Mach-O. Ghidra under the hood, AI on top: hotspots, call chains,
-                  string + import analysis, decompiled pseudo-C with citations.
-                </p>
-                <p className="mt-4 font-mono text-sm leading-relaxed text-zinc-300">
-                  native disasm · pseudo-C · symbol graph · agent Q&amp;A · publish &amp; cite
-                </p>
-                <span className="mt-6 inline-block text-base font-semibold text-amber-400 group-hover:text-amber-300">
-                  app.openbin.ai →
-                </span>
-              </div>
-            </div>
-          </a>
-        </ElectricBorder>
+    <div className="mb-10 max-w-3xl">
+      <p className="mb-3 font-mono text-xs uppercase tracking-[0.3em] text-amber-400/90">{label}</p>
+      <h2 className="text-3xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-4xl">{title}</h2>
+      {intro && <p className="mt-4 text-lg leading-relaxed text-zinc-300">{intro}</p>}
+    </div>
+  )
+}
 
-        <ElectricBorder color="#fbbf24" speed={0.9} chaos={0.5} borderRadius={14}>
-          <a
-            href="https://openapk.ai"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group block h-full rounded-[14px] bg-zinc-950/85 p-7 backdrop-blur transition hover:bg-zinc-900/85 sm:p-8"
-          >
-            <div className="flex items-start gap-5">
-              <div className="shrink-0 rounded-lg border border-amber-500/40 bg-black/40 p-3">
-                <img src={openapkIcon} alt="OpenAPK" className="h-12 w-12" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-baseline gap-3">
-                  <h3 className="text-2xl font-semibold text-zinc-50 sm:text-3xl">
-                    OpenAPK<span className="text-amber-400">.ai</span>
-                  </h3>
-                  <span className="rounded border border-emerald-600 bg-emerald-900/40 px-2 py-0.5 font-mono text-xs font-semibold uppercase tracking-[0.15em] text-emerald-300">
-                    live
-                  </span>
-                </div>
-                <p className="mt-4 text-base leading-relaxed text-zinc-100 sm:text-lg">
-                  Agent-native Android RE. JADX decompile, IDE-style navigation,
-                  auto-crypto recreation, network call-site harvesting, MAR + VRR
-                  report builder.
-                </p>
-                <p className="mt-4 font-mono text-sm leading-relaxed text-zinc-300">
-                  JADX decompile · symbol index · crypto auto-recreate · MAR + VRR
-                </p>
-                <span className="mt-6 inline-block text-base font-semibold text-amber-400 group-hover:text-amber-300">
-                  openapk.ai →
-                </span>
-              </div>
+// The BINNY beta: install block right under the hero so the announcement bar
+// has somewhere to land. Same one-liner shape as the CLI installer above.
+function BinnyBeta() {
+  return (
+    <section id="binny" className="mx-auto max-w-6xl px-6 pt-8 pb-20">
+      <div className="rounded-lg border border-amber-500/40 bg-zinc-950/85 p-7 sm:p-10">
+        {/* min-w-0 on both columns: the nowrap install commands would otherwise
+            set the grid's min-content width and push the card past the phone
+            viewport. */}
+        <div className="grid gap-10 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-14">
+          <div className="min-w-0">
+            <p className="mb-3 font-mono text-xs uppercase tracking-[0.3em] text-amber-400/90">BINNY beta</p>
+            <h2 className="text-3xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-4xl">
+              An agent that works the sample with you, in your terminal.
+            </h2>
+            <p className="mt-5 text-lg leading-relaxed text-zinc-200">
+              BINNY opens one of your OpenBin or OpenAPK projects, reads the
+              decompiled code through the same backend the web app uses, and runs
+              a triage, investigate, draft loop with your own LLM key. Pause it at
+              phase boundaries and answer its questions, or switch to Q&amp;A and
+              ask it to verify a claim. It can decompile a binary locally with
+              Ghidra, so the sample never leaves your machine. The draft lands on
+              the project report for you to review.
+            </p>
+            <p className="mt-4 text-base leading-relaxed text-zinc-400">
+              Needs the openbin CLI signed in first. Docker is required only for
+              local decompile and the sandbox tools. Any provider works, including
+              a gateway that fronts Claude on your own domain: set it with{' '}
+              <code className="font-mono text-zinc-200">/endpoint</code>. It is a
+              beta, so expect rough edges and tell us about them in the Discord.
+            </p>
+          </div>
+          <div className="min-w-0 space-y-3 self-center">
+            <div className="rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
+              <div className="mb-1 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">macOS / Linux</div>
+              <code className="block overflow-x-auto whitespace-nowrap font-mono text-sm text-zinc-100">
+                curl -fsSL https://openbin.ai/install-binny.sh | sh
+              </code>
             </div>
-          </a>
-        </ElectricBorder>
+            <div className="rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
+              <div className="mb-1 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">Windows (PowerShell)</div>
+              <code className="block overflow-x-auto whitespace-nowrap font-mono text-sm text-zinc-100">
+                irm https://openbin.ai/install-binny.ps1 | iex
+              </code>
+            </div>
+            <div className="rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
+              <div className="mb-1 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">Then</div>
+              <code className="block overflow-x-auto whitespace-nowrap font-mono text-sm text-zinc-100">
+                openbin login &amp;&amp; binny
+              </code>
+            </div>
+            <p className="text-xs text-zinc-500">
+              Binaries:{' '}
+              <a href="https://github.com/openbin-ai/binny-releases/releases/latest" target="_blank" rel="noopener noreferrer" className="text-amber-400 underline-offset-4 hover:underline">
+                github.com/openbin-ai/binny-releases
+              </a>
+            </p>
+          </div>
+        </div>
       </div>
     </section>
   )
 }
 
-// What you can drop in. Doubles as SEO surface — these are the formats people
+// Two live products behind one account. They get equal weight on purpose:
+// neither is the "real" one, the reader picks by what they are holding.
+function Platforms() {
+  return (
+    <section id="platforms" className="mx-auto max-w-6xl px-6 pt-8 pb-20">
+      <SectionHeading
+        label="Two apps, one account"
+        title="Pick the app for what you are holding."
+      />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <PlatformBlock
+          href="https://app.openbin.ai"
+          icon={iconLight}
+          name="OpenBin"
+          summary="Native binaries: ELF, PE and Mach-O. The CLI runs Ghidra on your machine and uploads the decompiled tree. The workspace adds hotspots, call chains, string and import analysis, and pseudo-C with citations."
+          linkLabel="app.openbin.ai"
+        />
+        <PlatformBlock
+          href="https://openapk.ai"
+          icon={openapkIcon}
+          name="OpenAPK"
+          summary="Android APKs. JADX decompile, IDE-style navigation, crypto routine reconstruction, network call-site harvesting, and a report builder with malware-analysis and vuln-research templates."
+          linkLabel="openapk.ai"
+        />
+      </div>
+    </section>
+  )
+}
+
+function PlatformBlock({ href, icon, name, summary, linkLabel }: { href: string; icon: string; name: string; summary: string; linkLabel: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group flex h-full flex-col rounded-lg border border-zinc-800 bg-zinc-950/80 p-7 transition hover:border-amber-500/50 sm:p-8"
+    >
+      <div className="flex items-center gap-4">
+        <img src={icon} alt="" className="h-10 w-10" />
+        <h3 className="text-2xl font-semibold text-zinc-50">
+          {name}<span className="text-amber-400">.ai</span>
+        </h3>
+      </div>
+      <p className="mt-5 flex-1 text-base leading-relaxed text-zinc-200">{summary}</p>
+      <span className="mt-6 font-mono text-sm text-amber-400 group-hover:underline group-hover:underline-offset-4">
+        {linkLabel}
+      </span>
+    </a>
+  )
+}
+
+// What you can drop in. Doubles as SEO surface: these are the formats people
 // search for ("decompile apk", "npm malware", "powershell analysis", ...).
-const ecosystems: { icon: LucideIcon; title: string; formats: string; engine: string }[] = [
-  { icon: Cpu, title: 'Native binaries', formats: 'ELF · PE · Mach-O', engine: 'Ghidra decompile + disassembly' },
-  { icon: Smartphone, title: 'Android APKs', formats: '.apk · .dex · .so', engine: 'JADX decompile (OpenAPK)' },
-  { icon: Package, title: 'npm packages', formats: '.tgz · .js · .ts', engine: 'supply-chain malware review' },
-  { icon: FileCode2, title: 'PyPI packages', formats: '.whl · sdist · .py', engine: 'Python package + script analysis' },
-  { icon: Terminal, title: 'PowerShell', formats: '.ps1 · .psm1', engine: 'static behavior + IOC detection' },
-  { icon: Terminal, title: 'Shell scripts', formats: '.sh · .bash · .zsh', engine: 'static behavior + IOC detection' },
+const inputs: { kind: string; formats: string; engine: string }[] = [
+  { kind: 'Native binaries', formats: 'ELF · PE · Mach-O', engine: 'Ghidra decompile and disassembly, run locally by the CLI' },
+  { kind: 'Android APKs', formats: '.apk · .dex · .so', engine: 'JADX decompile on OpenAPK; bundled .so files go through Ghidra' },
+  { kind: 'npm packages', formats: '.tgz · .js · .ts', engine: 'Supply-chain malware review' },
+  { kind: 'PyPI packages', formats: '.whl · sdist · .py', engine: 'Package and script analysis' },
+  { kind: 'PowerShell', formats: '.ps1 · .psm1', engine: 'Static behaviour and IOC detection' },
+  { kind: 'Shell scripts', formats: '.sh · .bash · .zsh', engine: 'Static behaviour and IOC detection' },
 ]
 
-function Ecosystems() {
+// A table, not an icon grid: the reader is scanning for their file type, and
+// a column of formats scans faster than six tiles with the same glyph.
+function Inputs() {
   return (
-    <section className="mx-auto max-w-6xl px-6 pt-8 pb-16">
-      <h2 className="mb-3 text-center font-mono text-sm font-semibold uppercase tracking-[0.22em] text-amber-400">
-        Analyze almost anything
-      </h2>
-      <p className="mx-auto mb-10 max-w-2xl text-center text-lg leading-relaxed text-zinc-200">
-        One platform for binaries, mobile apps, and the package ecosystems where
-        supply-chain malware actually hides.
-      </p>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-        {ecosystems.map(({ icon: Icon, title, formats, engine }) => (
-          <div
-            key={title}
-            className="flex flex-col items-center rounded-xl border border-zinc-800/80 bg-zinc-950/70 p-5 text-center backdrop-blur transition hover:border-amber-500/40 hover:bg-zinc-900/70"
-          >
-            <Icon className="mb-3 h-7 w-7 text-amber-400" aria-hidden />
-            <h3 className="text-sm font-semibold text-zinc-50">{title}</h3>
-            <p className="mt-1 font-mono text-[11px] text-zinc-400">{formats}</p>
-            <p className="mt-2 text-xs leading-snug text-zinc-400">{engine}</p>
+    <section className="mx-auto max-w-6xl px-6 pt-8 pb-20">
+      <SectionHeading
+        label="Inputs"
+        title="What you can drop in."
+        intro="Binaries, mobile apps, and the package formats supply-chain malware ships in."
+      />
+      {/* Phones get a stacked list; the three-column table only earns its
+          width from sm upward. */}
+      <dl className="divide-y divide-zinc-800 rounded-lg border border-zinc-800 bg-zinc-950/80 sm:hidden">
+        {inputs.map(({ kind, formats, engine }) => (
+          <div key={kind} className="px-5 py-4">
+            <dt className="font-semibold text-zinc-50">{kind}</dt>
+            <dd className="mt-1 font-mono text-sm text-amber-300">{formats}</dd>
+            <dd className="mt-1 text-sm text-zinc-300">{engine}</dd>
           </div>
         ))}
+      </dl>
+      <div className="hidden rounded-lg border border-zinc-800 bg-zinc-950/80 sm:block">
+        <table className="w-full border-collapse text-left text-sm">
+          <thead>
+            <tr className="border-b border-zinc-800 font-mono text-xs uppercase tracking-[0.15em] text-zinc-400">
+              <th scope="col" className="px-5 py-3 font-medium">Input</th>
+              <th scope="col" className="px-5 py-3 font-medium">Formats</th>
+              <th scope="col" className="px-5 py-3 font-medium">What runs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {inputs.map(({ kind, formats, engine }) => (
+              <tr key={kind} className="border-b border-zinc-800/70 last:border-b-0">
+                <th scope="row" className="px-5 py-4 font-semibold text-zinc-50">{kind}</th>
+                <td className="px-5 py-4 font-mono text-amber-300">{formats}</td>
+                <td className="px-5 py-4 text-zinc-300">{engine}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </section>
   )
 }
 
-const capabilityCards: BentoCard[] = [
-  {
-    icon: Bot,
-    label: 'Ask',
-    title: 'Agent-driven Q&A',
-    description:
-      'Ask anything about the binary. The agent navigates source like an IDE - go-to-def, find-usages, package-aware - and cites file:line on every answer.',
-  },
-  {
-    icon: Share2,
-    label: 'Publish',
-    title: 'Publish your findings',
-    description:
-      'Turn a finished analysis into a public report with one click. Markdown, citations, annotated screenshots - discoverable by every other researcher on the platform.',
-  },
-  {
-    icon: Users,
-    label: 'Collaborate',
-    title: 'Cite & build on others',
-    description:
-      'Browse community reports, cite findings in your own analysis, and credit the researchers who got there first. The reverse-engineering corpus, public and queryable.',
-  },
-  {
-    icon: GitBranch,
-    label: 'Trace',
-    title: 'Call-chain tracing',
-    description:
-      'Walk methods upward to entry points or downward to leaves. See how user input flows from intent receivers all the way to network calls.',
-  },
-  {
-    icon: Unlock,
-    label: 'Decrypt',
-    title: 'Auto decrypt & deobfuscate',
-    description:
-      'Detect obfuscated crypto and encrypted strings, reconstruct the algorithm in your browser, then decrypt without ever running the binary. CyberChef bridge built in.',
-  },
-  {
-    icon: NotebookPen,
-    label: 'Report',
-    title: 'MAR + VRR templates',
-    description:
-      "Ship malware-analysis and vuln-research reports in your org's format. Annotate any view inside the workspace and drop it straight in - markdown, editable, every time.",
-  },
-  {
-    icon: Globe,
-    label: 'Network',
-    title: 'Network call sites',
-    description:
-      'Every HTTP endpoint, header, and request body cross-referenced to the call site that built them - Retrofit, OkHttp, libcurl, raw sockets.',
-  },
-  {
-    icon: KeyRound,
-    label: 'BYOK',
-    title: 'Your LLM, your keys',
-    description:
-      'Anthropic, OpenAI, or Bedrock - your own key, encrypted at rest. You pay $0 for AI inference: the platform never centralizes LLM spend.',
-  },
-]
-
-function Capabilities() {
-  // Hover-driven effects (spotlight, magnetism, particle stars) are dead
-  // weight on touch screens — they only fire on pointer movement but the
-  // listeners and GSAP tweens still cost battery. Static cards there.
-  const isTouch = window.matchMedia('(hover: none)').matches
-  return (
-    <section className="mx-auto max-w-6xl px-6 pt-12 pb-28">
-      <h2 className="mb-4 text-center font-mono text-sm font-semibold uppercase tracking-[0.22em] text-amber-400">
-        What the platform does
-      </h2>
-      <p className="mx-auto mb-14 max-w-2xl text-center text-lg leading-relaxed text-zinc-200">
-        Drop in a binary, plug in your API key, get to work - then publish what
-        you found so the next researcher doesn't have to start from scratch.
-      </p>
-      <MagicBento
-        cards={capabilityCards}
-        disableAnimations={isTouch}
-        enableStars
-        enableSpotlight
-        enableBorderGlow
-        enableTilt={false}
-        enableMagnetism
-        clickEffect
-        spotlightRadius={340}
-        particleCount={10}
-        glowColor="251, 191, 36"
-      />
-    </section>
-  )
-}
-
+// Three claims, written as prose rather than three matching cards: the
+// points are different sizes and the reader should feel that.
 function WhyOpenBin() {
   return (
-    <section id="why" className="mx-auto max-w-5xl px-6 pt-8 pb-24">
-      <h2 className="mb-12 text-center font-mono text-sm font-semibold uppercase tracking-[0.22em] text-amber-400">
-        Why OpenBin
-      </h2>
-      <div className="grid grid-cols-1 gap-10 md:grid-cols-3 md:gap-12">
-        <Pillar
-          title="A collaborative platform, not a silo"
-          body="The shared workspace security research has always been missing. Publish your reverse-engineering work, cite findings from other researchers, and build a public record of how malware and vulnerabilities actually work - together."
-        />
-        <Pillar
-          title="Agent-native, not agent-bolted-on"
-          body="Built from day one for LLMs to read decompiled code the way a researcher would - file-aware, symbol-aware, package-aware. Not a chatbot strapped onto a 2008 disassembler."
-        />
-        <Pillar
-          title="Free, open source, BYOK"
-          body="Free for researchers and AGPL-licensed - the whole platform is on GitHub. Bring your own LLM key (Anthropic, OpenAI, Bedrock), encrypted at rest, so you pay $0 for AI inference. Enterprise licensing available."
-        />
+    <section id="why" className="mx-auto max-w-6xl px-6 pt-8 pb-24">
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-16">
+        <div>
+          <p className="mb-3 font-mono text-xs uppercase tracking-[0.3em] text-amber-400/90">Why OpenBin</p>
+          <h2 className="text-3xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-4xl">
+            Reverse engineering has never had a shared workspace.
+          </h2>
+        </div>
+        <div className="space-y-6 text-lg leading-relaxed text-zinc-200">
+          <p>
+            Most of this work ends up in private notes and threads that are hard
+            to find a year later. On OpenBin you publish a report, someone else
+            cites it in theirs, and the record of how a sample works grows in
+            public with the researchers' names on it.
+          </p>
+          <p>
+            The agent reads decompiled code the way you do: by file, by symbol,
+            by package. It can jump to a definition, find usages, and cite the
+            line it is talking about, instead of guessing from a pasted snippet.
+          </p>
+          <p>
+            The whole platform is AGPL on GitHub and free for researchers. You
+            bring your own Anthropic, OpenAI or Bedrock key, stored encrypted,
+            and the only AI bill is the one your provider sends you.
+          </p>
+        </div>
       </div>
     </section>
-  )
-}
-
-function Pillar({ title, body }: { title: string; body: string }) {
-  return (
-    <ElectricBorder color="#fbbf24" speed={0.5} chaos={0.25} borderRadius={10}>
-      <div className="rounded-[10px] bg-zinc-950/80 p-6 backdrop-blur">
-        <h3 className="text-xl font-semibold text-zinc-50">{title}</h3>
-        <p className="mt-3 text-base leading-relaxed text-zinc-200">{body}</p>
-      </div>
-    </ElectricBorder>
   )
 }
 
@@ -553,7 +522,7 @@ function Pillar({ title, body }: { title: string; body: string }) {
 // Discord and brought a huge share of the community in. The founder is NOT
 // in the grid (his shoutout is the signed line below it).
 const hallOfFame: { handle: string; name: string; badge?: string }[] = [
-  { handle: '@0xpwnie', name: 'Pwnie', badge: 'built the discord' },
+  { handle: '@0xpwnie', name: 'Pwnie', badge: 'built the Discord' },
   { handle: '@Loserlarping', name: 'Larp' },
   { handle: '@kernelstub', name: 'Prepakis Georgios' },
   { handle: '@LxlxIxlxlxL', name: 'rootkittie' },
@@ -564,14 +533,12 @@ const hallOfFame: { handle: string; name: string; badge?: string }[] = [
 function HallOfFame() {
   return (
     <section id="hall-of-fame" className="mx-auto max-w-5xl px-6 pt-4 pb-24">
-      <h2 className="mb-3 text-center font-mono text-sm font-semibold uppercase tracking-[0.22em] text-amber-400">
-        Hall of Fame
-      </h2>
-      <p className="mx-auto mb-10 max-w-2xl text-center text-lg leading-relaxed text-zinc-200">
-        The researchers who stood on BINness through beta — answering questions
+      <p className="mb-3 text-center font-mono text-xs uppercase tracking-[0.3em] text-amber-400/90">Hall of Fame</p>
+      <h2 className="mx-auto mb-10 max-w-2xl text-center text-lg leading-relaxed text-zinc-200">
+        The researchers who stood on BINness through beta: answering questions
         in Discord, publishing research, and building this community into what
         it is today. Thank you.
-      </p>
+      </h2>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         {hallOfFame.map(({ handle, name, badge }) => (
           <a
@@ -579,28 +546,23 @@ function HallOfFame() {
             href={`https://x.com/${handle.slice(1)}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex flex-col items-center rounded-xl border border-zinc-800/80 bg-zinc-950/70 px-4 py-5 text-center backdrop-blur transition hover:border-amber-500/40 hover:bg-zinc-900/70"
+            className="flex flex-col items-center rounded-lg border border-zinc-800 bg-zinc-950/80 px-4 py-5 text-center transition hover:border-amber-500/50"
           >
-            <Trophy aria-hidden className="mb-2 h-5 w-5 text-amber-400" />
             <span className="break-all font-mono text-sm font-semibold text-amber-400">{handle}</span>
             <span className="mt-1 text-sm text-zinc-200">{name}</span>
-            {badge && (
-              <span className="mt-2 rounded border border-amber-600/60 bg-amber-900/30 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.15em] text-amber-300">
-                {badge}
-              </span>
-            )}
+            {badge && <span className="mt-1 text-xs text-zinc-400">{badge}</span>}
           </a>
         ))}
       </div>
       <p className="mt-8 text-center text-sm italic text-zinc-400">
-        Thank you for building this with me — I owe you all.{' '}
+        Thank you for building this with me. I owe you all.{' '}
         <a
           href="https://x.com/oneandonlyhusam"
           target="_blank"
           rel="noopener noreferrer"
           className="not-italic font-mono text-amber-400/90 underline-offset-4 hover:underline"
         >
-          — Bytecode Assassin (@oneandonlyhusam), founder
+          Bytecode Assassin (@oneandonlyhusam), founder
         </a>
       </p>
       <p className="mt-4 text-center text-base text-zinc-300">
@@ -622,13 +584,13 @@ function HallOfFame() {
 function CTA() {
   return (
     <section className="mx-auto max-w-3xl px-6 pb-24 text-center">
-      <h2 className="text-3xl font-semibold text-zinc-50 sm:text-4xl">
-        Start researching. Publish your first finding.
+      <h2 className="text-3xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-4xl">
+        Upload a sample and see what the agent finds.
       </h2>
-      <p className="mt-5 text-lg text-zinc-200">
-        Both platforms are live. Drop in your LLM provider key, upload a binary
-        or APK, put an agent to work - and when you've cracked it, share it with
-        the community.
+      <p className="mt-5 text-lg leading-relaxed text-zinc-200">
+        Sign in, add your LLM provider key, and drop in a binary or an APK. When
+        you have worked it out, publish the report so the next person starts
+        from your notes instead of from zero.
       </p>
       <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
         <a
@@ -637,31 +599,15 @@ function CTA() {
           rel="noopener noreferrer"
           className="rounded-md bg-amber-400 px-6 py-3 text-base font-semibold text-black shadow-[0_6px_30px_rgba(251,191,36,0.45)] transition hover:bg-amber-300"
         >
-          Open OpenBin →
-        </a>
-        <a
-          href="https://openapk.ai"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded-md border border-zinc-700 bg-zinc-900/60 px-6 py-3 text-base text-zinc-100 backdrop-blur hover:bg-zinc-800/60"
-        >
-          Try OpenAPK →
-        </a>
-        <a
-          href="https://github.com/openbin-ai/platform"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded-md border border-zinc-700 bg-zinc-900/60 px-6 py-3 text-base text-zinc-100 backdrop-blur hover:bg-zinc-800/60"
-        >
-          GitHub
+          Open app.openbin.ai
         </a>
         <a
           href="https://discord.gg/HQsCZBHXwc"
           target="_blank"
           rel="noopener noreferrer"
-          className="rounded-md border border-zinc-700 bg-zinc-900/60 px-6 py-3 text-base text-zinc-100 backdrop-blur hover:bg-zinc-800/60"
+          className="rounded-md border border-zinc-700 bg-zinc-900/60 px-6 py-3 text-base text-zinc-100 hover:bg-zinc-800/60"
         >
-          Join the Discord →
+          Join the Discord
         </a>
       </div>
     </section>

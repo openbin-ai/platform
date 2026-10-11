@@ -32,6 +32,18 @@ export type ListingBlock = {
 /** Where to land when the pane opens (nonce re-fires an identical jump). */
 export type ListingTarget = { block?: string; addr?: string; nonce: number }
 
+type BlockRange = {
+  b: ListingBlock
+  headerIdx: number
+  firstRow: number
+  endRow: number
+  startVal: bigint | null
+  endVal: bigint | null
+}
+
+/** Result of an address lookup: the row to show, and why it isn't exact. */
+type Landing = { idx: number; exact: boolean; note?: string }
+
 type Row =
   | { kind: 'block'; b: ListingBlock }
   | { kind: 'label'; addr: string; label: string }
@@ -75,25 +87,34 @@ export function ListingPane({
 }) {
   // Flatten blocks into uniform rows. Labels get their own row (like
   // Ghidra) so every row keeps the same fixed height for windowing.
-  const { rows, blockRowIndex } = useMemo(() => {
+  // blockRanges remembers each block's row span and address range so an
+  // address lookup can stay inside the section that owns it.
+  const { rows, blockRowIndex, blockRanges } = useMemo(() => {
     const rows: Row[] = []
     const blockRowIndex = new Map<string, number>()
+    const blockRanges: BlockRange[] = []
     for (const b of blocks ?? []) {
-      blockRowIndex.set(b.block, rows.length)
+      const headerIdx = rows.length
+      blockRowIndex.set(b.block, headerIdx)
       rows.push({ kind: 'block', b })
+      const firstRow = rows.length
       if (!b.initialized) {
-        rows.push({ kind: 'note', text: 'uninitialized — no bytes in the file (allocated at load time)' })
-        continue
+        rows.push({ kind: 'note', text: 'uninitialized: no bytes in the file (allocated at load time)' })
+      } else {
+        for (const l of b.lines) {
+          if (l.label) rows.push({ kind: 'label', addr: l.addr, label: l.label })
+          rows.push({ kind: 'line', addr: l.addr, bytes: l.bytes, text: l.text })
+        }
+        if (b.truncated) {
+          rows.push({ kind: 'note', text: '… listing truncated for this block (size cap): the analysis JSON carries a bounded listing' })
+        }
       }
-      for (const l of b.lines) {
-        if (l.label) rows.push({ kind: 'label', addr: l.addr, label: l.label })
-        rows.push({ kind: 'line', addr: l.addr, bytes: l.bytes, text: l.text })
-      }
-      if (b.truncated) {
-        rows.push({ kind: 'note', text: '… listing truncated for this block (size cap) — the analysis JSON carries a bounded listing' })
-      }
+      blockRanges.push({
+        b, headerIdx, firstRow, endRow: rows.length,
+        startVal: addrValue(b.start), endVal: addrValue(b.end),
+      })
     }
-    return { rows, blockRowIndex }
+    return { rows, blockRowIndex, blockRanges }
   }, [blocks])
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -114,47 +135,81 @@ export function ListingPane({
     scrollRef.current?.scrollTo({ top: Math.max(0, idx * ROW_H - ROW_H * 3) })
   }, [])
 
-  // Nearest row for an address: exact normalized match wins; otherwise the
-  // first line row at or past the target. Linear scan — it's a click, not a
-  // render path, and even 250k rows scan in a few ms.
-  const findAddrRow = useCallback((addr: string): number => {
+  // Row for an address. The search stays inside the block that owns the
+  // address: an exact match wins, else the first code unit at or past it
+  // (an address inside a multi-byte data item or a 16-byte hexdump row).
+  // When the block has nothing to show there (.bss, or past the truncation
+  // cap) we land on the block header and say why, instead of silently
+  // scrolling to some row in the next section. Linear scan over one block:
+  // it's a click, not a render path.
+  const findAddrRow = useCallback((addr: string): Landing | null => {
     const want = normAddr(addr)
     const wantVal = addrValue(addr)
-    if (want === null) return -1
+    if (want === null || wantVal === null) return null
+    const owner = blockRanges.find((r) => r.startVal !== null && r.endVal !== null && wantVal >= r.startVal && wantVal <= r.endVal)
+    if (!owner) return null
+    if (!owner.b.initialized) {
+      return { idx: owner.headerIdx, exact: false, note: `${addr} is in ${owner.b.block}, which is uninitialized: no bytes in the file.` }
+    }
     let nearest = -1
-    for (let i = 0; i < rows.length; i++) {
+    for (let i = owner.firstRow; i < owner.endRow; i++) {
       const r = rows[i]
       if (r.kind !== 'line' && r.kind !== 'label') continue
-      if (normAddr(r.addr) === want) return i
-      if (nearest === -1 && wantVal !== null) {
+      if (normAddr(r.addr) === want) return { idx: i, exact: true }
+      if (nearest === -1) {
         const v = addrValue(r.addr)
-        if (v !== null && v >= wantVal) nearest = i
+        if (v !== null && v > wantVal) nearest = i
       }
     }
-    return nearest
-  }, [rows])
+    if (nearest !== -1) {
+      // The address sits inside the previous code unit; show that unit.
+      let j = nearest - 1
+      while (j >= owner.firstRow && rows[j].kind !== 'line') j--
+      return { idx: j >= owner.firstRow ? j : nearest, exact: false }
+    }
+    const why = owner.b.truncated ? 'past the listing cap for this block' : 'has no code unit in the listing'
+    return { idx: owner.headerIdx, exact: false, note: `${addr} is in ${owner.b.block} but ${why}.` }
+  }, [rows, blockRanges])
+
+  // The row a jump landed on, flashed briefly (rows are windowed, so the
+  // highlight is state-driven rather than a classList toggle on the DOM),
+  // plus a note when the exact address could not be shown.
+  const [landed, setLanded] = useState<number | null>(null)
+  const [landNote, setLandNote] = useState<string | null>(null)
+  useEffect(() => {
+    if (landed === null) return
+    const t = window.setTimeout(() => setLanded(null), 1600)
+    return () => window.clearTimeout(t)
+  }, [landed])
+
+  const landOn = useCallback((l: Landing) => {
+    scrollToRow(l.idx)
+    setLanded(l.idx)
+    setLandNote(l.note ?? null)
+  }, [scrollToRow])
 
   // Land on the requested block/address whenever the open target changes.
   useEffect(() => {
+    setLandNote(null)
     if (target.addr) {
-      const idx = findAddrRow(target.addr)
-      if (idx >= 0) { scrollToRow(idx); return }
+      const l = findAddrRow(target.addr)
+      if (l) { landOn(l); return }
     }
     if (target.block) {
       const idx = blockRowIndex.get(target.block)
       if (idx != null) { scrollToRow(idx); return }
     }
     scrollRef.current?.scrollTo({ top: 0 })
-  }, [target.nonce, target.addr, target.block, blockRowIndex, findAddrRow, scrollToRow])
+  }, [target.nonce, target.addr, target.block, blockRowIndex, findAddrRow, scrollToRow, landOn])
 
   const [jumpDraft, setJumpDraft] = useState('')
   const [jumpMiss, setJumpMiss] = useState(false)
   const jump = useCallback(() => {
     if (!jumpDraft.trim()) return
-    const idx = findAddrRow(jumpDraft)
-    setJumpMiss(idx < 0)
-    if (idx >= 0) scrollToRow(idx)
-  }, [jumpDraft, findAddrRow, scrollToRow])
+    const l = findAddrRow(jumpDraft)
+    setJumpMiss(l === null)
+    if (l) landOn(l)
+  }, [jumpDraft, findAddrRow, landOn])
 
   if (!blocks || blocks.length === 0) {
     return (
@@ -214,6 +269,7 @@ export function ListingPane({
             Go
           </button>
         </div>
+        {landNote && <span className="truncate text-[11px] text-amber-300" title={landNote}>{landNote}</span>}
       </PaneHeader>
       <div
         ref={scrollRef}
@@ -224,9 +280,10 @@ export function ListingPane({
           {slice.map((r, i) => {
             const idx = first + i
             const style = { position: 'absolute' as const, top: idx * ROW_H, height: ROW_H, left: 0, right: 0 }
+            const flash = idx === landed ? ' search-flash' : ''
             if (r.kind === 'block') {
               return (
-                <div key={idx} style={style} className="flex items-center gap-3 border-y border-zinc-800 bg-zinc-900 px-4 text-zinc-300">
+                <div key={idx} style={style} data-addr={r.b.start} className={`flex items-center gap-3 border-y border-zinc-800 bg-zinc-900 px-4 text-zinc-300${flash}`}>
                   <span className="font-semibold text-purple-300">{r.b.block}</span>
                   <span className="text-zinc-500">{r.b.start} – {r.b.end}</span>
                   <span className={r.b.executable ? 'text-emerald-300' : 'text-zinc-500'}>
@@ -245,7 +302,7 @@ export function ListingPane({
             if (r.kind === 'label') {
               const linked = isFn(r.label)
               return (
-                <div key={idx} style={style} className="flex items-center gap-3 px-4">
+                <div key={idx} style={style} data-addr={r.addr} className={`flex items-center gap-3 px-4${flash}`}>
                   <span className="w-32 shrink-0 text-zinc-600">{r.addr}</span>
                   {linked ? (
                     <button
@@ -262,7 +319,7 @@ export function ListingPane({
               )
             }
             return (
-              <div key={idx} style={style} className="flex items-center gap-3 px-4 hover:bg-zinc-800/40">
+              <div key={idx} style={style} data-addr={r.addr} className={`flex items-center gap-3 px-4 hover:bg-zinc-800/40${flash}`}>
                 <span className="w-32 shrink-0 text-zinc-600">{r.addr}</span>
                 <span className="w-[21rem] shrink-0 truncate text-zinc-500">{r.bytes}</span>
                 <span className="whitespace-pre text-zinc-200">{r.text}</span>

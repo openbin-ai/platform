@@ -21,6 +21,7 @@ export default defineConfig({
       'react-dom':          path.join(appNodeModules, 'react-dom'),
       'react-oidc-context': path.join(appNodeModules, 'react-oidc-context'),
       'oidc-client-ts':     path.join(appNodeModules, 'oidc-client-ts'),
+      'lucide-react':       path.join(appNodeModules, 'lucide-react'),
     },
     dedupe: ['react', 'react-dom'],
   },

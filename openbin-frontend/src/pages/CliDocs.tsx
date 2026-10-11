@@ -1,5 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { installScriptUrl, isSelfHosted } from '@shared/config/runtime'
+import { API_BASE } from '@shared/api/client'
 
 /**
  * CLI reference — install per-OS, the Docker requirement (the #1 support
@@ -87,12 +89,22 @@ export function CliDocs() {
           <div className="mt-4 space-y-4 text-[15px] leading-relaxed text-zinc-200">
             <div>
               <p className="mb-1.5 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">macOS / Linux</p>
-              <Cmd>curl -fsSL https://openbin.ai/install.sh | sh</Cmd>
+              <Cmd>{`curl -fsSL ${installScriptUrl('install.sh')} | sh`}</Cmd>
             </div>
             <div>
               <p className="mb-1.5 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">Windows (PowerShell)</p>
-              <Cmd>irm https://openbin.ai/install.ps1 | iex</Cmd>
+              <Cmd>{`irm ${installScriptUrl('install.ps1')} | iex`}</Cmd>
             </div>
+            {isSelfHosted() && (
+              <div>
+                <p className="mb-1.5 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">Point the CLI at this instance</p>
+                <Cmd>{`openbin login --server ${API_BASE}`}</Cmd>
+                <p className="mt-2 text-sm text-zinc-400">
+                  Run this once instead of a plain <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-[12px]">openbin login</code>.
+                  The CLI remembers this server, its sign-in page and where to fetch worker images, so it needs no network access beyond this instance.
+                </p>
+              </div>
+            )}
             <p className="text-sm text-zinc-400">
               Installs a single ~10&nbsp;MB binary. Prefer a manual download? Grab the
               archive for your platform from the{' '}

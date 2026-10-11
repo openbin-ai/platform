@@ -163,7 +163,7 @@ function RecentProjects() {
           {projects.map((p) => (
             <li key={p.id}>
               <Link
-                to={`/projects/${p.id}`}
+                to={`/projects/${p.id}/overview`}
                 className="flex items-center justify-between gap-3 py-3 transition hover:bg-zinc-900/60"
               >
                 <div className="min-w-0">

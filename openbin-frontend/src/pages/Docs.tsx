@@ -5,6 +5,7 @@ import askAi from '../assets/docs/project-view-ask-ai.png'
 import screenshotAnnotate from '../assets/docs/screenshot-annotate.png'
 import reportInProject from '../assets/docs/report-in-project.png'
 import reportPublish from '../assets/docs/report-publish.png'
+import { installScriptUrl } from '@shared/config/runtime'
 
 /**
  * Public, anonymous-readable how-to. Walks the full loop a new user follows —
@@ -83,7 +84,7 @@ export function Docs() {
               <Kbd>Settings ▾ → API Keys</Kbd>, paste a key from Anthropic, OpenAI, or
               AWS Bedrock, and click <Kbd>Save</Kbd>. You bring your own key, so you only
               ever pay your AI provider — OpenBin charges <span className="text-amber-300">$0</span>{' '}
-              for inference. Without a key, the <em>Ask</em> assistant stays disabled.
+              for inference. Without a key, BINNY stays disabled.
             </li>
           </ol>
         </section>
@@ -237,7 +238,7 @@ const STEPS: {
         </p>
         <Clicks
           items={[
-            <>Install it — macOS/Linux: <Cmd>curl -fsSL https://openbin.ai/install.sh | sh</Cmd> …or Windows (PowerShell): <Cmd>irm https://openbin.ai/install.ps1 | iex</Cmd></>,
+            <>Install it — macOS/Linux: <Cmd>{`curl -fsSL ${installScriptUrl('install.sh')} | sh`}</Cmd> …or Windows (PowerShell): <Cmd>{`irm ${installScriptUrl('install.ps1')} | iex`}</Cmd></>,
             <>Sign in once — opens your browser: <Cmd>openbin login</Cmd></>,
             <>Decompile a binary: <Cmd>openbin decompile ./firmware.elf</Cmd> …or an Android APK/XAPK: <Cmd>openbin apk ./app.apk</Cmd></>,
             <>When it finishes, it prints a <strong>project URL</strong>. Open it — that's your analysis in the web app.</>,
@@ -254,10 +255,10 @@ const STEPS: {
   },
   {
     id: 'explore',
-    navTitle: 'Open the analysis & ask the AI',
-    title: 'Open the analysis & ask the AI',
+    navTitle: 'Open the analysis & ask BINNY',
+    title: 'Open the analysis & ask BINNY',
     image: askAi,
-    alt: 'Project view: function list, decompiled code, and the Ask AI panel',
+    alt: 'Project view: function list, decompiled code, and the BINNY panel',
     body: (
       <>
         <p>
@@ -268,10 +269,10 @@ const STEPS: {
           items={[
             <>Click any <strong>function</strong> in the left list to read its code. Click a function name inside the code to jump to its definition.</>,
             <>Want the machine code too? Hit <Kbd>⇆ Split</Kbd> to show disassembly side-by-side — click a line or variable to highlight it in both panes.</>,
-            <>On the right, open the <Kbd>Ask</Kbd> tab and type a question like <em>"what does this function do?"</em>. Answers cite the exact <code className="text-amber-300">file:line</code> so you can verify them.</>,
+            <>On the right, open the <Kbd>BINNY</Kbd> tab and type a question like <em>"what does this function do?"</em>. BINNY light reads other functions when it needs them, cites lines and addresses, and when you ask it to highlight a finding, draft a report section or write a script, it does that on the project.</>,
           ]}
         />
-        <Tip>This is where your API key is used — if <Kbd>Ask</Kbd> is greyed out, add a key under Settings → API Keys (see above).</Tip>
+        <Tip>This is where your API key is used — if <Kbd>BINNY</Kbd> is greyed out, add a key under Settings → API Keys (see above).</Tip>
       </>
     ),
   },

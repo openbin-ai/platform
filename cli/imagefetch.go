@@ -12,12 +12,17 @@ import (
 // releaseDownloadBase is GitHub's stable "latest release" asset path: a GET
 // to <base>/<asset> 302-redirects to whatever the newest release's asset is,
 // so the CLI never needs the GitHub API (no token, no rate limit, no jq).
-// Overridable for testing / self-hosted mirrors via OPENBIN_RELEASE_BASE.
+// Overridable for testing / self-hosted mirrors via OPENBIN_RELEASE_BASE, and
+// set automatically by `openbin login --server` from the server's
+// downloadsBase (an air-gapped instance serves the tarballs itself).
 const releaseDownloadBase = "https://github.com/openbin-ai/platform/releases/latest/download"
 
 func releaseBase() string {
 	if v := os.Getenv("OPENBIN_RELEASE_BASE"); v != "" {
 		return v
+	}
+	if cfg := loadConfig(); cfg.releaseBase != "" {
+		return cfg.releaseBase
 	}
 	return releaseDownloadBase
 }

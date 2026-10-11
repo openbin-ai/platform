@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useApi } from '@shared/api/client'
 import { Gravatar } from '@shared/components/Gravatar'
 import { FollowButton } from '@shared/components/FollowButton'
+import { MessageButton } from '@shared/components/dm/MessageButton'
 import { UpvoteButton } from '@shared/components/UpvoteButton'
 import { socialLinksOf } from '@shared/api/blog'
 import { profilePath, type ProfileResponse } from '@shared/api/social'
@@ -13,6 +14,7 @@ const UPVOTE_ACCENT = 'border-amber-600 bg-amber-950/40 text-amber-200 hover:bg-
 // Anonymous-readable; mirrors the APK version in shape and behavior.
 export function AuthorProfilePage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const api = useApi()
   const [profile, setProfile] = useState<ProfileResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -85,12 +87,20 @@ export function AuthorProfilePage() {
                   </Link>
                 </div>
               </div>
-              <FollowButton
-                userId={profile.userId}
-                initialFollowing={profile.amFollowing}
-                accentClass={UPVOTE_ACCENT}
-                onChange={(_, count) => setFollowerCount(count)}
-              />
+              <div className="flex shrink-0 items-center gap-2">
+                <MessageButton
+                  userId={profile.userId}
+                  isSelf={profile.isMe}
+                  canMessage={profile.canMessage}
+                  onOpen={(cid) => navigate(`/messages/${cid}`)}
+                />
+                <FollowButton
+                  userId={profile.userId}
+                  initialFollowing={profile.amFollowing}
+                  accentClass={UPVOTE_ACCENT}
+                  onChange={(_, count) => setFollowerCount(count)}
+                />
+              </div>
             </div>
           </section>
 

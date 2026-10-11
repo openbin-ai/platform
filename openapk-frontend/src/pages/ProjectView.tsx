@@ -5,6 +5,8 @@ import { canEdit, isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { ShareProjectModal } from '@shared/components/ShareProjectModal'
 import { MembersBar } from '@shared/components/MembersBar'
 import { ProjectVisibilityToggle } from '@shared/components/ProjectVisibilityToggle'
+import { ProjectChatPanel } from '@shared/components/dm/ProjectChatPanel'
+import { REPORT_CHANGED_EVENT } from '@shared/api/reportEvents'
 import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleContext'
 import { HighlightsPanel } from '@shared/components/HighlightsPanel'
 import { AddHighlightModal } from '@shared/components/AddHighlightModal'
@@ -104,7 +106,7 @@ type AnalysisResponse = {
   outputTokens: number
 }
 
-type RightTab = 'analysis' | 'ask' | 'report' | 'gallery' | 'highlights' | 'renames' | 'crypto' | 'callchain' | 'network' | 'dbs' | 'entrypoints' | 'native' | 'tools'
+type RightTab = 'analysis' | 'ask' | 'report' | 'gallery' | 'highlights' | 'renames' | 'crypto' | 'callchain' | 'network' | 'dbs' | 'entrypoints' | 'native' | 'tools' | 'chat'
 
 type ShotState = null | { mode: 'pick' } | { mode: 'capture'; blob: Blob }
 
@@ -828,6 +830,10 @@ export function ProjectView() {
             filePath: selected,
             credentialId,
             model,
+            onArtifact: (kind) => {
+              if (kind === 'highlight') setHighlightsKey(k => k + 1)
+              if (kind === 'report_section') window.dispatchEvent(new Event(REPORT_CHANGED_EVENT))
+            },
           }}
           chainStart={chainStart}
         />
@@ -1085,6 +1091,7 @@ type AskTabProps = {
   filePath: string | null
   credentialId: string | null
   model: string
+  onArtifact?: (kind: 'highlight' | 'report_section' | 'script') => void
 }
 
 function RightPanel({
@@ -1199,7 +1206,7 @@ function RightPanel({
             Analysis
           </TabButton>
           <TabButton active={activeTab === 'ask'} onClick={() => onTab('ask')}>
-            Ask AI
+            BINNY
           </TabButton>
           <TabButton active={activeTab === 'report'} onClick={() => onTab('report')}>
             Report
@@ -1231,6 +1238,9 @@ function RightPanel({
           <TabButton active={activeTab === 'native'} onClick={() => onTab('native')}>
             Native
           </TabButton>
+          <TabButton active={activeTab === 'chat'} onClick={() => onTab('chat')}>
+            Chat
+          </TabButton>
           <TabButton active={activeTab === 'tools'} onClick={() => onTab('tools')}>
             Tools
           </TabButton>
@@ -1250,7 +1260,7 @@ function RightPanel({
           <AnalysisTab {...analysisProps} />
         </div>
         <div className={`h-full ${activeTab === 'ask' ? '' : 'hidden'}`}>
-          <AskPanel {...askProps} />
+          <AskPanel {...askProps} onOpenPanel={(p) => onTab(p)} />
         </div>
         <div className={`p-3 ${activeTab === 'report' ? '' : 'hidden'}`}>
           <ReportEditor
@@ -1314,6 +1324,9 @@ function RightPanel({
         </div>
         <div className={`h-full ${activeTab === 'native' ? '' : 'hidden'}`}>
           <NativeBridge projectId={projectId} onOpenFile={(f, l) => onOpenFile(f, l)} />
+        </div>
+        <div className={`h-full ${activeTab === 'chat' ? '' : 'hidden'}`}>
+          {activeTab === 'chat' && <ProjectChatPanel projectId={projectId} accent="purple" />}
         </div>
         <div className={`flex h-full flex-col ${activeTab === 'tools' ? '' : 'hidden'}`}>
           <StringTools />

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from 'react-oidc-context'
 import { NotificationsBell } from '@shared/components/NotificationsBell'
+import { useDmUnread } from '@shared/components/dm/useDmUnread'
 import { ThemeToggle } from '@shared/components/ThemeToggle'
 import iconUrl from '../assets/icon.png'
 
@@ -66,6 +67,7 @@ export function Layout() {
             {auth.isAuthenticated ? (
               <>
                 <SettingsNavItem />
+                <MessagesNavItem accent="amber" />
                 <NotificationsBell accent="amber" />
                 <div className="flex items-center gap-3 border-l border-zinc-800 pl-6">
                   <span className="text-zinc-400">{name}</span>
@@ -205,6 +207,28 @@ function DiscordBanner() {
         </button>
       </div>
     </div>
+  )
+}
+
+/** Messages link with an unread-conversations badge (polled like the bell). */
+function MessagesNavItem({ accent }: { accent: 'amber' | 'purple' }) {
+  const unread = useDmUnread()
+  const badge = accent === 'amber' ? 'bg-amber-500 text-black' : 'bg-purple-600 text-white'
+  return (
+    <NavLink
+      to="/messages"
+      title="Messages"
+      className={({ isActive }) =>
+        `relative inline-flex items-center text-sm ${isActive ? (accent === 'amber' ? 'text-amber-300' : 'text-purple-300') : 'text-zinc-300 hover:text-zinc-100'}`
+      }
+    >
+      Messages
+      {unread > 0 && (
+        <span className={`ml-1.5 inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${badge}`}>
+          {unread > 99 ? '99+' : unread}
+        </span>
+      )}
+    </NavLink>
   )
 }
 

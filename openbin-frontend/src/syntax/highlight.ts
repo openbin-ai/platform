@@ -13,7 +13,10 @@ async function getHighlighter(): Promise<HighlighterCore> {
     const { createHighlighterCore } = await import('shiki/core')
     const { createOnigurumaEngine } = await import('shiki/engine/oniguruma')
     return createHighlighterCore({
-      themes: [import('@shikijs/themes/github-dark-default')],
+      // Both GitHub themes: tokens carry the dark color inline plus a
+      // --shiki-light variable, and shared/theme/light.css flips to the
+      // variable under html.light. One highlight pass serves both modes.
+      themes: [import('@shikijs/themes/github-dark-default'), import('@shikijs/themes/github-light-default')],
       langs: [
         import('@shikijs/langs/c'),
         import('@shikijs/langs/javascript'),
@@ -47,7 +50,11 @@ function inferScriptLang(filename: string): 'javascript' | 'typescript' | 'json'
 async function highlight(code: string, lang: 'c' | 'javascript' | 'typescript' | 'json'): Promise<string> {
   const hl = await getHighlighter()
   try {
-    return hl.codeToHtml(code, { lang, theme: 'github-dark-default' })
+    return hl.codeToHtml(code, {
+      lang,
+      themes: { dark: 'github-dark-default', light: 'github-light-default' },
+      defaultColor: 'dark',
+    })
   } catch {
     return escapePlain(code)
   }

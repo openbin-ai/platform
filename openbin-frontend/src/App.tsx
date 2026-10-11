@@ -10,6 +10,7 @@ import { Home } from './pages/Home'
 import { Projects } from './pages/Projects'
 import { BundlePage } from './pages/BundlePage'
 import { ProjectViewRoute } from './pages/ProjectViewRoute'
+import { ProjectOverview } from './pages/ProjectOverview'
 import { ApiKeys } from './pages/ApiKeys'
 import { Report } from './pages/Report'
 import { ReportPrint } from './pages/ReportPrint'
@@ -23,6 +24,7 @@ import { Community } from './pages/Community'
 import { CommunityReport } from './pages/CommunityReport'
 import { PublicProject } from './pages/PublicProject'
 import { AuthorProfilePage } from './pages/AuthorProfilePage'
+import { Messages } from './pages/Messages'
 import { FollowListPage } from './pages/FollowListPage'
 import { ResearcherSearch } from './pages/ResearcherSearch'
 import { Terms } from './pages/Terms'
@@ -104,8 +106,13 @@ export default function App() {
             <Route index element={<Home />} />
             <Route path="dashboard" element={<Home />} />
             <Route path="projects" element={<Projects />} />
+            <Route path="messages" element={<Messages />} />
+            <Route path="messages/:id" element={<Messages />} />
             <Route path="blog/new" element={<BlogEditor />} />
             <Route path="blog/:id/edit" element={<BlogEditor />} />
+            {/* Project-level page (settings, members, samples); the workspace
+                below stays the per-sample code view so deep links keep working. */}
+            <Route path="projects/:id/overview" element={<ProjectOverview />} />
             <Route path="projects/:id" element={<ProjectViewRoute />} />
             <Route path="projects/:id/report" element={<Report />} />
             {/* Bundle overview — the repo-style home for a multi-binary sample. */}

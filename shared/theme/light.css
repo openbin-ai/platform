@@ -151,15 +151,30 @@ html.light body {
   color: #18181b;
 }
 
-/* Decompiled-code panes keep a dark surface: the Shiki syntax theme
- * (github-dark-default) colors tokens inline for a dark background, and a
- * dark code block on a light page is a familiar look. The plain fallback
- * (`.shiki-plain`, light-gray text) needs the same surface. */
+/* Code panes follow the theme. Shiki is run with both GitHub themes
+ * (defaultColor: 'dark'), so every token carries its dark color inline plus
+ * a --shiki-light variable; here we switch to the variable. The host's own
+ * dark surface (bg-black/NN in a few panes; black is not remapped) is
+ * overridden to the light code surface, and the plain fallback gets dark
+ * text. Disassembly rows are plain Tailwind and remap on their own. */
 html.light .shiki-host,
 html.light .shiki-plain {
-  background: #0d1117;
-  color-scheme: dark;
+  background-color: #ffffff !important;
+  color-scheme: light;
 }
+html.light .shiki-host .shiki,
+html.light .shiki-host .shiki span {
+  color: var(--shiki-light) !important;
+}
+html.light .shiki-plain code {
+  color: #18181b;
+}
+/* The token color rule above is !important (it has to beat Shiki's inline
+ * style), so the code-link hover colors need their own light values. Use
+ * the remapped accent tokens, which are already dark enough on white. */
+html.light .shiki-host .fn-link:hover { color: var(--color-purple-300) !important; }
+html.light .shiki-host .data-link:hover { color: var(--color-amber-300) !important; }
+html.light .shiki-host .addr-link:hover { color: var(--color-cyan-300) !important; }
 
 /* Ask-tab markdown (rules live in each app's index.css with dark literals). */
 html.light .markdown-answer h1,
@@ -169,4 +184,11 @@ html.light .markdown-answer h3 {
 }
 html.light .markdown-answer code {
   background: rgba(0, 0, 0, 0.07);
+}
+html.light .markdown-answer pre {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+html.light .markdown-answer pre span {
+  color: var(--shiki-light) !important;
 }

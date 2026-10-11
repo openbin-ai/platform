@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { API_BASE, ApiError, useApi } from '../api/client'
 import { canEdit, isOwner, type ProjectRole } from '@shared/api/collaborators'
 import { useAuth } from 'react-oidc-context'
+import { installScriptUrl } from '@shared/config/runtime'
 
 /**
  * Upload progress state for the dropzone. {@code null} means no upload in
@@ -17,6 +18,7 @@ type WorkflowStatus = 'NEW' | 'TRIAGING' | 'ANALYZING' | 'DRAFTING_REPORT' | 'PU
 export type Project = {
   id: string
   name: string
+  description?: string | null
   originalFilename: string
   sizeBytes: number
   sha256: string
@@ -233,7 +235,7 @@ function ProjectsTab({
  * Sponsorship inbound goes to husam@openbin.ai.
  */
 function JadxSunsetCard() {
-  const installCmd = 'curl -fsSL https://openbin.ai/install.sh | sh'
+  const installCmd = `curl -fsSL ${installScriptUrl('install.sh')} | sh`
   return (
     <div className="overflow-hidden rounded-lg border border-amber-700/50 bg-linear-to-br from-amber-950/40 via-zinc-950/40 to-zinc-950/60 p-6 shadow-[0_8px_40px_rgba(251,191,36,0.08)]">
       <div className="flex items-start gap-3">

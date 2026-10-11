@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { useStreamingApi } from '../api/streaming'
 import { estimateCost } from '../lib/llmCost'
+import { BinnyToolCards, type ToolEvent } from '@shared/components/BinnyToolCards'
 
 /*
  * Chat-style Ask AI panel for OpenAPK.
@@ -26,6 +27,8 @@ type ChatTurn = {
   /** Only present in shared-session turns -- the file the user was looking
    *  at when they asked. Helps the user remember the context later. */
   filePath?: string | null
+  /** BINNY's tool calls during this answer, in order (assistant turns only). */
+  tools?: ToolEvent[]
 }
 
 type ChatSession = {
@@ -103,9 +106,13 @@ export type AskPanelProps = {
   filePath: string | null
   credentialId: string | null
   model: string
+  /** Switch the right panel (tool cards link to Highlights / Report). */
+  onOpenPanel?: (p: 'highlights' | 'report') => void
+  /** BINNY wrote something; the host refreshes the matching panel. */
+  onArtifact?: (kind: 'highlight' | 'report_section' | 'script') => void
 }
 
-export function AskPanel({ projectId, filePath, credentialId, model }: AskPanelProps) {
+export function AskPanel({ projectId, filePath, credentialId, model, onOpenPanel, onArtifact }: AskPanelProps) {
   const streamingApi = useStreamingApi()
 
   // ── sessions ──────────────────────────────────────────────────────────
@@ -238,10 +245,10 @@ export function AskPanel({ projectId, filePath, credentialId, model }: AskPanelP
     // the backend @NotBlank-rejects them with a bodyless 400, and an empty
     // assistant placeholder can get persisted if a stream dies before its
     // first chunk.
-    // The 50k slice matches the backend's @Size cap on AskRequest.PriorTurn.
+    // The 16k slice matches the backend's @Size cap on BinnyRequest.PriorTurn.
     const priorTurns = turns
       .filter(t => t.content.trim() !== '')
-      .map(t => ({ role: t.role, content: t.content.slice(0, 50000) }))
+      .map(t => ({ role: t.role, content: t.content.slice(0, 16000) }))
     const userTurn: ChatTurn = { role: 'user', content: trimmed, filePath }
     const assistantTurn: ChatTurn = { role: 'assistant', content: '' }
     updateActive(s => ({
@@ -253,19 +260,27 @@ export function AskPanel({ projectId, filePath, credentialId, model }: AskPanelP
     }))
     setQuestion('')
 
+    // Patch the in-flight assistant turn (always the last one in the thread).
+    const patchLast = (mut: (t: ChatTurn) => ChatTurn) => updateActive(s => {
+      const thread = s.threads[threadKey] ?? []
+      if (thread.length === 0) return s
+      const next = thread.slice()
+      next[next.length - 1] = mut(next[next.length - 1])
+      return { ...s, threads: { ...s.threads, [threadKey]: next } }
+    })
+
     await streamingApi(
-      `/api/projects/${projectId}/ask/stream`,
+      `/api/projects/${projectId}/binny/stream`,
       { filePath, question: trimmed, credentialId, model: model || undefined, priorTurns },
       {
-        onChunk: (text) => {
-          updateActive(s => {
-            const thread = s.threads[threadKey] ?? []
-            if (thread.length === 0) return s
-            const next = thread.slice()
-            const last = next[next.length - 1]
-            next[next.length - 1] = { ...last, content: last.content + text }
-            return { ...s, threads: { ...s.threads, [threadKey]: next } }
-          })
+        onChunk: (text) => patchLast(last => ({ ...last, content: last.content + text })),
+        onToolCall: (e) => patchLast(last => ({ ...last, tools: [...(last.tools ?? []), { id: e.id, name: e.name, input: e.input }] })),
+        onToolResult: (e) => {
+          patchLast(last => ({
+            ...last,
+            tools: (last.tools ?? []).map(t => (t.id === e.id ? { ...t, ok: e.ok, summary: e.summary, artifact: e.artifact } : t)),
+          }))
+          if (e.ok && e.artifact) onArtifact?.(e.artifact.kind)
         },
         onDone: (info) => {
           updateActive(s => {
@@ -419,10 +434,20 @@ export function AskPanel({ projectId, filePath, credentialId, model }: AskPanelP
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           {turns.length === 0 ? (
             <div className="text-[11px] leading-relaxed text-zinc-600">
-              {active.mode === 'per-file'
-                ? <>Ask anything about the <span className="font-mono text-zinc-400">{filePath ? (filePath.split('/').pop() ?? filePath) : 'currently open file'}</span> — what it does, where it's called from, suspicious patterns, what an unfamiliar API does. Each file gets its own thread.</>
-                : <>Shared mode: one thread spans every file you open. The agent always sees the file you're currently looking at, plus the full conversation history.</>
-              }
+              <p>
+                <span className="text-zinc-400">BINNY light.</span> Ask about{' '}
+                <span className="font-mono text-zinc-400">{filePath ? (filePath.split('/').pop() ?? filePath) : 'the open file'}</span>:
+                what it does, where it is called from, suspicious patterns. BINNY starts from the open file and can read
+                other files and search the tree on its own.
+              </p>
+              <p className="mt-2">
+                Ask it to <span className="text-zinc-400">highlight</span> a finding, <span className="text-zinc-400">draft</span> a
+                report section, or <span className="text-zinc-400">write a script</span> and it will do that on the project.
+                No sandbox and no APK bytes here: the full BINNY runs in your terminal.
+              </p>
+              <p className="mt-2 text-zinc-700">
+                {active.mode === 'per-file' ? 'Each file keeps its own thread.' : 'Shared mode: one thread across every file you open.'}
+              </p>
             </div>
           ) : (
             <ul className="space-y-3">
@@ -436,12 +461,21 @@ export function AskPanel({ projectId, filePath, credentialId, model }: AskPanelP
                     )}
                     {t.role === 'user' ? (
                       <div className="whitespace-pre-wrap break-words text-[12px]">{t.content}</div>
-                    ) : t.content === '' && streaming && i === turns.length - 1 ? (
-                      <div className="text-[11px] italic text-zinc-500">Waiting for first token…</div>
                     ) : (
-                      <div className="markdown-answer text-[12px] leading-relaxed">
-                        <ReactMarkdown>{t.content}</ReactMarkdown>
-                      </div>
+                      <>
+                        {t.tools && t.tools.length > 0 && (
+                          <BinnyToolCards events={t.tools} projectId={projectId} onOpenPanel={onOpenPanel} />
+                        )}
+                        {t.content === '' && streaming && i === turns.length - 1 ? (
+                          <div className="text-[11px] italic text-zinc-500">
+                            {t.tools && t.tools.length > 0 ? 'Working…' : 'Waiting for first token…'}
+                          </div>
+                        ) : (
+                          <div className="markdown-answer text-[12px] leading-relaxed">
+                            <ReactMarkdown>{t.content}</ReactMarkdown>
+                          </div>
+                        )}
+                      </>
                     )}
                     {t.role === 'assistant' && t.content !== '' && (
                       <div className="mt-2 flex items-center gap-3 border-t border-zinc-800 pt-1.5 text-[9px] text-zinc-500">
@@ -492,7 +526,7 @@ export function AskPanel({ projectId, filePath, credentialId, model }: AskPanelP
                   void send()
                 }
               }}
-              placeholder={active.mode === 'shared' ? 'Ask anything about this project…' : 'Ask anything about this file…'}
+              placeholder={active.mode === 'shared' ? 'Ask BINNY about this project…' : 'Ask BINNY about this file…'}
               rows={2}
               disabled={streaming}
               className="flex-1 resize-none rounded border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-[12px] text-zinc-100 focus:border-purple-500 focus:outline-none disabled:opacity-60"
