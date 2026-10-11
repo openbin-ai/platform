@@ -149,6 +149,43 @@ public class ProjectReportService {
         return toResponse(reportRepo.save(report));
     }
 
+    /**
+     * Write one section without touching the others: the agent's way into
+     * the report. Replaces or appends to an existing section by id; an
+     * unknown id creates a new section at the end (so BINNY can add
+     * "Decryption routine" without the template knowing about it). The
+     * title only changes when the caller supplies one for an existing
+     * section, so an append never renames what the analyst wrote.
+     */
+    @Transactional
+    public ReportResponse upsertSection(User user, UUID projectId, String sectionId, String title,
+                                        String markdown, boolean append) {
+        Project project = guard.requireEdit(user, projectId);
+        ProjectReport report = reportRepo.findByProjectId(projectId).orElseGet(() -> createDefault(project));
+        requireNotPublished(report);
+        List<ReportSection> sections = new java.util.ArrayList<>(deserializeSections(report.getSectionsJson()));
+        String body = markdown == null ? "" : markdown.strip();
+        int idx = -1;
+        for (int i = 0; i < sections.size(); i++) {
+            if (sections.get(i).id().equals(sectionId)) { idx = i; break; }
+        }
+        if (idx < 0) {
+            String t = title == null || title.isBlank() ? sectionId.replace('_', ' ') : title.strip();
+            sections.add(new ReportSection(sectionId, t, body));
+        } else {
+            ReportSection cur = sections.get(idx);
+            String t = title == null || title.isBlank() ? cur.title() : title.strip();
+            String content = append && cur.content() != null && !cur.content().isBlank()
+                    ? cur.content().stripTrailing() + "\n\n" + body
+                    : body;
+            sections.set(idx, new ReportSection(cur.id(), t, content));
+        }
+        report.setSectionsJson(serializeSections(sections));
+        report.setUpdatedBy(user);
+        advanceWorkflowOnEdit(project);
+        return toResponse(reportRepo.save(report));
+    }
+
     @Transactional
     public ReportResponse populate(User user, UUID projectId, PopulateRequest req) {
         Project project = guard.requireEdit(user, projectId);

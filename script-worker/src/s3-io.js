@@ -6,7 +6,14 @@ const fs = require('node:fs');
 const { pipeline } = require('node:stream/promises');
 
 const REGION = process.env.AWS_REGION || 'us-east-1';
-const s3 = new S3Client({ region: REGION });
+// Self-hosted installs point the worker at MinIO through AWS_ENDPOINT_URL
+// (the same variable the AWS SDKs honour for every service). Path-style
+// addressing is required there: bucket subdomains do not resolve inside a
+// Docker network. Unset means real S3 with the SDK defaults.
+const ENDPOINT = process.env.AWS_ENDPOINT_URL || '';
+const s3 = new S3Client(ENDPOINT
+  ? { region: REGION, endpoint: ENDPOINT, forcePathStyle: true }
+  : { region: REGION });
 
 async function downloadToFile(bucket, key, destPath) {
   const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));

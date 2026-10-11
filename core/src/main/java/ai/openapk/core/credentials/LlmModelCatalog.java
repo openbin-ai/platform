@@ -102,7 +102,7 @@ public class LlmModelCatalog {
 
     private List<String> fetchAnthropic(LlmCredentialPayload.Anthropic p) {
         String body = http.get()
-                .uri(LlmProvider.ANTHROPIC.baseUrl() + "/v1/models")
+                .uri(LlmEndpoints.anthropicModelsUrl(p))
                 .header("x-api-key", p.apiKey())
                 .header("anthropic-version", "2023-06-01")
                 .retrieve()

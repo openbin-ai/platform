@@ -65,7 +65,7 @@ public class ScriptAnalysisService {
     private final ProjectRepository projects;
     private final ScriptAnalysisRepository analyses;
     private final ScriptDeobfuscationRepository deobfuscations;
-    private final LambdaInvoker invoker;
+    private final ScriptWorkerInvoker invoker;
     private final ScriptEcosystemDetector ecosystemDetector;
     private final S3Client s3;
     private final ObjectMapper mapper;
@@ -76,7 +76,7 @@ public class ScriptAnalysisService {
             ProjectRepository projects,
             ScriptAnalysisRepository analyses,
             ScriptDeobfuscationRepository deobfuscations,
-            LambdaInvoker invoker,
+            ScriptWorkerInvoker invoker,
             ScriptEcosystemDetector ecosystemDetector,
             @Qualifier("analysisS3Client") S3Client analysisS3Client,
             ObjectMapper mapper,
@@ -186,7 +186,7 @@ public class ScriptAnalysisService {
             byte[] respBytes;
             try {
                 respBytes = invoker.invoke(functionName, event);
-            } catch (LambdaInvoker.LambdaInvocationException e) {
+            } catch (ScriptWorkerInvoker.InvocationException e) {
                 // Map common worker errors to actionable HTTP statuses
                 // rather than the generic 500 the unhandled stack would
                 // produce. The most common one in practice is the user
@@ -295,7 +295,7 @@ public class ScriptAnalysisService {
         byte[] respBytes;
         try {
             respBytes = invoker.invoke(functionName, event);
-        } catch (LambdaInvoker.LambdaInvocationException e) {
+        } catch (ScriptWorkerInvoker.InvocationException e) {
             String msg = e.getMessage() == null ? "" : e.getMessage();
             // "file not found in bundle" is a client mistake (stale path
             // from a re-analyzed project), not a worker fault — 404 it so

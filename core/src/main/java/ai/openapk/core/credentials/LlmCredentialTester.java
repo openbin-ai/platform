@@ -47,7 +47,7 @@ public class LlmCredentialTester {
     // a valid model.
     private TestResultResponse testAnthropic(LlmCredentialPayload.Anthropic p) {
         var resp = http.get()
-                .uri(LlmProvider.ANTHROPIC.baseUrl() + "/v1/models")
+                .uri(LlmEndpoints.anthropicModelsUrl(p))
                 .header("x-api-key", p.apiKey())
                 .header("anthropic-version", "2023-06-01")
                 .retrieve()

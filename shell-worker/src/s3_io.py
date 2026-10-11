@@ -3,9 +3,20 @@ than factored into a shared layer because (a) Lambda layers add a deploy
 hop and (b) the file is 20 LOC and changes monthly at most."""
 
 import json
-import boto3
+import os
 
-_s3 = boto3.client("s3")
+import boto3
+from botocore.config import Config
+
+# Self-hosted installs point the worker at MinIO through AWS_ENDPOINT_URL.
+# Path-style addressing is required there: bucket subdomains do not resolve
+# inside a Docker network. Unset means real S3 with the SDK defaults.
+_ENDPOINT = os.environ.get("AWS_ENDPOINT_URL") or None
+_s3 = (
+    boto3.client("s3", endpoint_url=_ENDPOINT, config=Config(s3={"addressing_style": "path"}))
+    if _ENDPOINT
+    else boto3.client("s3")
+)
 
 
 def download_to_file(bucket: str, key: str, dest_path: str) -> None:

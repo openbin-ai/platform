@@ -134,7 +134,7 @@ public class ProjectService {
      * falls back to inline JSONB reads.
      */
     private java.util.function.Function<String, String> urlSigner() {
-        if (analysisStorage == null || !analysisStorage.cdnConfigured()) return null;
+        if (analysisStorage == null || !analysisStorage.downloadUrlsAvailable()) return null;
         return analysisStorage::signDownloadUrl;
     }
 
@@ -608,6 +608,10 @@ public class ProjectService {
             }
             project.setName(trimmed);
         }
+        if (req.description() != null) {
+            String trimmed = req.description().trim();
+            project.setDescription(trimmed.isEmpty() ? null : trimmed);
+        }
         if (req.workflowStatus() != null) {
             // PUBLISHED is only reachable via the publish endpoint (it also sets publishedAt).
             if (req.workflowStatus() == WorkflowStatus.PUBLISHED) {
@@ -628,7 +632,9 @@ public class ProjectService {
             // sections" button can re-seed if the user wants to start fresh.
             project.setAnalysisMode(req.analysisMode());
         }
-        return ProjectResponse.from(repo.save(project), urlSigner());
+        // Carry the caller's role: a null role reads as "owner" on the client,
+        // which would hand an editor the owner-only controls after a save.
+        return ProjectResponse.from(repo.save(project), urlSigner(), guard.roleOf(user, project.getId()).orElse(null));
     }
 
     /** Bump workflow forward to {@code target} if (a) current is earlier and (b) not already published. */

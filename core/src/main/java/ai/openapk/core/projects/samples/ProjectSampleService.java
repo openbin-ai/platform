@@ -444,7 +444,7 @@ public class ProjectSampleService {
     }
 
     private Function<String, String> urlSigner() {
-        if (analysisStorage == null || !analysisStorage.cdnConfigured()) {
+        if (analysisStorage == null || !analysisStorage.downloadUrlsAvailable()) {
             return null;
         }
         return analysisStorage::signDownloadUrl;

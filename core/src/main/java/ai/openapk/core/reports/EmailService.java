@@ -33,10 +33,12 @@ public class EmailService {
     private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
     private final OpenApkProperties.Email cfg;
+    private final OpenApkProperties.Web web;
     private volatile SesV2Client client;
 
     public EmailService(OpenApkProperties props) {
         this.cfg = props.email();
+        this.web = props.web();
     }
 
     /**
@@ -287,14 +289,12 @@ public class EmailService {
         }
     }
 
-    private static String projectUrlFor(ProjectKind kind, UUID id) {
-        // Hardcoded prod URLs — APK projects open in openapk.ai, BIN projects
-        // in app.openbin.ai. If we ever ship staging/preview environments
-        // these become a config property; for now hardcoding is fine.
-        if (kind == ProjectKind.BIN) {
-            return "https://app.openbin.ai/projects/" + id;
-        }
-        return "https://openapk.ai/projects/" + id;
+    private String projectUrlFor(ProjectKind kind, UUID id) {
+        // APK projects open in the OpenAPK web app, everything else in the
+        // OpenBin one. Hosts come from openapk.web.* so a self-hosted
+        // install links to itself.
+        String base = kind == ProjectKind.APK ? web.openapkUrl() : web.openbinUrl();
+        return base.replaceAll("/+$", "") + "/projects/" + id;
     }
 
     private boolean isConfigured() {

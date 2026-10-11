@@ -53,6 +53,10 @@ public class Project {
     @Column(nullable = false)
     private String name;
 
+    /** Optional free-text description (V44). Null until an editor writes one. */
+    @Column(columnDefinition = "TEXT")
+    private String description;
+
     @Column(name = "size_bytes", nullable = false)
     private long sizeBytes;
 

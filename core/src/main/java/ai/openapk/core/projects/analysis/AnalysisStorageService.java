@@ -14,6 +14,8 @@ import software.amazon.awssdk.services.s3.model.PutObjectTaggingRequest;
 import software.amazon.awssdk.services.s3.model.Tag;
 import software.amazon.awssdk.services.s3.model.Tagging;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
@@ -205,10 +207,35 @@ public class AnalysisStorageService {
                 .build());
     }
 
-    /** Mints a CloudFront signed GET URL for the frontend. */
+    /**
+     * Mints a short-lived GET URL for the frontend: CloudFront-signed when
+     * the CDN is configured (hosted product), otherwise an S3 presigned GET
+     * straight against the bucket (self-hosted MinIO, or any install
+     * without CloudFront). Both carry the same TTL.
+     */
     public String signDownloadUrl(String key) {
         Duration ttl = cfg.presignedGetTtl() != null ? cfg.presignedGetTtl() : Duration.ofMinutes(5);
-        return cfSigner.sign(key, ttl);
+        if (cfSigner.isConfigured()) {
+            String signed = cfSigner.sign(key, ttl);
+            if (signed != null) return signed;
+        }
+        var presigned = presigner.presignGetObject(GetObjectPresignRequest.builder()
+                .signatureDuration(ttl)
+                .getObjectRequest(GetObjectRequest.builder()
+                        .bucket(cfg.bucket())
+                        .key(key)
+                        .build())
+                .build());
+        return presigned.url().toString();
+    }
+
+    /**
+     * Whether {@link #signDownloadUrl} can produce a URL. Always true once
+     * this bean exists: the presigned-GET fallback needs nothing beyond the
+     * bucket itself. Kept as a method so callers read the same either way.
+     */
+    public boolean downloadUrlsAvailable() {
+        return true;
     }
 
     public boolean cdnConfigured() {

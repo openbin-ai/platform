@@ -46,17 +46,23 @@ public class TosAcceptanceFilter implements HandlerInterceptor {
             "/api/tos.md",          // public TOS markdown
             "/api/community/",      // anonymous-read public feed
             "/api/public/",         // anonymous-read public projects
+            "/api/account",         // account deletion must work even if the
+                                    // user is refusing a new TOS version
             "/actuator/"            // Spring Actuator (health, info)
     );
 
     private final TosService tos;
     private final CurrentUserService currentUser;
     private final ObjectMapper mapper;
+    private final boolean required;
 
-    public TosAcceptanceFilter(TosService tos, CurrentUserService currentUser, ObjectMapper mapper) {
+    public TosAcceptanceFilter(TosService tos, CurrentUserService currentUser, ObjectMapper mapper,
+                               ai.openapk.core.config.OpenApkProperties props) {
         this.tos = tos;
         this.currentUser = currentUser;
         this.mapper = mapper;
+        this.required = props.tos() == null || props.tos().isRequired();
+        if (!required) log.info("TOS acceptance gate disabled (openapk.tos.required=false)");
     }
 
     @Override
@@ -65,6 +71,7 @@ public class TosAcceptanceFilter implements HandlerInterceptor {
         // CORS preflight — no user context, must respond before browser
         // can send the real request.
         if ("OPTIONS".equalsIgnoreCase(request.getMethod())) return true;
+        if (!required) return true;
 
         String path = request.getRequestURI();
         for (String prefix : EXEMPT_PREFIXES) {

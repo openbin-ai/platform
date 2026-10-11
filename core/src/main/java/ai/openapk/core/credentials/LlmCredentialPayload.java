@@ -2,7 +2,14 @@ package ai.openapk.core.credentials;
 
 public sealed interface LlmCredentialPayload {
 
-    record Anthropic(String apiKey) implements LlmCredentialPayload {}
+    /**
+     * Anthropic Messages API. {@code baseUrl} is null for the real API (the
+     * provider enum supplies {@code https://api.anthropic.com}) and set when
+     * the user routes through a gateway that fronts the same wire format on
+     * another host. Payloads stored before this field existed deserialize
+     * {@code baseUrl} to null, which falls back to the enum default.
+     */
+    record Anthropic(String apiKey, String baseUrl) implements LlmCredentialPayload {}
 
     /**
      * Any OpenAI-compatible provider (OpenAI, Gemini, DeepSeek, Qwen, Kimi, or a

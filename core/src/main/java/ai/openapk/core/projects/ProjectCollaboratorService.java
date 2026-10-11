@@ -43,19 +43,22 @@ public class ProjectCollaboratorService {
     private final ProjectPresenceRepository presenceRepo;
     private final UserRepository userRepo;
     private final NotificationService notifications;
+    private final ai.openapk.core.dm.DmMemberRepository chatMembers;
 
     public ProjectCollaboratorService(
             ProjectAccessGuard guard,
             ProjectCollaboratorRepository collabRepo,
             ProjectPresenceRepository presenceRepo,
             UserRepository userRepo,
-            NotificationService notifications
+            NotificationService notifications,
+            ai.openapk.core.dm.DmMemberRepository chatMembers
     ) {
         this.guard = guard;
         this.collabRepo = collabRepo;
         this.presenceRepo = presenceRepo;
         this.userRepo = userRepo;
         this.notifications = notifications;
+        this.chatMembers = chatMembers;
     }
 
     /**
@@ -174,6 +177,8 @@ public class ProjectCollaboratorService {
         guard.requireOwner(caller, projectId);
         collabRepo.findByProjectIdAndUserId(projectId, userId)
                 .ifPresent(collabRepo::delete);
+        // The team chat is gated on the roster, so this only tidies the inbox.
+        chatMembers.deleteProjectMembership(projectId, userId);
         log.info("collab removed project={} user={} by={}", projectId, userId, caller.getId());
     }
 }

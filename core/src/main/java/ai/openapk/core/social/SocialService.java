@@ -11,6 +11,7 @@ import ai.openapk.core.reports.ReportContributorService;
 import ai.openapk.core.reports.dto.CommunityReportSummary;
 import ai.openapk.core.reports.dto.Contributor;
 import ai.openapk.core.blog.BlogService;
+import ai.openapk.core.dm.DmService;
 import ai.openapk.core.social.dto.ProfileResponse;
 import ai.openapk.core.social.dto.UpdateProfileRequest;
 import ai.openapk.core.social.dto.SocialUserSummary;
@@ -57,13 +58,16 @@ public class SocialService {
     private final NotificationService notifications;
     private final ReportContributorService contributors;
     private final BlogService blog;
+    private final DmService dm;
 
     public SocialService(FollowRepository followRepo, ReportVoteRepository voteRepo,
                          UserRepository userRepo, ProjectReportRepository reportRepo,
                          CommunityService communityService,
                          NotificationService notifications,
                          ReportContributorService contributors,
-                         BlogService blog) {
+                         BlogService blog,
+            DmService dm) {
+        this.dm = dm;
         this.followRepo = followRepo;
         this.voteRepo = voteRepo;
         this.userRepo = userRepo;
@@ -387,6 +391,7 @@ public class SocialService {
                 u.getMastodonUrl(),
                 u.getLinkedinUrl(),
                 viewerOrNull != null && viewerOrNull.getId().equals(u.getId()),
+                dm.canMessage(viewerOrNull, u),
                 reports,
                 collaborativeReports,
                 blog.byAuthor(u.getId(), viewerOrNull)

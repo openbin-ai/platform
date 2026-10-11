@@ -3,6 +3,7 @@ package ai.openapk.core.analysis;
 import ai.openapk.core.auth.User;
 import ai.openapk.core.credentials.LlmCredential;
 import ai.openapk.core.credentials.LlmCredentialPayload;
+import ai.openapk.core.credentials.LlmEndpoints;
 import ai.openapk.core.credentials.LlmProvider;
 import ai.openapk.core.credentials.OutboundLlmHttp;
 import ai.openapk.core.usage.LlmUsageService;
@@ -142,7 +143,7 @@ public class StreamingLlmInvoker {
                 "messages", List.of(Map.of("role", "user", "content", userPrompt))
         ));
         var req = HttpRequest.newBuilder()
-                .uri(URI.create("https://api.anthropic.com/v1/messages"))
+                .uri(URI.create(LlmEndpoints.anthropicMessagesUrl(p)))
                 .header("x-api-key", p.apiKey())
                 .header("anthropic-version", "2023-06-01")
                 .header("content-type", "application/json")

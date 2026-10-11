@@ -27,6 +27,27 @@ class EgressUrlPolicyTest {
     }
 
     @Test
+    void operatorAllowlistAdmitsListedPrivateDestinationsOnly() {
+        try {
+            EgressUrlPolicy.configureAllowlist("10.40.0.0/16, llm-gateway.internal");
+            allowed("http://10.40.3.9:8000/v1");          // inside the listed range
+            allowed("https://LLM-Gateway.internal/v1");   // listed hostname, case-insensitive, no DNS
+            rejected("http://10.41.0.1/v1");              // private but not listed
+            rejected("http://127.0.0.1:11434/v1");        // loopback stays closed
+        } finally {
+            EgressUrlPolicy.configureAllowlist("");
+        }
+        rejected("http://10.40.3.9:8000/v1");             // cleared again
+    }
+
+    @Test
+    void allowlistRejectsMalformedEntries() {
+        assertThrows(IllegalArgumentException.class, () -> EgressUrlPolicy.configureAllowlist("10.0.0.0/x"));
+        assertThrows(IllegalArgumentException.class, () -> EgressUrlPolicy.configureAllowlist("10.0.0.0/40"));
+        EgressUrlPolicy.configureAllowlist("");
+    }
+
+    @Test
     void allowsOrdinaryPublicEndpoints() {
         allowed("https://1.1.1.1/v1");
         allowed("http://8.8.8.8:8080/v1");

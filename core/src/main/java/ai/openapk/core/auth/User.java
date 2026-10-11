@@ -88,6 +88,14 @@ public class User {
     @Column(name = "linkedin_url")
     private String linkedinUrl;
 
+    /**
+     * Who may open a direct message with this user: EVERYONE | FOLLOWING
+     * (only people this user follows) | NOBODY. See V43 and
+     * {@link ai.openapk.core.dm.DmPolicy}.
+     */
+    @Column(name = "dm_policy", nullable = false)
+    private String dmPolicy = "EVERYONE";
+
     @PrePersist
     void prePersist() {
         var now = Instant.now();

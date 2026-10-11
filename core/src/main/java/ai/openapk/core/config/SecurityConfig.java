@@ -71,7 +71,7 @@ public class SecurityConfig {
     @Bean
     CorsConfigurationSource corsConfigurationSource(OpenApkProperties props) {
         var cfg = new CorsConfiguration();
-        cfg.setAllowedOrigins(props.cors().allowedOrigins());
+        cfg.setAllowedOrigins(props.cors().effectiveOrigins());
         cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         cfg.setAllowedHeaders(List.of("*"));
         cfg.setExposedHeaders(List.of("Location"));

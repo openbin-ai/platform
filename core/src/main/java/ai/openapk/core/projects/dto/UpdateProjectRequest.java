@@ -11,6 +11,8 @@ import jakarta.validation.constraints.Size;
  */
 public record UpdateProjectRequest(
         @Size(min = 1, max = 200) String name,
+        // Null = unchanged; blank = clear. Up to 4000 chars of plain text.
+        @Size(max = 4000) String description,
         WorkflowStatus workflowStatus,
         AnalysisMode analysisMode
 ) {}

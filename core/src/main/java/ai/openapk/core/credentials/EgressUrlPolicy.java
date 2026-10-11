@@ -8,6 +8,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Where the server is allowed to make an outbound request on a user's behalf.
@@ -56,6 +57,60 @@ import java.util.List;
 public final class EgressUrlPolicy {
 
     private EgressUrlPolicy() {}
+
+    /**
+     * Operator allowlist for self-hosted installs whose model gateway lives
+     * on a private network (an internal Anthropic-compatible proxy, GovCloud
+     * Bedrock behind a VPC endpoint, a vLLM box). Entries are hostnames
+     * (matched exactly, case-insensitive) or CIDRs; a destination passes
+     * when its hostname is listed, or when every resolved address falls in
+     * a listed range. Empty on the hosted product. Set once at startup by
+     * {@link EgressAllowlistConfigurer}; volatile because the HTTP threads
+     * read it without a lock.
+     */
+    private static volatile Set<String> allowedHosts = Set.of();
+    private static volatile List<Cidr> allowedCidrs = List.of();
+
+    /**
+     * Parse {@code openapk.llm.egress-allowlist} (comma-separated hostnames
+     * and CIDRs). Invalid entries fail fast: a typo here must not silently
+     * widen or narrow the policy.
+     */
+    public static void configureAllowlist(String csv) {
+        var hosts = new java.util.HashSet<String>();
+        var cidrs = new java.util.ArrayList<Cidr>();
+        if (csv != null) {
+            for (String raw : csv.split(",")) {
+                String e = raw.trim();
+                if (e.isEmpty()) continue;
+                int slash = e.indexOf('/');
+                if (slash > 0) {
+                    String ip = e.substring(0, slash);
+                    int bits;
+                    try {
+                        bits = Integer.parseInt(e.substring(slash + 1));
+                    } catch (NumberFormatException ex) {
+                        throw new IllegalArgumentException("egress allowlist: bad CIDR '" + e + "'");
+                    }
+                    Cidr c = Cidr.of(ip, bits);
+                    int max = c.network().length * 8;
+                    if (bits < 0 || bits > max) {
+                        throw new IllegalArgumentException("egress allowlist: bad prefix in '" + e + "'");
+                    }
+                    cidrs.add(c);
+                } else {
+                    hosts.add(e.toLowerCase(java.util.Locale.ROOT));
+                }
+            }
+        }
+        allowedHosts = Set.copyOf(hosts);
+        allowedCidrs = List.copyOf(cidrs);
+    }
+
+    private static boolean allowlisted(byte[] addr) {
+        for (Cidr c : allowedCidrs) if (c.contains(addr)) return true;
+        return false;
+    }
 
     /** IPv4 ranges that are not publicly routable, or are routable only inside our own network. */
     private static final List<Cidr> BLOCKED_V4 = List.of(
@@ -113,6 +168,8 @@ public final class EgressUrlPolicy {
             throw reject("no host in URL");
         }
 
+        if (allowedHosts.contains(host.toLowerCase(java.util.Locale.ROOT))) return;
+
         InetAddress[] resolved;
         try {
             resolved = InetAddress.getAllByName(host);
@@ -122,7 +179,7 @@ public final class EgressUrlPolicy {
         if (resolved.length == 0) throw reject("host does not resolve");
 
         for (InetAddress addr : resolved) {
-            if (isBlocked(addr)) {
+            if (isBlocked(addr) && !allowlisted(addr.getAddress())) {
                 // Deliberately does not echo which address it resolved to —
                 // that turns the error into an internal-network oracle.
                 throw reject("host resolves to a non-public address");

@@ -30,6 +30,9 @@ public record ProfileResponse(
         String linkedinUrl,
         // True when the viewer IS this user — drives the "edit profile" affordance.
         boolean isMe,
+        // May the viewer open a DM with this user (their dm_policy, evaluated
+        // for this viewer)? False for anonymous viewers and for self.
+        boolean canMessage,
         // Reports where this user is the LEAD (project owner).
         List<CommunityReportSummary> reports,
         // Reports where this user is a credited CONTRIBUTOR but not the lead.

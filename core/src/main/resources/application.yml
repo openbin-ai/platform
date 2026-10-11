@@ -75,6 +75,9 @@ openapk:
     allowed-origins:
       - http://localhost:5173  # openapk-frontend dev
       - http://localhost:5174  # openbin-frontend dev
+    # Comma-separated extra origins appended to the list above. This is how
+    # a deployment adds its own hostnames without replacing the YAML list.
+    extra-origins: ${OPENAPK_CORS_EXTRA_ORIGINS:}
   workspace:
     # Where uploaded APKs and JADX-decompiled output are stored on disk.
     # Resolved relative to the working directory if not absolute.
@@ -105,6 +108,11 @@ openapk:
       # Optional endpoint override — point at MinIO for local prod-parity testing
       # (see core/compose.yaml). Empty means real AWS S3.
       endpoint: ${OPENAPK_S3_ENDPOINT:}
+      # Endpoint used ONLY when minting presigned URLs. Set it when the core
+      # reaches MinIO over an internal hostname (http://minio:9000) that
+      # browsers and the CLI cannot resolve; they get this one instead.
+      # Empty means presign against `endpoint`.
+      public-endpoint: ${OPENAPK_S3_PUBLIC_ENDPOINT:}
   analysis-storage:
     # Dedicated bucket for BIN analysis blobs (the Ghidra worker JSON the
     # CLI uploads via presigned PUT). Decoupled from `storage` above so
@@ -115,6 +123,9 @@ openapk:
     region: ${OPENAPK_ANALYSIS_S3_REGION:us-east-1}
     prefix: ${OPENAPK_ANALYSIS_S3_PREFIX:analysis}
     endpoint: ${OPENAPK_ANALYSIS_S3_ENDPOINT:}
+    # Same role as storage.s3.public-endpoint: the host the CLI PUTs to and
+    # the browser GETs from when no CloudFront distribution is configured.
+    public-endpoint: ${OPENAPK_ANALYSIS_S3_PUBLIC_ENDPOINT:}
     # TTLs scoped tight so leaked URLs collapse fast. PUT longer than GET
     # because a slow CLI upload (200MB on flaky wifi) needs a window.
     presigned-put-ttl: ${OPENAPK_ANALYSIS_PUT_TTL:PT15M}
@@ -131,6 +142,26 @@ openapk:
         source: ${OPENAPK_ANALYSIS_CF_PK_SOURCE:file}
         file-path: ${OPENAPK_ANALYSIS_CF_PK_FILE:}
         secret-arn: ${OPENAPK_ANALYSIS_CF_PK_SECRET_ARN:}
+  keycloak:
+    # Admin access used ONLY to delete a user's IdP identity on account
+    # deletion (see KeycloakAdminClient). We call the Admin REST API directly
+    # — no keycloak-admin-client dependency. Disabled by default so local dev
+    # (no service account) still works; when disabled, account deletion still
+    # anonymizes app-side data, it just leaves the Keycloak user in place.
+    #
+    # To enable in prod: create a confidential client in the realm with a
+    # service account granted realm-management `manage-users`, then set:
+    #   OPENAPK_KEYCLOAK_ADMIN_ENABLED=true
+    #   OPENAPK_KEYCLOAK_URL=https://<keycloak-host>
+    #   OPENAPK_KEYCLOAK_REALM=openapk
+    #   OPENAPK_KEYCLOAK_ADMIN_CLIENT_ID=<client-id>
+    #   OPENAPK_KEYCLOAK_ADMIN_CLIENT_SECRET=<client-secret>
+    admin:
+      enabled: ${OPENAPK_KEYCLOAK_ADMIN_ENABLED:false}
+      server-url: ${OPENAPK_KEYCLOAK_URL:http://localhost:8080}
+      realm: ${OPENAPK_KEYCLOAK_REALM:openapk}
+      client-id: ${OPENAPK_KEYCLOAK_ADMIN_CLIENT_ID:}
+      client-secret: ${OPENAPK_KEYCLOAK_ADMIN_CLIENT_SECRET:}
   projects:
     # Max bytes returned by GET /api/projects/{id}/files/**. Files larger than this
     # are reported as "too large" rather than streamed in full (a UX guardrail; the
@@ -179,6 +210,11 @@ openapk:
     # + ECR repo exist in your account. Function names are deployment-
     # specific — set them via env; there is no baked-in default.
     enabled: ${OPENAPK_SCRIPT_ANALYZER_ENABLED:false}
+    # Transport: `lambda` invokes the functions named below through the AWS
+    # SDK (hosted product). `http` treats the same three properties as base
+    # URLs of the worker containers running under the Lambda Runtime
+    # Interface Emulator (self-hosted), e.g. http://script-worker:8080.
+    mode: ${OPENAPK_SCRIPT_ANALYZER_MODE:lambda}
     lambda-function-name: ${OPENAPK_SCRIPT_ANALYZER_FUNCTION:}
     # JS-2: PyPI worker (Python 3.12 Lambda image). Spring sniffs the upload
     # and routes to whichever ecosystem matches — npm by default, pypi when
@@ -222,6 +258,34 @@ openapk:
     # src/main/resources/legal/tos.md whenever you make a material change
     # — every user will be forced to re-accept on next API call.
     current-version: ${OPENAPK_TOS_VERSION:2026-06-05}
+    # Self-hosted installs run under the customer's own terms, so the
+    # acceptance gate can be switched off there. Always on for the hosted
+    # product.
+    required: ${OPENAPK_TOS_REQUIRED:true}
+  llm:
+    # Comma-separated hostnames and CIDRs that BYOK base URLs may point at
+    # even though they resolve to private addresses. Empty (hosted product)
+    # keeps the strict public-only SSRF policy. Self-hosted installs with an
+    # internal model gateway list it here, e.g.
+    #   OPENAPK_LLM_EGRESS_ALLOWLIST=llm-gateway.corp.example,10.40.0.0/16
+    egress-allowlist: ${OPENAPK_LLM_EGRESS_ALLOWLIST:}
+  web:
+    # Public hostnames of this deployment. Used for links in emails, for
+    # GET /api/public/config (which the web apps and the CLI read), and by
+    # anything else that has to name a browser-reachable URL. The hosted
+    # product keeps the defaults; a self-hosted install sets all of them.
+    openbin-url: ${OPENAPK_OPENBIN_WEB_URL:https://app.openbin.ai}
+    openapk-url: ${OPENAPK_OPENAPK_WEB_URL:https://openapk.ai}
+    # Browser-reachable Keycloak base (no /realms suffix). Blank derives it
+    # from spring.security.oauth2.resourceserver.jwt.issuer-uri.
+    auth-url: ${OPENAPK_PUBLIC_AUTH_URL:}
+    # Where install scripts, CLI archives, worker image tarballs and BINNY
+    # are downloaded from. GitHub releases by default; a self-hosted
+    # install serves them itself so air-gapped analysts can still install.
+    downloads-base: ${OPENAPK_DOWNLOADS_BASE:https://github.com/openbin-ai/platform/releases/latest/download}
+    # True on self-hosted installs. The web apps use it to swap hosted-only
+    # copy (GitHub links, sponsorship notes) for instance-local guidance.
+    self-hosted: ${OPENAPK_SELF_HOSTED:false}
 
 management:
   endpoints:

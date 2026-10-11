@@ -4,7 +4,7 @@ import ai.openapk.core.config.OpenApkProperties;
 import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Component;
@@ -33,11 +33,14 @@ import java.util.Map;
  * </ol>
  *
  * Bean is only registered when {@code openapk.script-analyzer.enabled=true}
- * so dev profiles without AWS credentials boot cleanly.
+ * and the transport mode is {@code lambda} (the default), so dev profiles
+ * without AWS credentials boot cleanly and self-hosted installs can swap in
+ * {@link HttpScriptWorkerInvoker} instead.
  */
 @Component
-@ConditionalOnProperty(name = "openapk.script-analyzer.enabled", havingValue = "true")
-public class LambdaInvoker {
+@ConditionalOnExpression(
+        "${openapk.script-analyzer.enabled:false} and '${openapk.script-analyzer.mode:lambda}' == 'lambda'")
+public class LambdaInvoker implements ScriptWorkerInvoker {
 
     private static final Logger log = LoggerFactory.getLogger(LambdaInvoker.class);
 
@@ -55,15 +58,16 @@ public class LambdaInvoker {
      * picks the function name based on the upload's ecosystem so the same
      * client handles npm + pypi workers without duplicating SDK plumbing.
      *
-     * @throws LambdaInvocationException on any worker-side or transport
+     * @throws InvocationException on any worker-side or transport
      *         failure; the original exception is the cause when available.
      */
+    @Override
     public byte[] invoke(String functionName, Map<String, Object> event) {
         byte[] payload;
         try {
             payload = mapper.writeValueAsBytes(event);
         } catch (Exception e) {
-            throw new LambdaInvocationException(
+            throw new InvocationException(
                     "failed to serialize script-worker event", e);
         }
 
@@ -76,7 +80,7 @@ public class LambdaInvoker {
         try {
             resp = client.invoke(req);
         } catch (RuntimeException e) {
-            throw new LambdaInvocationException(
+            throw new InvocationException(
                     "script-worker invoke failed for " + functionName, e);
         }
 
@@ -88,11 +92,11 @@ public class LambdaInvoker {
         if (functionError != null) {
             String bodyStr = new String(body, StandardCharsets.UTF_8);
             log.warn("script-worker handler error ({}): {}", functionError, bodyStr);
-            throw new LambdaInvocationException(
+            throw new InvocationException(
                     "script-worker reported " + functionError + ": " + bodyStr);
         }
         if (resp.statusCode() != 200) {
-            throw new LambdaInvocationException(
+            throw new InvocationException(
                     "script-worker returned HTTP " + resp.statusCode());
         }
         return body;
@@ -104,7 +108,8 @@ public class LambdaInvoker {
      * chain — ECS task role in prod, local AWS profile in dev.
      */
     @Configuration
-    @ConditionalOnProperty(name = "openapk.script-analyzer.enabled", havingValue = "true")
+    @ConditionalOnExpression(
+            "${openapk.script-analyzer.enabled:false} and '${openapk.script-analyzer.mode:lambda}' == 'lambda'")
     static class Config {
         @Bean(destroyMethod = "close")
         LambdaClient scriptWorkerLambdaClient(OpenApkProperties props) {
@@ -124,9 +129,4 @@ public class LambdaInvoker {
         }
     }
 
-    /** Thrown when the invoke transport or the worker itself failed. */
-    public static class LambdaInvocationException extends RuntimeException {
-        public LambdaInvocationException(String message) { super(message); }
-        public LambdaInvocationException(String message, Throwable cause) { super(message, cause); }
-    }
 }

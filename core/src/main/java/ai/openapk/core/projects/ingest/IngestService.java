@@ -98,7 +98,7 @@ public class IngestService {
      * CDN signing isn't configured.
      */
     private java.util.function.Function<String, String> urlSigner() {
-        if (analysisStorage == null || !analysisStorage.cdnConfigured()) return null;
+        if (analysisStorage == null || !analysisStorage.downloadUrlsAvailable()) return null;
         return analysisStorage::signDownloadUrl;
     }
 

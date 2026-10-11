@@ -66,13 +66,24 @@ public class StorageS3Config {
         var builder = S3Presigner.builder()
                 .region(Region.of(s3.region()))
                 .credentialsProvider(DefaultCredentialsProvider.create());
-        if (s3.endpoint() != null && !s3.endpoint().isBlank()) {
-            builder.endpointOverride(URI.create(s3.endpoint()))
+        // Presigned URLs are consumed by browsers and the CLI, so they must
+        // carry the externally reachable endpoint when one is configured
+        // (self-hosted MinIO behind a reverse proxy).
+        String presignEndpoint = firstNonBlank(s3.publicEndpoint(), s3.endpoint());
+        if (presignEndpoint != null) {
+            builder.endpointOverride(URI.create(presignEndpoint))
                    .serviceConfiguration(S3Configuration.builder()
                            .pathStyleAccessEnabled(true)
                            .build());
+            log.info("S3 presigner endpoint: {}", presignEndpoint);
         }
         return builder.build();
+    }
+
+    public static String firstNonBlank(String a, String b) {
+        if (a != null && !a.isBlank()) return a;
+        if (b != null && !b.isBlank()) return b;
+        return null;
     }
 
     private static OpenApkProperties.Storage.S3 requireS3(OpenApkProperties props) {

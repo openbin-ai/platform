@@ -18,8 +18,27 @@ public record OpenApkProperties(
         ScriptAnalyzer scriptAnalyzer,
         Workers workers,
         Email email,
-        Tos tos
+        Tos tos,
+        Web web
 ) {
+
+    /**
+     * Where the public surfaces of this deployment live. The hosted product
+     * hardcodes openbin.ai / openapk.ai; a self-hosted install points these
+     * at its own hostnames so emails, the CLI and the web apps link to the
+     * right place. {@code downloadsBase} is where the CLI installer, the
+     * worker image tarballs and BINNY are served from (GitHub releases by
+     * default, the instance's own /downloads/ when air-gapped).
+     * {@code authUrl} is the browser-reachable Keycloak base; blank means
+     * "derive it from the JWT issuer URI".
+     */
+    public record Web(
+            String openbinUrl,
+            String openapkUrl,
+            String authUrl,
+            String downloadsBase,
+            Boolean selfHosted
+    ) {}
 
     /**
      * Terms-of-Service config. {@code currentVersion} is the version
@@ -28,11 +47,31 @@ public record OpenApkProperties(
      * user's accepted version. Bump in lockstep with any material TOS
      * change to force a re-accept across the user base.
      */
-    public record Tos(String currentVersion) {}
+    public record Tos(String currentVersion, Boolean required) {
+        /** Null (unset) means required: the hosted product always gates. */
+        public boolean isRequired() { return required == null || required; }
+    }
 
     public record Crypto(String masterKeyB64) {}
 
-    public record Cors(List<String> allowedOrigins) {}
+    /**
+     * {@code allowedOrigins} is the YAML list; {@code extraOrigins} is a
+     * comma-separated string from {@code OPENAPK_CORS_EXTRA_ORIGINS} so a
+     * deployment can add its own hostnames without overriding the list.
+     */
+    public record Cors(List<String> allowedOrigins, String extraOrigins) {
+        public List<String> effectiveOrigins() {
+            var out = new java.util.ArrayList<String>();
+            if (allowedOrigins != null) out.addAll(allowedOrigins);
+            if (extraOrigins != null) {
+                for (String o : extraOrigins.split(",")) {
+                    String t = o.trim();
+                    if (!t.isEmpty() && !out.contains(t)) out.add(t);
+                }
+            }
+            return out;
+        }
+    }
 
     public record Workspace(String dir) {}
 
@@ -60,7 +99,14 @@ public record OpenApkProperties(
             Integer cacheMinFreePercent,
             Duration presignedUrlTtl
     ) {
-        public record S3(String bucket, String region, String prefix, String endpoint) {}
+        /**
+         * {@code publicEndpoint} — the endpoint browsers and the CLI can
+         * reach, used only for presigned URLs. Needed when the core talks
+         * to MinIO over an internal hostname ({@code endpoint}) that is
+         * not routable from outside the Docker network. Blank means
+         * presign against {@code endpoint}.
+         */
+        public record S3(String bucket, String region, String prefix, String endpoint, String publicEndpoint) {}
     }
 
     /**
@@ -79,6 +125,8 @@ public record OpenApkProperties(
             String region,
             String prefix,
             String endpoint,
+            /** See {@link Storage.S3#publicEndpoint()}; same role for the analysis bucket. */
+            String publicEndpoint,
             Duration presignedPutTtl,
             Duration presignedGetTtl,
             CloudFront cloudfront
@@ -152,6 +200,8 @@ public record OpenApkProperties(
      */
     public record ScriptAnalyzer(
             Boolean enabled,
+            /** {@code lambda} (default) or {@code http}; see {@link ai.openapk.core.script.ScriptWorkerInvoker}. */
+            String mode,
             String lambdaFunctionName,
             String pypiLambdaFunctionName,
             String shellLambdaFunctionName,

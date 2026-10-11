@@ -53,11 +53,17 @@ public class AnalysisStorageConfig {
         var builder = S3Presigner.builder()
                 .region(Region.of(a.region()))
                 .credentialsProvider(DefaultCredentialsProvider.create());
-        if (a.endpoint() != null && !a.endpoint().isBlank()) {
-            builder.endpointOverride(URI.create(a.endpoint()))
+        // The CLI PUTs and the browser GETs through these URLs, so prefer
+        // the externally reachable endpoint when the core itself talks to
+        // MinIO over an internal hostname.
+        String presignEndpoint = ai.openapk.core.projects.storage.StorageS3Config
+                .firstNonBlank(a.publicEndpoint(), a.endpoint());
+        if (presignEndpoint != null) {
+            builder.endpointOverride(URI.create(presignEndpoint))
                    .serviceConfiguration(S3Configuration.builder()
                            .pathStyleAccessEnabled(true)
                            .build());
+            log.info("analysis S3 presigner endpoint: {}", presignEndpoint);
         }
         return builder.build();
     }
@@ -87,8 +93,11 @@ public class AnalysisStorageConfig {
             CloudFrontUtilities cfUtils
     ) {
         var cf = require(props).cloudfront();
+        // Blank counts as unset: the env placeholders default to "" and a
+        // self-hosted install has no CDN at all (downloads fall back to
+        // presigned S3 GETs in AnalysisStorageService).
         if (cf == null || cf.privateKey() == null
-                || cf.distributionDomain() == null || cf.keyPairId() == null) {
+                || isBlank(cf.distributionDomain()) || isBlank(cf.keyPairId())) {
             log.warn("CloudFront URL signer not configured — frontend will fall back to JSONB reads");
             return new CloudFrontUrlSigner(cfUtils, null, null, null);
         }
@@ -104,6 +113,10 @@ public class AnalysisStorageConfig {
      * file the SDK can read. We don't keep the PEM string in memory
      * because the SDK API specifically wants a Path.
      */
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
     private static Path resolveKeyPath(OpenApkProperties.AnalysisStorage.CloudFront.PrivateKey pk) {
         if ("file".equalsIgnoreCase(pk.source())) {
             if (pk.filePath() == null || pk.filePath().isBlank()) {

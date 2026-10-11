@@ -6,6 +6,7 @@ import ai.openapk.core.credentials.LlmCredential;
 import ai.openapk.core.credentials.OutboundLlmHttp;
 import ai.openapk.core.credentials.LlmCredentialEncryptionService;
 import ai.openapk.core.credentials.LlmCredentialPayload;
+import ai.openapk.core.credentials.LlmEndpoints;
 import ai.openapk.core.credentials.LlmCredentialPayloadCodec;
 import ai.openapk.core.credentials.LlmModelCatalog;
 import ai.openapk.core.credentials.LlmProvider;
@@ -141,7 +142,7 @@ public class LlmInvoker {
                 "messages", List.of(Map.of("role", "user", "content", userPrompt))
         );
         String responseText = http.post()
-                .uri("https://api.anthropic.com/v1/messages")
+                .uri(LlmEndpoints.anthropicMessagesUrl(p))
                 .header("x-api-key", p.apiKey())
                 .header("anthropic-version", "2023-06-01")
                 .header("content-type", "application/json")

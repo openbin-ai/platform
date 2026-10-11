@@ -15,6 +15,8 @@ public record ProjectResponse(
         UUID id,
         ProjectKind kind,
         String name,
+        // Optional analyst-written description; null until set.
+        String description,
         String originalFilename,
         long sizeBytes,
         String sha256,
@@ -119,6 +121,7 @@ public record ProjectResponse(
                 p.getId(),
                 p.getKind(),
                 p.getName(),
+                p.getDescription(),
                 p.getOriginalFilename(),
                 p.getSizeBytes(),
                 p.getSha256(),

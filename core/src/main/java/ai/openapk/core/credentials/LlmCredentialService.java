@@ -97,7 +97,16 @@ public class LlmCredentialService {
         return switch (req.provider().kind()) {
             case ANTHROPIC -> {
                 requireField(req.apiKey(), "apiKey");
-                yield new LlmCredentialPayload.Anthropic(req.apiKey());
+                // Optional gateway in front of the Messages API. Blank means
+                // the real api.anthropic.com; anything else must be public.
+                String baseUrl = req.baseUrl();
+                if (baseUrl != null && !baseUrl.isBlank()) {
+                    baseUrl = baseUrl.trim().replaceAll("/+$", "");
+                    EgressUrlPolicy.requirePublicDestination(baseUrl);
+                } else {
+                    baseUrl = null;
+                }
+                yield new LlmCredentialPayload.Anthropic(req.apiKey(), baseUrl);
             }
             case OPENAI -> {
                 requireField(req.apiKey(), "apiKey");

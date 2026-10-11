@@ -489,7 +489,7 @@ public class AnalysisService {
 
     /** Walk the functions array for an exact name match. Linear scan is fine
      *  — there are at most {@code MAX_FUNCTIONS} (5000) entries. */
-    private static JsonNode findFunctionByName(JsonNode functions, String name) {
+    public static JsonNode findFunctionByName(JsonNode functions, String name) {
         if (!functions.isArray() || name == null) return null;
         for (JsonNode fn : functions) {
             if (name.equals(fn.path("name").asString(null))) return fn;
