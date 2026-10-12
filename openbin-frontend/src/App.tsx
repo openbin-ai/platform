@@ -20,6 +20,7 @@ import { CallGraph } from './pages/CallGraph'
 import { Blog } from './pages/Blog'
 import { BlogEditor } from './pages/BlogEditor'
 import { BlogPostPage } from './pages/BlogPostPage'
+import { Ctf } from './pages/Ctf'
 import { Community } from './pages/Community'
 import { CommunityReport } from './pages/CommunityReport'
 import { PublicProject } from './pages/PublicProject'
@@ -60,6 +61,8 @@ export default function App() {
             <Route path="blog" element={<Blog />} />
             <Route path="blog/:slug" element={<BlogPostPage />} />
             <Route path="community" element={<Community />} />
+            <Route path="ctf" element={<Ctf />} />
+            <Route path="ctf/:slug" element={<Ctf />} />
             <Route path="community/researchers" element={<ResearcherSearch />} />
             <Route path="community/reports/:id" element={<CommunityReport />} />
             {/* Anonymous read-only project view — shareable public link. */}

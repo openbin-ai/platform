@@ -12,6 +12,8 @@ export type ToggleResponse = {
 }
 
 export type ProfileResponse = {
+  /** Weekly CTF record across all seasons. */
+  ctf?: { points: number; solves: number; firstBloods: number }
   userId: string
   displayName: string
   emailMd5: string

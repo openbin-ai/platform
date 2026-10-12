@@ -85,6 +85,17 @@ export function AuthorProfilePage() {
                     <span className="font-mono text-base text-zinc-100">{profile.followingCount}</span>{' '}
                     <span className="text-zinc-500">following</span>
                   </Link>
+                  {profile.ctf && profile.ctf.solves > 0 && (
+                    <Link to="/ctf" className="text-zinc-300 hover:text-zinc-100" title="Weekly CTF record">
+                      <span className="font-mono text-base text-zinc-100">{profile.ctf.points}</span>{' '}
+                      <span className="text-zinc-500">CTF pts</span>
+                      {profile.ctf.firstBloods > 0 && (
+                        <span className="ml-1 rounded border border-amber-600/60 bg-amber-900/30 px-1 py-0.5 font-mono text-[10px] uppercase text-amber-300">
+                          {profile.ctf.firstBloods}× first blood
+                        </span>
+                      )}
+                    </Link>
+                  )}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">

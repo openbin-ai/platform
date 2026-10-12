@@ -262,6 +262,10 @@ openapk:
     # acceptance gate can be switched off there. Always on for the hosted
     # product.
     required: ${OPENAPK_TOS_REQUIRED:true}
+  discord:
+    # Webhook for CTF announcements (new challenge live, first blood). Blank
+    # disables them. Create one under Server Settings > Integrations.
+    webhook-url: ${OPENAPK_DISCORD_WEBHOOK_URL:}
   llm:
     # Comma-separated hostnames and CIDRs that BYOK base URLs may point at
     # even though they resolve to private addresses. Empty (hosted product)

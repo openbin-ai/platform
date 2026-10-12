@@ -39,5 +39,7 @@ public record ProfileResponse(
         // Empty for legacy reports published before the byline existed.
         List<CommunityReportSummary> collaborativeReports,
         // Published blog posts by this author, newest first.
-        List<BlogPostSummary> posts
+        List<BlogPostSummary> posts,
+        // Weekly CTF record: points, solves and first bloods across all seasons.
+        ai.openapk.core.ctf.dto.CtfDtos.UserStats ctf
 ) {}

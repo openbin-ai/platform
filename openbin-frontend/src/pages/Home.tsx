@@ -6,6 +6,7 @@ import { Gravatar } from '@shared/components/Gravatar'
 import type { CommunityReportSummary } from '@shared/api/community'
 import { personalFeedPath } from '@shared/api/social'
 import iconUrl from '../assets/icon.png'
+import { ctfApi, timeLeft, type CtfHome } from '@shared/api/ctf'
 
 // Post-login dashboard. Mirrors openapk-frontend/src/pages/Home.tsx with
 // amber accents and the BIN-flavored community feed. Sections degrade
@@ -76,6 +77,7 @@ export function Home() {
           here, not buried at the bottom of a grid. The smaller bottom
           CommunityCard that used to live in the grid is gone. */}
       <CommunityHero />
+      <CtfCard />
       <RecentProjects />
       <UsageCard />
     </div>
@@ -377,6 +379,51 @@ function CommunityHero() {
           ))}
         </ul>
       )}
+    </section>
+  )
+}
+
+function CtfCard() {
+  const api = useApi()
+  const [home, setHome] = useState<CtfHome | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    api<CtfHome>(ctfApi.home).then((h) => { if (!cancelled) setHome(h) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [api])
+  if (!home || (!home.live && !home.researcherOfTheWeek && !home.upcoming)) return null
+  const live = home.live
+  const rotw = home.researcherOfTheWeek
+  return (
+    <section className="rounded-xl border border-amber-500/30 bg-linear-to-br from-amber-950/20 via-zinc-950 to-zinc-950 p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span aria-hidden className="text-amber-400">⚑</span>
+            <h2 className="text-xl font-semibold text-zinc-50">Weekly CTF</h2>
+            {live && <span className="rounded border border-emerald-600/60 bg-emerald-900/30 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-emerald-300">live</span>}
+          </div>
+          {live ? (
+            <p className="mt-2 text-sm text-zinc-300">
+              <Link to={`/ctf/${live.slug}`} className="font-medium text-zinc-100 hover:underline">{live.title}</Link>
+              {' '}· {live.solveCount} {live.solveCount === 1 ? 'solve' : 'solves'}
+              {timeLeft(live.endsAt) && <> · closes in {timeLeft(live.endsAt)}</>}
+              {live.mine && <span className="ml-2 text-emerald-300">solved</span>}
+            </p>
+          ) : home.upcoming ? (
+            <p className="mt-2 text-sm text-zinc-300">Next: {home.upcoming.title}, opens {new Date(home.upcoming.startsAt).toLocaleDateString()}.</p>
+          ) : null}
+          {rotw && (
+            <p className="mt-2 flex items-center gap-2 text-sm text-zinc-400">
+              <Gravatar emailMd5={rotw.solver.emailMd5} size={20} />
+              Researcher of the Week: <Link to={`/u/${rotw.solver.userId}`} className="text-zinc-100 hover:underline">{rotw.solver.displayName}</Link>
+            </p>
+          )}
+        </div>
+        <Link to="/ctf" className="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-black hover:bg-amber-400">
+          {live ? 'Play' : 'Leaderboard'}
+        </Link>
+      </div>
     </section>
   )
 }

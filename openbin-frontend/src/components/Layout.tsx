@@ -44,6 +44,7 @@ export function Layout() {
                 <NavItem to="/projects">Projects</NavItem>
               </>
             )}
+            <NavItem to="/ctf">CTF</NavItem>
             <NavItem to="/blog">Blog</NavItem>
             <NavItem to="/docs">Docs</NavItem>
             {/* Community is the platform's headline value prop — give it

@@ -59,6 +59,7 @@ public class SocialService {
     private final ReportContributorService contributors;
     private final BlogService blog;
     private final DmService dm;
+    private final ai.openapk.core.ctf.CtfService ctf;
 
     public SocialService(FollowRepository followRepo, ReportVoteRepository voteRepo,
                          UserRepository userRepo, ProjectReportRepository reportRepo,
@@ -66,8 +67,10 @@ public class SocialService {
                          NotificationService notifications,
                          ReportContributorService contributors,
                          BlogService blog,
-            DmService dm) {
+            DmService dm,
+            ai.openapk.core.ctf.CtfService ctf) {
         this.dm = dm;
+        this.ctf = ctf;
         this.followRepo = followRepo;
         this.voteRepo = voteRepo;
         this.userRepo = userRepo;
@@ -394,7 +397,8 @@ public class SocialService {
                 dm.canMessage(viewerOrNull, u),
                 reports,
                 collaborativeReports,
-                blog.byAuthor(u.getId(), viewerOrNull)
+                blog.byAuthor(u.getId(), viewerOrNull),
+                ctf.statsFor(u.getId())
         );
     }
 
