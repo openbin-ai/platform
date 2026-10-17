@@ -31,7 +31,6 @@ import { ResearcherSearch } from './pages/ResearcherSearch'
 import { Terms } from './pages/Terms'
 import { Privacy } from './pages/Privacy'
 import { Docs } from './pages/Docs'
-import { CliDocs } from './pages/CliDocs'
 import { Profile } from './pages/Profile'
 
 // OpenBin frontend. Mirrors openapk-frontend's auth scaffolding (same
@@ -75,8 +74,7 @@ export default function App() {
             <Route path="privacy" element={<Privacy />} />
             {/* How-to guide — anonymous-readable so prospective users can
                 read it before signing in. */}
-            <Route path="docs" element={<Docs />} />
-            <Route path="docs/cli" element={<CliDocs />} />
+            <Route path="docs/*" element={<Docs />} />
           </Route>
 
           {/* Print view is chrome-free (no Layout) so what you see is what

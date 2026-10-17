@@ -24,10 +24,12 @@ export default function App() {
 
       <main className="relative z-10">
         <Hero />
+        <GetStarted />
         <BinnyBeta />
         <Platforms />
         <Inputs />
         <TabbedShowcase />
+        <WhatYouCanDo />
         <WhyOpenBin />
         <HallOfFame />
         <CTA />
@@ -48,9 +50,9 @@ function BinnyAnnounceBar() {
       href="#binny"
       className="relative z-20 block border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center text-sm text-amber-200 backdrop-blur transition hover:bg-amber-500/20"
     >
-      <span className="font-semibold text-amber-100">BINNY beta is out.</span> A terminal agent that
-      investigates your sample and drafts the report, with your own LLM key.{' '}
-      <span className="underline decoration-amber-400/50 underline-offset-2">Install it</span>
+      <span className="font-semibold text-amber-100">BINNY is open source.</span> An agent harness for
+      reverse engineering that runs on any model, including local ones.{' '}
+      <span className="underline decoration-amber-400/50 underline-offset-2">See it</span>
     </a>
   )
 }
@@ -58,8 +60,9 @@ function BinnyAnnounceBar() {
 // One list drives both the desktop nav row and the mobile dropdown so the
 // two can't drift. external → new tab; accent → amber (Community only).
 const navLinks: { label: string; href: string; external?: boolean; accent?: boolean }[] = [
+  { label: 'Get started', href: '#install' },
   { label: 'BINNY', href: '#binny' },
-  { label: 'Platforms', href: '#platforms' },
+  { label: 'Features', href: '#features' },
   { label: 'Why OpenBin', href: '#why' },
   { label: 'Docs', href: 'https://app.openbin.ai/docs' },
   { label: 'Community', href: 'https://app.openbin.ai/community', accent: true },
@@ -136,7 +139,7 @@ function Hero() {
       <img
         src={logoLight}
         alt="OpenBin.ai - The Open Binary Project"
-        className="mb-8 h-48 w-auto drop-shadow-[0_8px_40px_rgba(251,191,36,0.35)] sm:mb-12 sm:h-112"
+        className="mb-8 h-40 w-auto drop-shadow-[0_8px_40px_rgba(251,191,36,0.35)] sm:mb-10 sm:h-72"
       />
       {/* Visible "official name" line — needs to be real text, not just
           alt/JSON-LD, for the phrase "The Open Binary Project" to actually
@@ -163,134 +166,95 @@ function Hero() {
         <span className="text-amber-400">Decompile</span> and{' '}
         <span className="text-amber-400">analyze</span> native binaries, Android
         APKs, and malicious npm, PyPI, PowerShell &amp; shell packages with
-        integrated AI assistance - then{' '}
-        <span className="text-amber-400">publish</span> your findings,{' '}
-        <span className="text-amber-400">cite</span> other researchers, and
-        build on each other's work.
+        an agent that reads the code with you, then{' '}
+        <span className="text-amber-400">publish</span> your findings, fork
+        other researchers' projects, and build on each other's work.
       </p>
       <p className="mt-4 max-w-2xl text-base leading-relaxed text-zinc-300 sm:text-lg">
         Free and open source (AGPL). Cloud-based, so your work is accessible from
         anywhere and shareable with your team. Bring your own LLM key - you only
         ever pay your own AI provider.
       </p>
+      {/* One primary action and one secondary. The old row had four equal
+          buttons in two colours; a reader could not tell which one was the
+          door. Community and OpenAPK keep their links as plain text below. */}
       <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row">
         <a
-          href="https://github.com/openbin-ai/platform/releases/latest"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded-md bg-amber-400 px-6 py-3 text-base font-semibold text-black shadow-[0_6px_30px_rgba(251,191,36,0.45)] transition hover:bg-amber-300"
-        >
-          Download the CLI →
-        </a>
-        {/* Browse Community is the second primary CTA — collaborative
-            security research IS the platform's value prop, so it gets
-            equal visual weight to the CLI download. Filled purple so it
-            stands out against the amber chrome around it. */}
-        <a
-          href="https://app.openbin.ai/community"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 rounded-md bg-purple-600 px-6 py-3 text-base font-semibold text-white shadow-[0_6px_30px_rgba(124,58,237,0.45)] transition hover:bg-purple-500"
-        >
-          <Star aria-hidden className="h-4 w-4" />
-          Browse community
-        </a>
-        <a
           href="https://app.openbin.ai"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded-md border border-amber-500/40 bg-zinc-900/60 px-6 py-3 text-base text-zinc-100 backdrop-blur hover:bg-zinc-800/60"
+          className="rounded-md bg-amber-400 px-6 py-3 text-base font-semibold text-black shadow-[0_6px_30px_rgba(251,191,36,0.45)] transition hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
         >
-          Open Web App →
+          Open the app
         </a>
         <a
-          href="https://openapk.ai"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded-md border border-amber-500/40 bg-zinc-900/60 px-6 py-3 text-base text-zinc-100 backdrop-blur hover:bg-zinc-800/60"
+          href="#install"
+          className="rounded-md border border-amber-500/40 bg-zinc-900/60 px-6 py-3 text-base text-zinc-100 backdrop-blur transition hover:bg-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
         >
-          Try OpenAPK →
+          Install the CLI
         </a>
       </div>
-      {/* New-user onramp — sits right under the CTAs, full attention, not
-          competing as a fifth button. The single most useful link for the
-          people who just signed up and don't yet know where to click. */}
-      <a
-        href="https://app.openbin.ai/docs"
-        className="mt-6 inline-flex items-center gap-2 text-base font-medium text-amber-400 underline-offset-4 hover:underline"
-      >
-        <BookOpen aria-hidden className="h-4 w-4" />
-        New here? Read the 5-step guide →
-      </a>
-      <InstallCommands />
-      <CloudSunsetNote />
-      <p className="mt-8 font-mono text-sm uppercase tracking-[0.15em] text-zinc-300">
-        v1.0 · Free &amp; open source (AGPL v3) · BYOK (Anthropic · OpenAI · Bedrock) · Runs in your browser
+      <p className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-base">
+        <a href="https://app.openbin.ai/docs" className="inline-flex items-center gap-2 font-medium text-amber-400 underline-offset-4 hover:underline">
+          <BookOpen aria-hidden className="h-4 w-4" />
+          New here? Read the docs
+        </a>
+        <a href="https://app.openbin.ai/community" className="inline-flex items-center gap-2 text-zinc-200 underline-offset-4 hover:text-amber-300 hover:underline">
+          <Star aria-hidden className="h-4 w-4" />
+          Browse community reports
+        </a>
+      </p>
+      <p className="mt-10 font-mono text-sm uppercase tracking-[0.15em] text-zinc-300">
+        Free &amp; open source (AGPL v3) · Bring your own model key · Runs in your browser
       </p>
     </section>
   )
 }
 
 /**
- * One-liner install commands for each platform. openbin ships a native CLI
- * for macOS, Linux, AND Windows (Windows joined at the cloud sunset — the
- * local CLI is now every platform's path). The Unix installer is POSIX sh;
- * Windows uses a PowerShell script (install.ps1). Both fetch the slim binary
- * from the latest GitHub release.
+ * Three commands from nothing to a project URL. Decompiling runs on the
+ * reader's machine (cloud Ghidra/JADX is off, see GhidraSunsetMessage.java),
+ * so the install block is the real front door and gets its own section
+ * instead of hanging under the hero buttons.
  */
-function InstallCommands() {
+function GetStarted() {
+  const steps: { title: string; body: string; cmd: string; alt?: string }[] = [
+    { title: 'Install the CLI', body: 'macOS and Linux. Windows uses PowerShell.', cmd: 'curl -fsSL https://openbin.ai/install.sh | sh', alt: 'irm https://openbin.ai/install.ps1 | iex' },
+    { title: 'Sign in once', body: 'Opens your browser. The same account works on OpenBin and OpenAPK.', cmd: 'openbin login' },
+    { title: 'Decompile a file', body: 'Ghidra for native binaries, JADX for APKs, both in a local Docker container. It prints a project URL when it is done.', cmd: 'openbin decompile ./sample.elf', alt: 'openbin apk ./app.apk' },
+  ]
   return (
-    <div className="mt-8 w-full max-w-2xl text-left">
-      <p className="mb-2 text-center font-mono text-xs uppercase tracking-[0.15em] text-zinc-400">
-        Install the CLI · v0.9 · macOS · Linux · Windows
-      </p>
-      <div className="space-y-2">
-        <div className="rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
-          <div className="mb-1 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">macOS / Linux</div>
-          <code className="block overflow-x-auto whitespace-nowrap font-mono text-sm text-zinc-100">
-            curl -fsSL https://openbin.ai/install.sh | sh
-          </code>
-        </div>
-        <div className="rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
-          <div className="mb-1 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">Windows (PowerShell)</div>
-          <code className="block overflow-x-auto whitespace-nowrap font-mono text-sm text-zinc-100">
-            irm https://openbin.ai/install.ps1 | iex
-          </code>
-        </div>
-      </div>
-      <p className="mt-2 text-center text-xs text-zinc-500">
-        Decompiling runs locally in Docker. Docker Desktop (WSL 2 on Windows) must be installed and running.
-      </p>
-    </div>
-  )
-}
-
-/**
- * Small inline note pinned beneath the hero CTAs. Explains why the
- * "Download CLI" button is now the primary path: cloud Ghidra is scaled
- * to zero (see GhidraSunsetMessage.java backend-side) and binaries get
- * decompiled on the user's own machine instead. Sponsorship mailto for
- * anyone willing to fund cloud compute is right here so it can't be
- * missed.
- */
-function CloudSunsetNote() {
-  return (
-    <div className="mt-6 max-w-2xl rounded-lg border border-amber-700/40 bg-amber-950/20 px-5 py-3 text-center text-sm text-zinc-200">
-      <p>
-        <span className="font-semibold text-amber-300">Cloud decompile is paused.</span>{' '}
-        AWS compute outpaced what a free OSS project can carry. The CLI
-        runs Ghidra on your own machine; your binary never leaves your laptop.
-      </p>
-      <p className="mt-1.5 text-xs text-zinc-400">
+    <section id="install" className="mx-auto max-w-6xl scroll-mt-20 px-6 pt-4 pb-20">
+      <SectionHeading
+        label="Get started"
+        title="Three commands to your first project."
+        intro="Your file is decompiled on your own machine and only the decompiled result is uploaded. Docker Desktop (WSL 2 on Windows) must be installed and running."
+      />
+      <ol className="grid gap-4 lg:grid-cols-3">
+        {steps.map((st, i) => (
+          <li key={st.title} className="flex min-w-0 flex-col rounded-lg border border-zinc-800 bg-zinc-950/80 p-6">
+            <div className="flex items-center gap-3">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-400 font-mono text-sm font-bold text-black">{i + 1}</span>
+              <h3 className="text-lg font-semibold text-zinc-50">{st.title}</h3>
+            </div>
+            <p className="mt-3 flex-1 text-sm leading-relaxed text-zinc-300">{st.body}</p>
+            <code className="mt-4 block overflow-x-auto whitespace-nowrap rounded-md border border-zinc-800 bg-black/60 px-3 py-2 font-mono text-[13px] text-emerald-300">
+              <span className="select-none text-zinc-600">$ </span>{st.cmd}
+            </code>
+            {st.alt && (
+              <code className="mt-2 block overflow-x-auto whitespace-nowrap rounded-md border border-zinc-800 bg-black/60 px-3 py-2 font-mono text-[13px] text-zinc-300">
+                <span className="select-none text-zinc-600">{st.alt.startsWith('irm') ? 'PS> ' : '$ '}</span>{st.alt}
+              </code>
+            )}
+          </li>
+        ))}
+      </ol>
+      <p className="mt-5 text-sm text-zinc-400">
+        Cloud decompile is paused: AWS compute outpaced what a free project can carry, so the CLI does that part locally.
+        Full install notes, flags and troubleshooting are in the{' '}
+        <a href="https://app.openbin.ai/docs/cli/install" className="text-amber-400 underline-offset-4 hover:underline">CLI docs</a>.
         Want to sponsor cloud decompile for the community?{' '}
-        <a
-          href="mailto:husam@openbin.ai"
-          className="font-medium text-amber-300 underline-offset-4 hover:underline"
-        >
-          husam@openbin.ai
-        </a>
+        <a href="mailto:husam@openbin.ai" className="text-amber-400 underline-offset-4 hover:underline">husam@openbin.ai</a>
       </p>
-    </div>
+    </section>
   )
 }
 
@@ -309,62 +273,79 @@ function SectionHeading({ label, title, intro }: { label: string; title: string;
   )
 }
 
-// The BINNY beta: install block right under the hero so the announcement bar
-// has somewhere to land. Same one-liner shape as the CLI installer above.
+// BINNY: the open source agent harness. Copy on the left, a transcript of
+// the real start-up on the right so the reader sees what "harness" means
+// before they install anything. Install commands sit under the transcript.
+const binnyTranscript = `$ binny
+  BINNY v0.1.0-beta.2   project: dropper.elf   model: ollama / qwen3:14b
+
+> /investigate
+  triage      ELF x86-64, stripped, 3 playbooks selected
+  investigate reading main, 14 callees, 212 strings, 6 imports
+  tool        get_function(sub_401a30)
+  tool        run(script=decode_config.py)   sandbox: no network
+  checkpoint  phase boundary reached. continue? (supervised)
+
+> /draft
+  Draft written to the project report. 9 findings, 4 IOCs.`
+
 function BinnyBeta() {
   return (
-    <section id="binny" className="mx-auto max-w-6xl px-6 pt-8 pb-20">
+    <section id="binny" className="mx-auto max-w-6xl scroll-mt-20 px-6 pt-8 pb-20">
       <div className="rounded-lg border border-amber-500/40 bg-zinc-950/85 p-7 sm:p-10">
-        {/* min-w-0 on both columns: the nowrap install commands would otherwise
-            set the grid's min-content width and push the card past the phone
-            viewport. */}
-        <div className="grid gap-10 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-14">
+        <div className="grid gap-10 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-14">
           <div className="min-w-0">
-            <p className="mb-3 font-mono text-xs uppercase tracking-[0.3em] text-amber-400/90">BINNY beta</p>
+            <p className="mb-3 font-mono text-xs uppercase tracking-[0.3em] text-amber-400/90">BINNY · open source</p>
             <h2 className="text-3xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-4xl">
-              An agent that works the sample with you, in your terminal.
+              An agent harness for reverse engineering. You pick the model.
             </h2>
             <p className="mt-5 text-lg leading-relaxed text-zinc-200">
-              BINNY opens one of your OpenBin or OpenAPK projects, reads the
-              decompiled code through the same backend the web app uses, and runs
-              a triage, investigate, draft loop with your own LLM key. Pause it at
-              phase boundaries and answer its questions, or switch to Q&amp;A and
-              ask it to verify a claim. It can decompile a binary locally with
-              Ghidra, so the sample never leaves your machine. The draft lands on
-              the project report for you to review.
+              BINNY is the harness, not the model. It brings the tools (decompiled
+              functions, strings, imports, a sealed sandbox, local Ghidra), the
+              playbooks, the triage, investigate, draft loop, budgets, checkpoints
+              and the report format. Plug in Claude, GPT, DeepSeek, Qwen, Kimi,
+              Gemini, Bedrock, or a local model through Ollama or LM Studio.
             </p>
             <p className="mt-4 text-base leading-relaxed text-zinc-400">
-              Needs the openbin CLI signed in first. Docker is required only for
-              local decompile and the sandbox tools. Any provider works, including
-              a gateway that fronts Claude on your own domain: set it with{' '}
-              <code className="font-mono text-zinc-200">/endpoint</code>. It is a
-              beta, so expect rough edges and tell us about them in the Discord.
+              Three run modes: autonomous to a finished draft, supervised with
+              pauses at phase boundaries, collaborative with an interview before
+              the write-up. Or skip the loop and question a sample directly. The
+              draft lands on the project report for you to review. Sessions
+              resume where they stopped.
             </p>
+            <div className="mt-6 flex flex-wrap gap-3 text-sm">
+              <a href="https://github.com/openbin-ai/binny" target="_blank" rel="noopener noreferrer" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 font-medium text-amber-200 transition hover:bg-amber-500/20">
+                Source on GitHub
+              </a>
+              <a href="https://app.openbin.ai/docs/binny" className="rounded-md border border-zinc-700 bg-zinc-900/60 px-4 py-2 text-zinc-200 transition hover:bg-zinc-800/60">
+                BINNY docs
+              </a>
+            </div>
           </div>
-          <div className="min-w-0 space-y-3 self-center">
-            <div className="rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
-              <div className="mb-1 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">macOS / Linux</div>
-              <code className="block overflow-x-auto whitespace-nowrap font-mono text-sm text-zinc-100">
-                curl -fsSL https://openbin.ai/install-binny.sh | sh
-              </code>
-            </div>
-            <div className="rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
-              <div className="mb-1 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">Windows (PowerShell)</div>
-              <code className="block overflow-x-auto whitespace-nowrap font-mono text-sm text-zinc-100">
-                irm https://openbin.ai/install-binny.ps1 | iex
-              </code>
-            </div>
-            <div className="rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
-              <div className="mb-1 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">Then</div>
-              <code className="block overflow-x-auto whitespace-nowrap font-mono text-sm text-zinc-100">
-                openbin login &amp;&amp; binny
-              </code>
+          <div className="min-w-0 space-y-3">
+            <pre aria-label="BINNY session transcript" className="overflow-x-auto rounded-md border border-zinc-800 bg-black/70 px-4 py-4 font-mono text-[12.5px] leading-relaxed text-zinc-300">
+              {binnyTranscript}
+            </pre>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="min-w-0 rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
+                <div className="mb-1 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">macOS / Linux</div>
+                <code className="block overflow-x-auto whitespace-nowrap font-mono text-sm text-zinc-100">
+                  curl -fsSL https://openbin.ai/install-binny.sh | sh
+                </code>
+              </div>
+              <div className="min-w-0 rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
+                <div className="mb-1 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">Windows (PowerShell)</div>
+                <code className="block overflow-x-auto whitespace-nowrap font-mono text-sm text-zinc-100">
+                  irm https://openbin.ai/install-binny.ps1 | iex
+                </code>
+              </div>
             </div>
             <p className="text-xs text-zinc-500">
-              Binaries:{' '}
-              <a href="https://github.com/openbin-ai/binny-releases/releases/latest" target="_blank" rel="noopener noreferrer" className="text-amber-400 underline-offset-4 hover:underline">
-                github.com/openbin-ai/binny-releases
-              </a>
+              Then <code className="font-mono text-zinc-300">openbin login &amp;&amp; binny</code>. Docker is needed only for local decompile and the sandbox.
+              AGPL-3.0, binaries for macOS, Linux and Windows on the{' '}
+              <a href="https://github.com/openbin-ai/binny/releases" target="_blank" rel="noopener noreferrer" className="text-amber-400 underline-offset-4 hover:underline">
+                releases page
+              </a>.
             </p>
           </div>
         </div>
@@ -480,6 +461,44 @@ function Inputs() {
   )
 }
 
+// The product map. Each row names a thing a researcher can do and links to
+// the docs page that shows how; the point is that nobody leaves this page
+// still wondering what the app contains. Rows, not icon tiles: the text is
+// the content.
+const capabilities: { title: string; body: string; href: string }[] = [
+  { title: 'Read decompiled code like an IDE', body: 'Function list, pseudo-C with disassembly side by side, click-to-jump, cross-highlighting between the two panes, strings, imports and data.', href: 'https://app.openbin.ai/docs/workspace/navigating-code' },
+  { title: 'Walk the call graph', body: 'Callers and callees from any function, with hotspots surfaced from the analysis.', href: 'https://app.openbin.ai/docs/workspace/call-graph-and-hotspots' },
+  { title: 'Ask BINNY light in the browser', body: 'The in-app agent reads the functions it needs, cites addresses, and on request pins highlights, writes report sections and saves scripts.', href: 'https://app.openbin.ai/docs/binny/light' },
+  { title: 'Pin highlights and capture evidence', body: 'Mark the lines that matter, grab a region of the screen, annotate it, and keep it in the project gallery.', href: 'https://app.openbin.ai/docs/workspace/highlights' },
+  { title: 'Write the report where the code is', body: 'Markdown editor with malware-analysis and vuln-research templates, screenshots inline, export to Markdown or PDF.', href: 'https://app.openbin.ai/docs/reports' },
+  { title: 'Publish and fork', body: 'Make a project public, let others fork it and build on your work, upvote and discuss reports, follow the researchers you learn from.', href: 'https://app.openbin.ai/docs/community' },
+  { title: 'Work as a team', body: 'Share a project with roles, keep a project overview, chat on the project, message researchers directly.', href: 'https://app.openbin.ai/docs/collaborate' },
+  { title: 'Play the weekly CTF', body: 'One crackme a week. First correct flag is Researcher of the Week. Leaderboards by week, season and all time.', href: 'https://app.openbin.ai/docs/community/ctf' },
+]
+
+function WhatYouCanDo() {
+  return (
+    <section id="features" className="mx-auto max-w-6xl scroll-mt-20 px-6 pt-8 pb-20">
+      <SectionHeading
+        label="What you can do"
+        title="Everything in the workspace, and where to read about it."
+        intro="Each item links to the docs page that walks through it click by click."
+      />
+      <ul className="grid gap-x-10 gap-y-2 sm:grid-cols-2">
+        {capabilities.map((c) => (
+          <li key={c.title} className="border-t border-zinc-800">
+            <a href={c.href} className="group block py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
+              <h3 className="text-lg font-semibold text-zinc-50 group-hover:text-amber-200">{c.title}</h3>
+              <p className="mt-1.5 text-sm leading-relaxed text-zinc-300">{c.body}</p>
+              <span className="mt-2 inline-block font-mono text-xs text-amber-400 underline-offset-4 group-hover:underline">Read the docs</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 // Three claims, written as prose rather than three matching cards: the
 // points are different sizes and the reader should feel that.
 function WhyOpenBin() {
@@ -496,8 +515,8 @@ function WhyOpenBin() {
           <p>
             Most of this work ends up in private notes and threads that are hard
             to find a year later. On OpenBin you publish a report, someone else
-            cites it in theirs, and the record of how a sample works grows in
-            public with the researchers' names on it.
+            forks the project and extends it, and the record of how a sample
+            works grows in public with the researchers' names on it.
           </p>
           <p>
             The agent reads decompiled code the way you do: by file, by symbol,
@@ -506,8 +525,9 @@ function WhyOpenBin() {
           </p>
           <p>
             The whole platform is AGPL on GitHub and free for researchers. You
-            bring your own Anthropic, OpenAI or Bedrock key, stored encrypted,
-            and the only AI bill is the one your provider sends you.
+            bring your own model key, stored encrypted, and the only AI bill is
+            the one your provider sends you. In the terminal, BINNY also runs
+            on local models.
           </p>
         </div>
       </div>
@@ -585,7 +605,7 @@ function CTA() {
   return (
     <section className="mx-auto max-w-3xl px-6 pb-24 text-center">
       <h2 className="text-3xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-4xl">
-        Upload a sample and see what the agent finds.
+        Decompile a sample and see what you find.
       </h2>
       <p className="mt-5 text-lg leading-relaxed text-zinc-200">
         Sign in, add your LLM provider key, and drop in a binary or an APK. When
@@ -628,6 +648,8 @@ function Footer() {
         <a href="/terms.html" className="hover:text-amber-400">Terms</a>
         <span aria-hidden>·</span>
         <a href="/privacy.html" className="hover:text-amber-400">Privacy</a>
+        <span aria-hidden>·</span>
+        <a href="https://app.openbin.ai/docs" className="hover:text-amber-400">Docs</a>
         <span aria-hidden>·</span>
         <a href="https://github.com/openbin-ai/platform" target="_blank" rel="noopener noreferrer" className="hover:text-amber-400">GitHub</a>
         <span aria-hidden>·</span>

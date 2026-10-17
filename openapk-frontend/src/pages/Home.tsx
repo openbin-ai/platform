@@ -6,6 +6,7 @@ import { Gravatar } from '@shared/components/Gravatar'
 import type { CommunityReportSummary } from '@shared/api/community'
 import { personalFeedPath } from '@shared/api/social'
 import iconUrl from '../assets/icon.png'
+import { GettingStarted } from '@shared/components/GettingStarted'
 import type { Project } from './Projects'
 
 // Post-login dashboard. Three live sections:
@@ -55,6 +56,9 @@ export function Home() {
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-6 py-8">
       <BrandBanner firstName={firstName} />
+      {/* First-run checklist: hides itself once the key and first project
+          exist, or when dismissed. */}
+      <GettingStarted app="openapk" Link={Link} accentButton="bg-purple-600 text-white hover:bg-purple-500" />
       {/* Community is the platform's value prop, not a "see also" — promote it
           to a full-width hero immediately under the welcome banner. The
           smaller CommunityCard at the bottom of the grid that used to live

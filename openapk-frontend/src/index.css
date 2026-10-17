@@ -1,5 +1,8 @@
 @import "tailwindcss";
 @import "../../shared/theme/light.css";
+/* shared/ sits outside this package, so Tailwind's automatic source
+   detection does not see its class names. Scan it explicitly. */
+@source "../../shared";
 
 html, body, #root {
   height: 100%;

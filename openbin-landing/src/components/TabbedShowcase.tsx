@@ -49,7 +49,7 @@ const TABS: Tab[] = [
   {
     key: 'community',
     label: 'Community',
-    caption: 'Publish a finished analysis for anyone to read. Browse other researchers\' reports and cite their findings in your own.',
+    caption: 'Publish a finished analysis for anyone to read. Browse other researchers\' reports, upvote and discuss them, and fork public projects to build on them.',
     src: communityShot,
     href: '/community',
   },

@@ -39,6 +39,7 @@ export function Layout() {
                 <NavItem to="/projects">Projects</NavItem>
               </>
             )}
+            <NavItem to="/docs">Docs</NavItem>
             {/* Community is the platform's headline value prop, not a side
                 feature — give it a distinct button treatment so users hit it
                 without having to scan the nav. Filled purple accent, sits

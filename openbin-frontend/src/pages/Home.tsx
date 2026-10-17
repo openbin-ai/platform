@@ -7,6 +7,7 @@ import type { CommunityReportSummary } from '@shared/api/community'
 import { personalFeedPath } from '@shared/api/social'
 import iconUrl from '../assets/icon.png'
 import { ctfApi, timeLeft, type CtfHome } from '@shared/api/ctf'
+import { GettingStarted } from '@shared/components/GettingStarted'
 
 // Post-login dashboard. Mirrors openapk-frontend/src/pages/Home.tsx with
 // amber accents and the BIN-flavored community feed. Sections degrade
@@ -73,6 +74,9 @@ export function Home() {
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-6 py-8">
       <BrandBanner firstName={firstName} />
+      {/* First-run checklist: hides itself once the key and first project
+          exist, or when dismissed. */}
+      <GettingStarted app="openbin" Link={Link} accentButton="bg-amber-400 text-black hover:bg-amber-300" />
       {/* Community is the platform's headline value prop — front-and-center
           here, not buried at the bottom of a grid. The smaller bottom
           CommunityCard that used to live in the grid is gone. */}

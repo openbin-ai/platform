@@ -24,6 +24,7 @@ import { FollowListPage } from './pages/FollowListPage'
 import { ResearcherSearch } from './pages/ResearcherSearch'
 import { Terms } from './pages/Terms'
 import { Privacy } from './pages/Privacy'
+import { Docs } from './pages/Docs'
 import { Profile } from './pages/Profile'
 
 export default function App() {
@@ -51,6 +52,9 @@ export default function App() {
             <Route path="/u/:id/following" element={<FollowListPage mode="following" />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/privacy" element={<Privacy />} />
+            {/* Docs: anonymous-readable so prospective users can read them
+                before signing in. Content is shared with OpenBin. */}
+            <Route path="/docs/*" element={<Docs />} />
           </Route>
 
           {/* Print view is chrome-free (no Layout) so what you see is what you print. */}

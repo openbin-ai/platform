@@ -49,9 +49,9 @@ export function Landing() {
         href="#binny"
         className="relative z-20 block border-b border-purple-500/30 bg-purple-500/10 px-4 py-2 text-center text-sm text-purple-200 backdrop-blur transition hover:bg-purple-500/20"
       >
-        <span className="font-semibold text-purple-100">BINNY beta is out.</span> A terminal agent that
-        investigates your APK and drafts the report, with your own LLM key.{' '}
-        <span className="underline decoration-purple-400/50 underline-offset-2">Install it</span>
+        <span className="font-semibold text-purple-100">BINNY is open source.</span> An agent harness for
+        reverse engineering that runs on any model, including local ones.{' '}
+        <span className="underline decoration-purple-400/50 underline-offset-2">See it</span>
       </a>
 
       <header className="relative z-30 flex items-center justify-between px-6 py-5 sm:px-10">
@@ -63,9 +63,12 @@ export function Landing() {
           {/* Compact Community pill in the top nav — second visual cue for
               the dashboard's headline CTA. Brand-amber to match the family
               accent so it stands out from plain text links. */}
+          <Link to="/docs" className="hidden text-zinc-400 hover:text-zinc-200 sm:inline">
+            Docs
+          </Link>
           <Link
             to="/community"
-            className="hidden items-center gap-1 rounded-md bg-amber-500/15 px-3 py-1 text-amber-300 hover:bg-amber-500/25 hover:text-amber-200 sm:inline-flex"
+            className="hidden items-center gap-1 rounded-md bg-purple-500/15 px-3 py-1 text-purple-200 hover:bg-purple-500/25 hover:text-purple-100 sm:inline-flex"
           >
             <Star aria-hidden className="h-3.5 w-3.5" /> Community
           </Link>
@@ -114,7 +117,10 @@ export function Landing() {
         </div>
         {menuOpen && (
           <nav className="absolute inset-x-0 top-full flex flex-col border-b border-zinc-800 bg-black/95 px-6 pb-4 pt-2 text-sm backdrop-blur sm:hidden">
-            <Link to="/community" onClick={() => setMenuOpen(false)} className="inline-flex items-center gap-1.5 py-2.5 text-amber-300 hover:text-amber-200">
+            <Link to="/docs" onClick={() => setMenuOpen(false)} className="py-2.5 text-zinc-300 hover:text-zinc-100">
+              Docs
+            </Link>
+            <Link to="/community" onClick={() => setMenuOpen(false)} className="inline-flex items-center gap-1.5 py-2.5 text-purple-200 hover:text-purple-100">
               <Star aria-hidden className="h-3.5 w-3.5" /> Community
             </Link>
             <a
@@ -178,38 +184,78 @@ export function Landing() {
                 Sign in and upload an APK
               </button>
             )}
-            <Link
-              to="/community"
-              className="inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-5 py-2.5 text-sm font-semibold text-black hover:bg-amber-400"
-            >
-              <Star aria-hidden className="h-4 w-4" />
-              Browse community
-            </Link>
             <a
-              href="#capabilities"
-              className="rounded-md border border-zinc-700 bg-zinc-900/60 px-5 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800/60"
+              href="#install"
+              className="rounded-md border border-purple-500/40 bg-zinc-900/60 px-5 py-2.5 text-sm text-zinc-200 backdrop-blur hover:bg-zinc-800/60"
             >
-              See what the agent does
+              Install the CLI
             </a>
           </div>
+          <p className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
+            <Link to="/docs" className="font-medium text-purple-300 underline-offset-4 hover:underline">
+              New here? Read the docs
+            </Link>
+            <Link to="/community" className="inline-flex items-center gap-1.5 text-zinc-300 underline-offset-4 hover:text-purple-200 hover:underline">
+              <Star aria-hidden className="h-3.5 w-3.5" />
+              Browse community reports
+            </Link>
+          </p>
           <p className="mt-6 text-xs text-zinc-500">
-            v1.0 · Free &amp; open source (AGPL v3) · BYOK (Anthropic · OpenAI · Bedrock)
+            Free &amp; open source (AGPL v3) · Bring your own model key · Anthropic, OpenAI, Gemini, DeepSeek, Qwen, Kimi, Bedrock
           </p>
         </section>
 
-        <section id="binny" className="mx-auto max-w-4xl px-6 pb-20">
+        <section id="install" className="mx-auto max-w-4xl scroll-mt-20 px-6 pb-20">
+          <h2 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
+            Three commands to your first project.
+          </h2>
+          <p className="mt-3 max-w-2xl text-base text-zinc-400">
+            JADX runs on your machine in a Docker container; the APK and the decompiled tree
+            are uploaded as a project. Docker Desktop (WSL 2 on Windows) must be running.
+          </p>
+          <ol className="mt-6 grid gap-3 sm:grid-cols-3">
+            {[
+              { n: 1, t: 'Install the CLI', c: 'curl -fsSL https://openbin.ai/install.sh | sh', alt: 'irm https://openbin.ai/install.ps1 | iex' },
+              { n: 2, t: 'Sign in once', c: 'openbin login' },
+              { n: 3, t: 'Decompile an APK or XAPK', c: 'openbin apk ./app.apk' },
+            ].map((st) => (
+              <li key={st.n} className="min-w-0 rounded-lg border border-zinc-800 bg-zinc-950/80 p-5">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-600 font-mono text-xs font-bold text-white">{st.n}</span>
+                  <h3 className="text-base font-semibold text-zinc-50">{st.t}</h3>
+                </div>
+                <code className="mt-3 block overflow-x-auto whitespace-nowrap rounded-md border border-zinc-800 bg-black/60 px-3 py-2 font-mono text-[13px] text-emerald-300">
+                  <span className="select-none text-zinc-600">$ </span>{st.c}
+                </code>
+                {st.alt && (
+                  <code className="mt-2 block overflow-x-auto whitespace-nowrap rounded-md border border-zinc-800 bg-black/60 px-3 py-2 font-mono text-[13px] text-zinc-300">
+                    <span className="select-none text-zinc-600">PS&gt; </span>{st.alt}
+                  </code>
+                )}
+              </li>
+            ))}
+          </ol>
+          <p className="mt-4 text-sm text-zinc-400">
+            It prints a project URL when it is done. Apps that ship native libraries get a Native tab where each .so can be decompiled with Ghidra.
+            Flags and troubleshooting are in the <Link to="/docs/cli/install" className="text-purple-300 underline-offset-4 hover:underline">CLI docs</Link>.
+          </p>
+        </section>
+
+        <section id="binny" className="mx-auto max-w-4xl scroll-mt-20 px-6 pb-20">
           <div className="rounded-lg border border-purple-500/40 bg-zinc-950/85 p-6 sm:p-8">
-            <p className="mb-2 font-mono text-xs uppercase tracking-[0.25em] text-purple-300">BINNY beta</p>
+            <p className="mb-2 font-mono text-xs uppercase tracking-[0.25em] text-purple-300">BINNY · open source</p>
             <h2 className="text-2xl font-semibold tracking-tight text-zinc-50">
-              Hand the APK to an agent in your terminal.
+              An agent harness for reverse engineering. You pick the model.
             </h2>
             <p className="mt-4 text-base leading-relaxed text-zinc-200">
-              BINNY opens one of your OpenAPK projects, reads the decompiled tree
-              through the same backend this site uses, and runs a triage,
-              investigate, draft loop with your own LLM key. Pause it at phase
-              boundaries, answer its questions, or switch to Q&amp;A and ask it to
-              verify a claim. The draft lands on the project report for you to
-              review. Needs the openbin CLI signed in first; it is a beta.
+              BINNY is the harness, not the model. It opens one of your OpenAPK
+              projects, reads the decompiled tree through the same backend this
+              site uses, and runs a triage, investigate, draft loop with the
+              tools, playbooks, budgets and checkpoints built in. Plug in Claude,
+              GPT, DeepSeek, Qwen, Kimi, Gemini, Bedrock, or a local model through
+              Ollama or LM Studio. Pause it at phase boundaries, or switch to
+              Q&amp;A and ask it to verify a claim. The draft lands on the project
+              report for you to review.
             </p>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               <div className="min-w-0 rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
@@ -226,8 +272,9 @@ export function Landing() {
               </div>
             </div>
             <p className="mt-3 text-xs text-zinc-500">
-              Then <code className="font-mono text-zinc-300">openbin login &amp;&amp; binny</code>. More on{' '}
-              <a href="https://openbin.ai/#binny" target="_blank" rel="noopener noreferrer" className="text-amber-400 underline-offset-4 hover:underline">openbin.ai</a>.
+              Then <code className="font-mono text-zinc-300">openbin login &amp;&amp; binny</code>. AGPL-3.0, source at{' '}
+              <a href="https://github.com/openbin-ai/binny" target="_blank" rel="noopener noreferrer" className="text-purple-300 underline-offset-4 hover:underline">github.com/openbin-ai/binny</a>.
+              {' '}How to use it: <Link to="/docs/binny" className="text-purple-300 underline-offset-4 hover:underline">BINNY docs</Link>.
             </p>
           </div>
         </section>
@@ -239,7 +286,8 @@ export function Landing() {
             </h2>
             <p className="mt-4 text-base leading-relaxed text-zinc-200">
               OpenAPK ships no hosted LLM and proxies nothing. You add a key for
-              Anthropic, OpenAI or AWS Bedrock; it is stored encrypted, and every
+              Anthropic, OpenAI, Gemini, DeepSeek, Qwen, Kimi, any OpenAI-compatible
+              endpoint or AWS Bedrock; it is stored encrypted, and every
               model call goes to <em className="not-italic text-purple-300">your</em>{' '}
               provider with <em className="not-italic text-purple-300">your</em>{' '}
               headers. The only AI bill is the one your provider sends you.
@@ -265,26 +313,39 @@ export function Landing() {
           </p>
           <dl className="divide-y divide-zinc-800 border-y border-zinc-800">
             <Capability
+              docs="/docs/workspace/identifiers-and-crypto"
               name="Identifier recovery"
               body="Reads ProGuard-mangled a/b/c and defpackage classes in context and proposes names, with its reasoning. You tick the ones you want, the rename is applied project-wide with word-boundary safety, and every rename can be reverted from the same panel."
             />
             <Capability
+              docs="/docs/workspace/identifiers-and-crypto"
               name="Crypto reconstruction"
               body="Static signatures flag javax.crypto pipelines, hand-rolled XOR and Base64 obfuscators (Sketchware-style and friends), and custom decoder shapes. The agent writes a runnable Python decryptor and, when the algorithm maps cleanly, a CyberChef recipe URL you can hand to a teammate."
             />
             <Capability
+              docs="/docs/workspace/identifiers-and-crypto"
               name="String decoding"
               body="After reconstructing the routine, OpenAPK collects every ciphertext literal that flows into the decoder's entry methods, dedupes them, and inlines the decoded output into the script."
             />
             <Capability
+              docs="/docs/binny/light"
               name="BINNY light"
               body="Ask about the open file and BINNY reads other files and searches the tree when it needs to, with citations back to file and line. Ask it to highlight a finding, draft a report section or write a script and it does that on the project. Threads stay in your browser."
             />
             <Capability
+              docs="/docs/reports"
               name="Evidence capture and reporting"
               body="Grab a region of the screen, annotate it with boxes, arrows, text or freehand, and insert it into a report section from the project gallery. Publish reports, or export them as Markdown with images inlined or as a print-ready PDF."
             />
+            <Capability
+              docs="/docs/community"
+              name="Publish, fork, discuss"
+              body="Share a finished report with the community feed, keep the project private or let readers browse the code. Upvote and discuss reports, follow researchers, message them directly, and share a project with teammates with roles."
+            />
           </dl>
+          <p className="mt-6 text-sm text-zinc-400">
+            Everything above, click by click, is in the <Link to="/docs" className="text-purple-300 underline-offset-4 hover:underline">docs</Link>.
+          </p>
         </section>
 
         <FeatureTour />
@@ -300,7 +361,7 @@ export function Landing() {
             />
             <Feature
               title="Your model, your keys"
-              body="Per-user credentials for Anthropic, OpenAI or AWS Bedrock. Pick the model that fits the budget per call. Keys live in your Postgres, encrypted at rest with a KEK you supply."
+              body="Per-user credentials for Anthropic, OpenAI, Gemini, DeepSeek, Qwen, Kimi, OpenAI-compatible endpoints or AWS Bedrock. Pick the model per call. Keys are encrypted at rest, and the same key works on OpenBin."
             />
             <Feature
               title="Reversible by design"
@@ -377,6 +438,8 @@ export function Landing() {
             <span aria-hidden>·</span>
             <Link to="/privacy" className="hover:text-zinc-300">Privacy</Link>
             <span aria-hidden>·</span>
+            <Link to="/docs" className="hover:text-zinc-300">Docs</Link>
+            <span aria-hidden>·</span>
             <Link to="/community" className="hover:text-zinc-300">Community</Link>
             <span aria-hidden>·</span>
             <a href="https://github.com/openbin-ai/platform" target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">Source</a>
@@ -404,11 +467,19 @@ function Feature({ title, body }: { title: string; body: string }) {
   )
 }
 
-function Capability({ name, body }: { name: string; body: string }) {
+function Capability({ name, body, docs }: { name: string; body: string; docs?: string }) {
   return (
     <div className="grid gap-2 py-5 sm:grid-cols-[14rem_1fr] sm:gap-8">
       <dt className="text-base font-semibold text-zinc-50">{name}</dt>
-      <dd className="text-sm leading-relaxed text-zinc-300">{body}</dd>
+      <dd className="text-sm leading-relaxed text-zinc-300">
+        {body}
+        {docs && (
+          <>
+            {' '}
+            <Link to={docs} className="whitespace-nowrap font-mono text-xs text-purple-300 underline-offset-4 hover:underline">Read the docs</Link>
+          </>
+        )}
+      </dd>
     </div>
   )
 }
