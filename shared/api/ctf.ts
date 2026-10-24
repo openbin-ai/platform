@@ -1,6 +1,8 @@
 // Weekly CTF wire types. Reads live under /api/public/ctf (anonymous ok),
 // writes under /api/ctf (signed in).
 
+import { API_BASE } from './client'
+
 export type CtfKind = 'BIN' | 'APK'
 
 export type Solver = { userId: string; displayName: string; emailMd5: string }
@@ -51,6 +53,10 @@ export type ChallengeDetail = {
   attemptCount: number
   solves: SolveRow[]
   mine: MySolve | null
+  /** Raw binary for players using their own tools; all null when none was uploaded. */
+  binaryName: string | null
+  binarySize: number | null
+  binarySha256: string | null
 }
 
 export type Upcoming = { slug: string; title: string; kind: CtfKind; startsAt: string; endsAt: string }
@@ -87,6 +93,15 @@ export const ctfApi = {
     `/api/public/ctf/leaderboard?scope=${scope}${season ? `&season=${encodeURIComponent(season)}` : ''}`,
   submit: (slug: string) => `/api/ctf/challenges/${encodeURIComponent(slug)}/submit`,
   writeup: (slug: string) => `/api/ctf/challenges/${encodeURIComponent(slug)}/writeup`,
+  /** Absolute, for a plain <a download>: the server answers with a redirect to storage or the bytes. */
+  download: (slug: string) => `${API_BASE}/api/public/ctf/challenges/${encodeURIComponent(slug)}/download`,
+}
+
+export function fmtBinarySize(n: number | null): string {
+  if (n == null) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
 /** "3d 4h" / "12m" style remaining time; empty once past. */

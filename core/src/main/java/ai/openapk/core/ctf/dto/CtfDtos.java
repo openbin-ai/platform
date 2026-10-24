@@ -38,7 +38,9 @@ public final class CtfDtos {
             Instant startsAt, Instant endsAt, String season, boolean live, boolean started,
             long solveCount, long attemptCount,
             List<SolveRow> solves,
-            MySolve mine
+            MySolve mine,
+            /** Raw binary available for download; all null when none was uploaded. */
+            String binaryName, Long binarySize, String binarySha256
     ) {}
 
     /** Upcoming challenge teaser: no project, no description. */
@@ -88,6 +90,10 @@ public final class CtfDtos {
     public record AdminChallengeRow(
             UUID id, String slug, String title, ProjectKind kind, UUID projectId, String flagHint,
             Instant startsAt, Instant endsAt, String season, Instant announcedAt,
-            long solveCount, long attemptCount, Solver firstBlood
+            long solveCount, long attemptCount, Solver firstBlood,
+            String binaryName, Long binarySize, String binarySha256
     ) {}
+
+    /** What the download endpoint hands the controller: a redirect or a local file. */
+    public record BinaryDownload(String filename, long size, java.net.URI redirect, java.nio.file.Path file) {}
 }

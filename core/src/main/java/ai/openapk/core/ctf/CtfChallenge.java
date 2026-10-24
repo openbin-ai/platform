@@ -70,6 +70,16 @@ public class CtfChallenge {
     @Column(name = "announced_at")
     private Instant announcedAt;
 
+    /** The raw binary for players using their own tools; null until uploaded. */
+    @Column(name = "binary_name")
+    private String binaryName;
+
+    @Column(name = "binary_size")
+    private Long binarySize;
+
+    @Column(name = "binary_sha256")
+    private String binarySha256;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 

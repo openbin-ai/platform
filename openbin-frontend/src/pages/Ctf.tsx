@@ -5,6 +5,7 @@ import { useApi, ApiError } from '@shared/api/client'
 import { Gravatar } from '@shared/components/Gravatar'
 import {
   ctfApi,
+  fmtBinarySize,
   timeLeft,
   type ChallengeDetail,
   type ChallengeSummary,
@@ -135,24 +136,48 @@ function ChallengeCard({ challenge: c, onChanged, full }: { challenge: Challenge
             {c.solveCount} {c.solveCount === 1 ? 'solve' : 'solves'} · {c.attemptCount} attempts
           </p>
         </div>
-        {c.projectId && (
-          <Link
-            to={`/public/projects/${c.projectId}`}
-            className="inline-flex items-center rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-black shadow-sm hover:bg-amber-400"
-          >
-            Open in OpenBin
-          </Link>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {c.binaryName && (
+            <a
+              href={ctfApi.download(c.slug)}
+              download={c.binaryName}
+              className="inline-flex items-center rounded-md border border-amber-500/50 bg-zinc-900/70 px-3 py-1.5 text-sm font-medium text-amber-200 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+            >
+              Download binary
+            </a>
+          )}
+          {c.projectId && (
+            <Link
+              to={`/public/projects/${c.projectId}`}
+              className="inline-flex items-center rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-black shadow-sm hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+            >
+              Open in OpenBin
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="mt-5 text-sm leading-relaxed text-zinc-200">
         <Markdown>{c.description || '_No description._'}</Markdown>
       </div>
-      {c.projectId && (
+      {c.binaryName ? (
+        <div className="mt-3 rounded-md border border-zinc-800 bg-black/40 px-3 py-2 text-xs text-zinc-400">
+          <p>
+            <span className="font-mono text-zinc-200">{c.binaryName}</span>
+            {c.binarySize != null && <> · {fmtBinarySize(c.binarySize)}</>}
+            {' '}· for your own tools, debuggers and sandboxes. The decompiled listing is in the project{c.projectId ? '' : ' once it is attached'}.
+          </p>
+          {c.binarySha256 && (
+            <p className="mt-1 break-all font-mono text-[11px] text-zinc-500">
+              sha256 {c.binarySha256}
+            </p>
+          )}
+        </div>
+      ) : c.projectId ? (
         <p className="mt-3 text-xs text-zinc-500">
-          Fork the project to get the binary, the listing and the decompiler in your own workspace, or download it from the project page.
+          Fork the project to get the listing and the decompiler in your own workspace.
         </p>
-      )}
+      ) : null}
 
       <FlagForm challenge={c} onSolved={onChanged} />
 

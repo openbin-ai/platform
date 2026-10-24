@@ -1289,13 +1289,14 @@ This app ships 3 native libraries — open the project's Native tab to decompile
           <>
             <P>
               <Kbd>CTF</Kbd> in the top bar. Reading works signed out; submitting needs an account. Each challenge is a public project, so
-              you can fork it and work in the browser with the listing, the decompiler and BINNY, or download the binary from the
-              project page and use your own tools.
+              you can fork it and work in the browser with the listing, the decompiler and BINNY. When the challenge needs dynamic
+              analysis, the raw binary is attached: <Kbd>Download binary</Kbd> on the challenge page, with its size and SHA-256, for
+              your own debuggers and sandboxes.
             </P>
             <H2>Playing</H2>
             <Clicks
               items={[
-                <>Open the live challenge. <Kbd>Open in OpenBin</Kbd> goes to the public project; <Kbd>🍴 Fork</Kbd> gives you your own copy.</>,
+                <>Open the live challenge. <Kbd>Open in OpenBin</Kbd> goes to the public project; <Kbd>🍴 Fork</Kbd> gives you your own copy. <Kbd>Download binary</Kbd>, when present, gives you the file itself.</>,
                 <>Find the flag. The format is in the placeholder of the flag box, usually <Code>openbin{'{...}'}</Code>.</>,
                 <>Paste it and <Kbd>Submit</Kbd>. Tick <Kbd>I used AI assistance</Kbd> if BINNY or another model helped; it shows as a tag next to your solve and nothing else changes.</>,
                 <>Five attempts per ten minutes. Think before you paste.</>,

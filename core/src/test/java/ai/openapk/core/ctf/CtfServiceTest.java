@@ -37,6 +37,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.eq;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.springframework.mock.web.MockMultipartFile;
+import ai.openapk.core.ctf.dto.CtfDtos.AdminChallengeRow;
 
 /**
  * Scoring and rate-limit rules against real Postgres (same harness as
@@ -63,6 +70,7 @@ class CtfServiceTest {
     @MockitoBean ProjectService projectService;
     @MockitoBean DiscordNotifier discord;
     @MockitoBean OpenApkProperties props;
+    @MockitoBean CtfBinaryStore binaries;
 
     User admin, alice, bob, carol;
     Project bin;
@@ -174,6 +182,54 @@ class CtfServiceTest {
         assertEquals(404, e.getStatusCode().value());
         assertEquals(future, ctf.home(null).upcoming().slug());
         assertEquals("2026-Q4".length(), challenges.findBySlug(future).orElseThrow().getSeason().length());
+    }
+
+    @Test
+    void binaryUploadRecordsHashAndDownloadGatesOnWindow() throws Exception {
+        Instant now = Instant.now();
+        String slug = "bin-" + UUID.randomUUID().toString().substring(0, 8);
+        ctf.adminCreate(admin, new AdminUpsertRequest(bin.getId(), slug, "With binary", "", "flag{b}", null,
+                now.minus(Duration.ofHours(1)), now.plus(Duration.ofDays(6))));
+        UUID id = challenges.findBySlug(slug).orElseThrow().getId();
+
+        // No binary yet: the download 404s even though the challenge is live.
+        var none = assertThrows(ResponseStatusException.class, () -> ctf.binaryDownload(slug));
+        assertEquals(404, none.getStatusCode().value());
+
+        byte[] bytes = "ELF\u0000self-modifying".getBytes();
+        var file = new MockMultipartFile("file", "../crack me.elf", "application/octet-stream", bytes);
+        AdminChallengeRow row = ctf.adminUploadBinary(id, file);
+        assertEquals("crack_me.elf", row.binaryName(), "path and spaces are sanitised");
+        assertEquals(bytes.length, row.binarySize());
+        assertEquals(sha256(bytes), row.binarySha256());
+        verify(binaries).store(eq(id), eq("crack_me.elf"), any(Path.class));
+        assertEquals("crack_me.elf", ctf.get(slug, null).binaryName());
+
+        // fs backend: the service points at the local file.
+        Path local = Files.createTempFile("ctf-test", ".elf");
+        Files.write(local, bytes);
+        when(binaries.presign(eq(id), eq("crack_me.elf"), any())).thenReturn(java.util.Optional.empty());
+        when(binaries.localPath(id, "crack_me.elf")).thenReturn(local);
+        var dl = ctf.binaryDownload(slug);
+        assertEquals(local, dl.file());
+        assertNull(dl.redirect());
+
+        // Replacing with a different name removes the old object.
+        ctf.adminUploadBinary(id, new MockMultipartFile("file", "v2.bin", null, bytes));
+        verify(binaries).delete(id, "crack_me.elf");
+
+        ctf.adminDeleteBinary(id);
+        assertNull(ctf.get(slug, null).binaryName());
+        verify(binaries).delete(id, "v2.bin");
+
+        // Empty upload is rejected.
+        var empty = assertThrows(ResponseStatusException.class,
+                () -> ctf.adminUploadBinary(id, new MockMultipartFile("file", "x", null, new byte[0])));
+        assertEquals(400, empty.getStatusCode().value());
+    }
+
+    private static String sha256(byte[] b) throws Exception {
+        return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(b));
     }
 
     @Test

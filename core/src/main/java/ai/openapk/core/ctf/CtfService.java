@@ -5,6 +5,7 @@ import ai.openapk.core.auth.UserRepository;
 import ai.openapk.core.config.OpenApkProperties;
 import ai.openapk.core.ctf.dto.CtfDtos.AdminChallengeRow;
 import ai.openapk.core.ctf.dto.CtfDtos.AdminUpsertRequest;
+import ai.openapk.core.ctf.dto.CtfDtos.BinaryDownload;
 import ai.openapk.core.ctf.dto.CtfDtos.ChallengeDetail;
 import ai.openapk.core.ctf.dto.CtfDtos.ChallengeSummary;
 import ai.openapk.core.ctf.dto.CtfDtos.CtfHome;
@@ -28,7 +29,14 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.DigestInputStream;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -85,12 +93,14 @@ public class CtfService {
     private final ProjectService projectService;
     private final DiscordNotifier discord;
     private final OpenApkProperties props;
+    private final CtfBinaryStore binaries;
     private final SecureRandom random = new SecureRandom();
 
     public CtfService(CtfChallengeRepository challenges, CtfSolveRepository solves,
                       CtfSubmissionRepository submissions, UserRepository users,
                       ProjectRepository projects, ProjectService projectService,
-                      DiscordNotifier discord, OpenApkProperties props) {
+                      DiscordNotifier discord, OpenApkProperties props,
+                      CtfBinaryStore binaries) {
         this.challenges = challenges;
         this.solves = solves;
         this.submissions = submissions;
@@ -99,6 +109,7 @@ public class CtfService {
         this.projectService = projectService;
         this.discord = discord;
         this.props = props;
+        this.binaries = binaries;
     }
 
     // ---- scoring -----------------------------------------------------------
@@ -358,7 +369,92 @@ public class CtfService {
 
     @Transactional
     public void adminDelete(UUID id) {
-        challenges.deleteById(id);
+        challenges.findById(id).ifPresent(c -> {
+            binaries.delete(c.getId(), c.getBinaryName());
+            challenges.delete(c);
+        });
+    }
+
+    /** Maximum raw binary we accept; the multipart limit is the hard stop above this. */
+    static final long MAX_BINARY_BYTES = 200L * 1024 * 1024;
+
+    /**
+     * Attach (or replace) the raw binary. The upload is spooled to a temp
+     * file while its SHA-256 is computed, then handed to the store. The
+     * previous object is removed when the name changes.
+     */
+    @Transactional
+    public AdminChallengeRow adminUploadBinary(UUID id, MultipartFile file) {
+        CtfChallenge c = challenges.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "challenge not found"));
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "file is empty");
+        }
+        if (file.getSize() > MAX_BINARY_BYTES) {
+            throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "binary larger than 200 MB");
+        }
+        String name = CtfBinaryStore.safeFilename(file.getOriginalFilename());
+        Path tmp = null;
+        try {
+            tmp = Files.createTempFile("ctf-bin-", ".upload");
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            long size;
+            try (InputStream in = new DigestInputStream(file.getInputStream(), md)) {
+                size = Files.copy(in, tmp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            String sha = HexFormat.of().formatHex(md.digest());
+            String previous = c.getBinaryName();
+            binaries.store(c.getId(), name, tmp);
+            if (previous != null && !previous.equals(name)) binaries.delete(c.getId(), previous);
+            c.setBinaryName(name);
+            c.setBinarySize(size);
+            c.setBinarySha256(sha);
+            c.setUpdatedAt(Instant.now());
+            challenges.save(c);
+            log.info("CTF binary attached: challenge={} name={} size={} sha256={}", c.getSlug(), name, size, sha);
+            return adminRow(c);
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "could not store the binary: " + e.getMessage());
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        } finally {
+            if (tmp != null) {
+                try { Files.deleteIfExists(tmp); } catch (IOException ignored) { /* best effort */ }
+            }
+        }
+    }
+
+    @Transactional
+    public AdminChallengeRow adminDeleteBinary(UUID id) {
+        CtfChallenge c = challenges.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "challenge not found"));
+        binaries.delete(c.getId(), c.getBinaryName());
+        c.setBinaryName(null);
+        c.setBinarySize(null);
+        c.setBinarySha256(null);
+        c.setUpdatedAt(Instant.now());
+        challenges.save(c);
+        return adminRow(c);
+    }
+
+    /**
+     * Resolve the download for a started challenge. Unstarted challenges and
+     * challenges without a binary both 404, so nothing leaks before the window.
+     */
+    @Transactional(readOnly = true)
+    public BinaryDownload binaryDownload(String slug) {
+        CtfChallenge c = requireStarted(slug, Instant.now());
+        if (c.getBinaryName() == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no binary attached to this challenge");
+        }
+        long size = c.getBinarySize() == null ? 0 : c.getBinarySize();
+        var redirect = binaries.presign(c.getId(), c.getBinaryName(), Duration.ofMinutes(10));
+        if (redirect.isPresent()) return new BinaryDownload(c.getBinaryName(), size, redirect.get(), null);
+        Path local = binaries.localPath(c.getId(), c.getBinaryName());
+        if (!Files.isRegularFile(local)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "binary missing from storage");
+        }
+        return new BinaryDownload(c.getBinaryName(), size, null, local);
     }
 
     @Transactional(readOnly = true)
@@ -424,7 +520,8 @@ public class CtfService {
                 c.getProjectId(), c.getFlagHint(),
                 c.getStartsAt(), c.getEndsAt(), c.getSeason(), c.isLive(now), c.hasStarted(now),
                 list.size(), submissions.countByChallengeId(c.getId()),
-                rows, mine
+                rows, mine,
+                c.getBinaryName(), c.getBinarySize(), c.getBinarySha256()
         );
     }
 
@@ -440,7 +537,8 @@ public class CtfService {
         Solver first = solves.findByChallengeIdAndRank(c.getId(), 1).map(s -> solver(s.getUserId())).orElse(null);
         return new AdminChallengeRow(c.getId(), c.getSlug(), c.getTitle(), c.getKind(), c.getProjectId(),
                 c.getFlagHint(), c.getStartsAt(), c.getEndsAt(), c.getSeason(), c.getAnnouncedAt(),
-                solves.countByChallengeId(c.getId()), submissions.countByChallengeId(c.getId()), first);
+                solves.countByChallengeId(c.getId()), submissions.countByChallengeId(c.getId()), first,
+                c.getBinaryName(), c.getBinarySize(), c.getBinarySha256());
     }
 
     private ResearcherOfTheWeek researcherOfTheWeek(Instant now) {
