@@ -84,6 +84,14 @@ async def analyze(
         description="'binary' forces Ghidra's raw BinaryLoader for headerless "
         "images (requires processor). Empty = loader autodetect.",
     ),
+    image_base: str = Form(
+        "",
+        description="Load/link base address for a raw image, hex (e.g. "
+        "0x80000000 for a MIPS KSEG0 kernel). Passed to BinaryLoader as "
+        "-loader-baseAddr so absolute pointers in the code resolve to the "
+        "mapped image — without it every pointer lands outside the program "
+        "and Ghidra creates no string/data xrefs. Only used with loader=binary.",
+    ),
 ) -> JSONResponse:
     if not ANALYZE_HEADLESS.is_file():
         raise HTTPException(status_code=503, detail=f"analyzeHeadless not found at {ANALYZE_HEADLESS}")
@@ -104,6 +112,28 @@ async def analyze(
             status_code=400,
             detail="loader=binary (raw image) requires a processor — Ghidra has no headers to autodetect from",
         )
+
+    # Load/link base for raw images. Validated to a bare hex/decimal integer so
+    # it can't smuggle extra argv tokens, then normalized to 0x-prefixed hex
+    # (the form BinaryLoader's -loader-baseAddr expects).
+    image_base = (image_base or "").strip()
+    if image_base.lower() in ("", "0", "0x0", "auto"):
+        image_base = ""
+    else:
+        try:
+            _base_int = int(image_base, 16) if image_base.lower().startswith("0x") else int(image_base, 0)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"invalid image_base {image_base!r} — expected a hex address like 0x80000000",
+            )
+        if _base_int < 0 or _base_int >= (1 << 64):
+            raise HTTPException(status_code=400, detail="image_base out of range")
+        image_base = "0x%x" % _base_int
+        if loader != "binary":
+            # A base address is meaningless to a header-aware loader (ELF/PE
+            # carry their own); only BinaryLoader honors -loader-baseAddr.
+            image_base = ""
 
     job_id = uuid.uuid4().hex[:8]
     tmp_root = Path(tempfile.mkdtemp(prefix=f"ghidra-{job_id}-"))
@@ -149,6 +179,8 @@ async def analyze(
             cmd += ["-processor", processor]
         if loader == "binary":
             cmd += ["-loader", "BinaryLoader"]
+            if image_base:
+                cmd += ["-loader-baseAddr", image_base]
         log.info("job=%s running: %s", job_id, " ".join(cmd))
 
         # Hand extract.py an absolute wall-clock deadline for its decompile
@@ -168,12 +200,21 @@ async def analyze(
                 env=child_env,
             )
         except subprocess.TimeoutExpired:
-            raise HTTPException(status_code=504, detail=f"ghidra analysis timed out after {ANALYZE_TIMEOUT_SEC}s")
+            # Hard wall hit. extract.py's own deadline (EXTRACT_TAIL_MARGIN_SEC
+            # before this) should normally have written a partial result first;
+            # if it did, serve that instead of losing the whole run. This covers
+            # the case where auto-analysis alone ate most of the budget.
+            if out_path.exists():
+                log.warning("job=%s subprocess timed out but a (partial) result.json exists — serving it", job_id)
+            else:
+                raise HTTPException(status_code=504, detail=f"ghidra analysis timed out after {ANALYZE_TIMEOUT_SEC}s")
+            proc = None
 
         # analyzeHeadless's exit code reflects analysis success — NOT post-script
         # success. A non-zero exit means the binary was rejected (unsupported
-        # format, malformed, etc.); the script may not have run at all.
-        if proc.returncode != 0:
+        # format, malformed, etc.); the script may not have run at all. proc is
+        # None only on the salvaged-timeout path above, where result.json exists.
+        if proc is not None and proc.returncode != 0:
             detail = _build_error_detail(
                 "ghidra analyzeHeadless exited %d" % proc.returncode,
                 proc, ghidra_log,
@@ -215,6 +256,8 @@ async def analyze(
             # Record that the language was forced (and what to), so consumers
             # can tell a forced-arch analysis from an autodetected one.
             meta["forced_processor"] = processor
+        if image_base:
+            meta["image_base"] = image_base
 
         log.info(
             "job=%s done functions=%d strings=%d imports=%d",
@@ -246,10 +289,10 @@ def _build_error_detail(headline: str, proc: subprocess.CompletedProcess, ghidra
     HTTP response without choking the caller.
     """
     parts = [headline]
-    stderr_tail = (proc.stderr or "").strip()
+    stderr_tail = (proc.stderr or "").strip() if proc is not None else ""
     if stderr_tail:
         parts.append("--- stderr (last 2KB) ---\n" + stderr_tail[-2048:])
-    stdout_tail = (proc.stdout or "").strip()
+    stdout_tail = (proc.stdout or "").strip() if proc is not None else ""
     if stdout_tail:
         parts.append("--- stdout (last 2KB) ---\n" + stdout_tail[-2048:])
     if ghidra_log.exists():
