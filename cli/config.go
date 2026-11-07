@@ -59,7 +59,14 @@ const (
 	//              autodetect (pairs with `decompile --processor` and BINNY's
 	//              decompile_sample). Backward compatible — omitted fields
 	//              behave exactly like :6.
-	ghidraWorkerImage  = "openbin/ghidra-worker:7"
+	//   :8       — raw-firmware string xrefs: `image_base` form field →
+	//              -loader-baseAddr so a raw image maps at its real link base
+	//              (e.g. MIPS KSEG0 0x80000000) and absolute pointers resolve;
+	//              `string_refs` output (each referenced string → its funcs);
+	//              streaming result serialize (flat peak memory on 10k-fn
+	//              kernels); runtime-tunable heap (MAXMEM env, default 2G).
+	//              Backward compatible — omitted fields behave like :7.
+	ghidraWorkerImage  = "openbin/ghidra-worker:8"
 	ghidraImageTarball = "ghidra-worker.tar.gz"
 
 	// Same bundling scheme for the JADX worker (APK decompiles).
