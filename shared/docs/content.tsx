@@ -925,6 +925,7 @@ This app ships 3 native libraries — open the project's Native tab to decompile
             <P>
               It reuses the CLI sign-in, so run <Code>openbin login</Code> once if you have not. Then <Code>binny</Code>. The first run asks
               for a provider and key, or a local server. Docker is needed only for <Code>/decompile</Code> and the sandbox tools.
+              Prefer a graphical app? The same binary runs <L ctx={ctx} to="/docs/binny/desktop">BINNY Desktop</L>: <Code>binny desktop</Code>.
             </P>
             <H2>What a run looks like</H2>
             <Clicks
@@ -971,6 +972,51 @@ This app ships 3 native libraries — open the project's Native tab to decompile
             <P>
               Type <Code>/</Code> for the command palette. Sessions auto-save after every step; reopen a project marked resumable and it
               continues where it stopped.
+            </P>
+          </>
+        ),
+      },
+      {
+        slug: 'desktop',
+        title: 'BINNY Desktop',
+        summary: 'The terminal harness with a graphical shell, in your browser. Explorer, code, binary panel, findings that open the code, highlights, report.',
+        keywords: ['binny', 'desktop', 'gui', 'app', 'browser', 'explorer', 'findings', 'highlights', 'report', 'save to project', 'electron'],
+        body: (ctx) => (
+          <>
+            <P>
+              BINNY Desktop is the same engine as <L ctx={ctx} to="/docs/binny/terminal">BINNY in the terminal</L> with a graphical
+              shell. It ships inside the <Code>binny</Code> binary, so if BINNY is installed you already have it:
+            </P>
+            <Cmd>binny desktop</Cmd>
+            <P>
+              That starts it on a loopback port on your machine and opens it in your browser. Nothing leaves the box except the calls to
+              the model you chose; local models through Ollama or LM Studio work exactly as in the terminal.{' '}
+              <Code>binny desktop --dir ./decompiled</Code> starts on a tree you already have; <Code>--no-open</Code> prints the URL instead
+              of opening a browser.
+            </P>
+            <H2>What is in it</H2>
+            <Clicks
+              items={[
+                <>Drop an APK or a binary on the window to decompile and analyze it locally (JADX or Ghidra in Docker), or press <Kbd>Cloud</Kbd> to sign in and open a project from your {ctx.appName} account.</>,
+                <><Kbd>Explorer</Kbd> and <Kbd>Code</Kbd> for decompiled sources; for Ghidra projects a <Kbd>Binary</Kbd> panel lists functions, strings and imports and shows decompiled C for any function.</>,
+                <>Chat with BINNY. Every tool call shows as a card. <Kbd>Investigate</Kbd> turns it loose on the whole tree.</>,
+                <><Kbd>Findings</Kbd>: each finding is anchored to the function or file it is about; click it to open that code. <Kbd>Highlights</Kbd> list what BINNY flagged as evidence.</>,
+                <><Kbd>Artifacts</Kbd> collects the code it writes: decryptors, proofs of concept, YARA rules, scripts. Copy or save each one.</>,
+                <><Kbd>Report</Kbd> assembles the findings into a MAR or VRR draft. Copy it, download it as Markdown, or <Kbd>Save to project</Kbd>.</>,
+              ]}
+            />
+            <H2>Pushing to your project</H2>
+            <P>
+              With a project from your account open, <Kbd>Save to project</Kbd> (or typing <Code>/save</Code>, or simply asking BINNY to push
+              the report) writes the draft to that project&apos;s report, as a draft for you to review and publish in the web app. When
+              BINNY highlights a function it lands on the project&apos;s Highlights board straight away. On a local analysis there is no
+              project to push to; use Download instead.
+            </P>
+            <H2>Standalone app</H2>
+            <P>
+              A version with its own window (Electron) is built from the same backend. Installers for macOS, Linux and Windows are attached
+              to the <Code>desktop-v*</Code> releases at <Ext href="https://github.com/openbin-ai/binny/releases">github.com/openbin-ai/binny/releases</Ext>.
+              Everything above works identically in it.
             </P>
           </>
         ),

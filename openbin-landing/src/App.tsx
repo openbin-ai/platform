@@ -313,6 +313,13 @@ function BinnyBeta() {
               draft lands on the project report for you to review. Sessions
               resume where they stopped.
             </p>
+            <p className="mt-4 text-base leading-relaxed text-zinc-400">
+              Not a terminal person? <code className="font-mono text-zinc-200">binny desktop</code> runs
+              the same engine as BINNY Desktop in your browser: an explorer and code pane, a
+              function/strings/imports panel for Ghidra projects, findings that jump to the
+              code they are about, highlights, artifacts and the report, with one click to
+              push it all to your project.
+            </p>
             <div className="mt-6 flex flex-wrap gap-3 text-sm">
               <a href="https://github.com/openbin-ai/binny" target="_blank" rel="noopener noreferrer" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 font-medium text-amber-200 transition hover:bg-amber-500/20">
                 Source on GitHub
@@ -341,7 +348,8 @@ function BinnyBeta() {
               </div>
             </div>
             <p className="text-xs text-zinc-500">
-              Then <code className="font-mono text-zinc-300">openbin login &amp;&amp; binny</code>. Docker is needed only for local decompile and the sandbox.
+              Then <code className="font-mono text-zinc-300">openbin login &amp;&amp; binny</code>, or{' '}
+              <code className="font-mono text-zinc-300">binny desktop</code> for the graphical app. Docker is needed only for local decompile and the sandbox.
               AGPL-3.0, binaries for macOS, Linux and Windows on the{' '}
               <a href="https://github.com/openbin-ai/binny/releases" target="_blank" rel="noopener noreferrer" className="text-amber-400 underline-offset-4 hover:underline">
                 releases page
