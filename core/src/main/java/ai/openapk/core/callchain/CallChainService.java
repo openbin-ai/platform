@@ -281,7 +281,7 @@ public class CallChainService {
     }
 
     private int computeEndLine(Path root, Symbol method) {
-        Path file = root.resolve(method.file());
+        Path file = resolveWithinRoot(root, method.file());
         try {
             List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
             int depth = 0;
@@ -302,7 +302,7 @@ public class CallChainService {
     }
 
     private String readBody(UUID projectId, Path root, Symbol method) {
-        Path file = root.resolve(method.file());
+        Path file = resolveWithinRoot(root, method.file());
         try {
             String content = renameService.applyMapToContent(projectId,
                     Files.readString(file, StandardCharsets.UTF_8));
@@ -320,7 +320,7 @@ public class CallChainService {
     }
 
     private String readPreview(UUID projectId, Path root, Symbol method, int maxLines) {
-        Path file = root.resolve(method.file());
+        Path file = resolveWithinRoot(root, method.file());
         try {
             String content = renameService.applyMapToContent(projectId,
                     Files.readString(file, StandardCharsets.UTF_8));
@@ -360,6 +360,13 @@ public class CallChainService {
 
         List<MethodRef> refs = new ArrayList<>(order.values());
         if (refs.size() > MAX_NARRATE_NODES) refs = refs.subList(0, MAX_NARRATE_NODES);
+
+        // Reject a chain whose node paths escape the project root BEFORE we
+        // read any body or spend an LLM call. Defence in depth with the guard
+        // inside readBodyByRef — this is the path-traversal / LFI fix.
+        for (MethodRef ref : refs) {
+            resolveWithinRoot(root, ref.file());
+        }
 
         StringBuilder prompt = new StringBuilder();
         prompt.append("Walk through this call chain. For each method below, write one short sentence ")
@@ -530,7 +537,8 @@ public class CallChainService {
     }
 
     private String readBodyByRef(UUID projectId, Path root, MethodRef ref) {
-        Path file = root.resolve(ref.file());
+        // ref.file() comes straight from the client-supplied chain — guard it.
+        Path file = resolveWithinRoot(root, ref.file());
         try {
             String content = renameService.applyMapToContent(projectId,
                     Files.readString(file, StandardCharsets.UTF_8));
@@ -590,6 +598,27 @@ public class CallChainService {
             log.warn("narration parse failed; returning empty: {}", e.toString());
         }
         return out;
+    }
+
+    /**
+     * Resolve a project-relative path under {@code root}, rejecting anything
+     * that escapes it (path traversal). The narrate endpoint echoes a chain
+     * back from the client, so {@link MethodRef#file()} is ATTACKER-CONTROLLED:
+     * without this a crafted "../../../../etc/passwd" (or an absolute path) is
+     * read off the task filesystem and embedded in the prompt that narrate
+     * sends to the caller's OWN BYOK endpoint — arbitrary-file exfiltration.
+     * Same containment check ProjectService / RenameService already apply to
+     * client file paths; callchain was the one read path that skipped it.
+     */
+    private static Path resolveWithinRoot(Path root, String relFile) {
+        if (relFile == null || relFile.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "missing file path");
+        }
+        Path resolved = root.resolve(relFile).normalize();
+        if (!resolved.startsWith(root)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path escapes project root");
+        }
+        return resolved;
     }
 
     private static MethodRef methodRefFor(Symbol s) {
