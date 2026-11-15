@@ -155,3 +155,24 @@ body {
   background: rgba(56, 189, 248, 0.13);
   box-shadow: inset 2px 0 0 #38bdf8;
 }
+
+/* ---- Ghidra-style semantic colors in the pseudocode pane ---------------
+   Shiki's C grammar leaves the decompiler's own vocabulary uncolored
+   (undefined4, local_18, param_1, DAT_…, LAB_…). ProjectView's DOM pass
+   tags those tokens tok-*; the palette lives in variables so light.css can
+   swap it. Each rule also sets --shiki-light: light mode colors every span
+   in the pane from that variable with !important, so this is what carries
+   the token color across without out-specifying the link hover rules.
+   :where() keeps specificity below .fn-link:hover / .data-link:hover. */
+.shiki-host {
+  --tok-type: #7ee787;
+  --tok-param: #ffa657;
+  --tok-local: #e2c08d;
+  --tok-global: #56d4dd;
+  --tok-label: #8b949e;
+}
+:where(.shiki-host) .tok-type   { color: var(--tok-type);   --shiki-light: var(--tok-type); }
+:where(.shiki-host) .tok-param  { color: var(--tok-param);  --shiki-light: var(--tok-param); }
+:where(.shiki-host) .tok-local  { color: var(--tok-local);  --shiki-light: var(--tok-local); }
+:where(.shiki-host) .tok-global { color: var(--tok-global); --shiki-light: var(--tok-global); }
+:where(.shiki-host) .tok-label  { color: var(--tok-label);  --shiki-light: var(--tok-label); font-style: italic; }

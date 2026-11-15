@@ -169,6 +169,14 @@ html.light .shiki-host .shiki span {
 html.light .shiki-plain code {
   color: #18181b;
 }
+/* Ghidra-style semantic token palette (rules in openbin's index.css). */
+html.light .shiki-host {
+  --tok-type: #116329;
+  --tok-param: #953800;
+  --tok-local: #7d4e00;
+  --tok-global: #1b7c83;
+  --tok-label: #6e7781;
+}
 /* The token color rule above is !important (it has to beat Shiki's inline
  * style), so the code-link hover colors need their own light values. Use
  * the remapped accent tokens, which are already dark enough on white. */

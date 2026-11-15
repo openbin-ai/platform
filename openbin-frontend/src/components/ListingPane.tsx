@@ -76,6 +76,8 @@ export function ListingPane({
   onClose,
   isFn,
   onJumpFn,
+  renderText,
+  onJump,
 }: {
   blocks: ListingBlock[] | undefined
   target: ListingTarget
@@ -84,6 +86,11 @@ export function ListingPane({
   isFn: (name: string) => boolean
   /** Label click-through: close the listing and open that function. */
   onJumpFn: (name: string) => void
+  /** Syntax-colored rendering of one row's text; plain text when omitted.
+   *  May emit spans carrying data-fn / data-jump-data / data-jump-addr. */
+  renderText?: (text: string) => React.ReactNode
+  /** Click-through for the data-jump-* spans renderText emits. */
+  onJump?: (target: { kind: 'data' | 'addr'; value: string }) => void
 }) {
   // Flatten blocks into uniform rows. Labels get their own row (like
   // Ghidra) so every row keeps the same fixed height for windowing.
@@ -274,6 +281,13 @@ export function ListingPane({
       <div
         ref={scrollRef}
         onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
+        onClick={(e) => {
+          const t = (e.target as HTMLElement).closest('[data-fn], [data-jump-data], [data-jump-addr]') as HTMLElement | null
+          if (!t) return
+          if (t.dataset.fn) onJumpFn(t.dataset.fn)
+          else if (t.dataset.jumpData) onJump?.({ kind: 'data', value: t.dataset.jumpData })
+          else if (t.dataset.jumpAddr) onJump?.({ kind: 'addr', value: t.dataset.jumpAddr })
+        }}
         className="min-h-0 flex-1 overflow-auto bg-zinc-900/40 font-mono text-[11px] leading-none"
       >
         <div className="relative min-w-max" style={{ height: rows.length * ROW_H }}>
@@ -322,7 +336,7 @@ export function ListingPane({
               <div key={idx} style={style} data-addr={r.addr} className={`flex items-center gap-3 px-4 hover:bg-zinc-800/40${flash}`}>
                 <span className="w-32 shrink-0 text-zinc-600">{r.addr}</span>
                 <span className="w-[21rem] shrink-0 truncate text-zinc-500">{r.bytes}</span>
-                <span className="whitespace-pre text-zinc-200">{r.text}</span>
+                <span className="whitespace-pre text-zinc-200">{renderText ? renderText(r.text) : r.text}</span>
               </div>
             )
           })}

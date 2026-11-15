@@ -8,6 +8,7 @@ import { forkedFromHref } from '@shared/api/forkLink'
 import { ShareProjectModal } from '@shared/components/ShareProjectModal'
 import { RenameSymbolDialog } from '@shared/components/RenameSymbolDialog'
 import { MembersBar } from '@shared/components/MembersBar'
+import { FunctionTree } from '@shared/components/FunctionTree'
 import { ProjectVisibilityToggle } from '@shared/components/ProjectVisibilityToggle'
 import { ProjectChatPanel } from '@shared/components/dm/ProjectChatPanel'
 import { ProjectRoleProvider, useCanEdit } from '@shared/components/ProjectRoleContext'
@@ -184,7 +185,10 @@ const LEFT_OPEN_KEY = 'openbin.leftPanelOpen'
 const RIGHT_OPEN_KEY = 'openbin.rightPanelOpen'
 const SPLIT_KEY = 'openbin.codeSplitView'
 const RIGHT_WIDTH_KEY = 'openbin.rightPanelWidth'
-const LEFT_WIDTH = 280
+const LEFT_WIDTH_KEY = 'openbin.leftPanelWidth'
+const LEFT_WIDTH_DEFAULT = 280
+const LEFT_WIDTH_MIN = 200
+const LEFT_WIDTH_MAX = 720
 const RAIL_WIDTH = 36
 const RIGHT_WIDTH_DEFAULT = 320
 const RIGHT_WIDTH_MIN = 280
@@ -514,7 +518,16 @@ export function ProjectView() {
   })
   useEffect(() => { window.localStorage.setItem(LEFT_OPEN_KEY, leftOpen ? '1' : '0') }, [leftOpen])
   useEffect(() => { window.localStorage.setItem(RIGHT_OPEN_KEY, rightOpen ? '1' : '0') }, [rightOpen])
+  const [leftWidth, setLeftWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return LEFT_WIDTH_DEFAULT
+    const v = window.localStorage.getItem(LEFT_WIDTH_KEY)
+    const n = v ? parseInt(v, 10) : NaN
+    return Number.isFinite(n)
+      ? Math.min(LEFT_WIDTH_MAX, Math.max(LEFT_WIDTH_MIN, n))
+      : LEFT_WIDTH_DEFAULT
+  })
   useEffect(() => { window.localStorage.setItem(RIGHT_WIDTH_KEY, String(rightWidth)) }, [rightWidth])
+  useEffect(() => { window.localStorage.setItem(LEFT_WIDTH_KEY, String(leftWidth)) }, [leftWidth])
 
   // Drag-to-resize the right panel. Handle sits on the LEFT edge of the
   // panel, so dragging the mouse leftward widens. Listeners attach to the
@@ -540,6 +553,28 @@ export function ProjectView() {
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
   }, [rightWidth])
+
+  // Same drag for the left sidebar; its handle is on the RIGHT edge, so
+  // dragging rightward widens.
+  const startResizeLeft = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = leftWidth
+    const onMove = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX
+      setLeftWidth(Math.min(LEFT_WIDTH_MAX, Math.max(LEFT_WIDTH_MIN, startW + dx)))
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [leftWidth])
 
   // Cached AI deobfuscations for this project, keyed by the ORIGINAL (pre-
   // rename) function name — matches the server's storage key. The CodePane
@@ -870,7 +905,7 @@ export function ProjectView() {
   }
 
   const gridCols =
-    `${leftOpen ? LEFT_WIDTH : RAIL_WIDTH}px ` +
+    `${leftOpen ? leftWidth : RAIL_WIDTH}px ` +
     `minmax(0,1fr) ` +
     `${rightOpen ? rightWidth : RAIL_WIDTH}px`
 
@@ -919,6 +954,8 @@ export function ProjectView() {
             onSelectData={setSelectedDataName}
             onOpenListing={(block) => setListingTarget({ block, nonce: Date.now() })}
             onCollapse={() => setLeftOpen(false)}
+            onStartResize={startResizeLeft}
+            onResetWidth={() => setLeftWidth(LEFT_WIDTH_DEFAULT)}
           />
         ) : (
           <PanelRail
@@ -934,6 +971,8 @@ export function ProjectView() {
             onClose={() => setListingTarget(null)}
             isFn={(name) => fnByName.has(name)}
             onJumpFn={selectFn}
+            renderText={(text) => <DisasmTokens text={text} lookups={lookups} selfName="" />}
+            onJump={jumpToTarget}
           />
         ) : (
         <CodePane
@@ -1252,7 +1291,11 @@ function LeftSidebar({
   onSelectData,
   onOpenListing,
   onCollapse,
+  onStartResize,
+  onResetWidth,
 }: {
+  onStartResize: (e: React.MouseEvent) => void
+  onResetWidth: () => void
   projectId: string
   tab: LeftTab
   onTabChange: (t: LeftTab) => void
@@ -1260,7 +1303,7 @@ function LeftSidebar({
   filter: string
   onFilterChange: (v: string) => void
   selectedName: string | null
-  onSelect: (name: string) => void
+  onSelect: (name: string, hint?: JumpHint) => void
   total: number
   analysis: BinaryAnalysis
   lookups: SymbolLookups
@@ -1282,7 +1325,16 @@ function LeftSidebar({
     sections: analysis.memory_blocks?.length ?? 0,
   }
   return (
-    <aside className="flex min-h-0 flex-col border-r border-zinc-800">
+    <aside className="relative flex min-h-0 flex-col border-r border-zinc-800">
+      {/* Resize handle on the right edge — mirrors the right panel's. */}
+      <div
+        onMouseDown={onStartResize}
+        onDoubleClick={onResetWidth}
+        title="Drag to resize · double-click to reset"
+        className="group absolute right-0 top-0 z-20 flex h-full w-1.5 translate-x-1/2 cursor-col-resize justify-center"
+      >
+        <div className="h-full w-px bg-transparent group-hover:bg-purple-500/60" />
+      </div>
       <div className="relative flex items-center gap-1 border-b border-zinc-800 p-2">
         <Link
           to={graphHref}
@@ -1346,8 +1398,10 @@ function LeftSidebar({
       {tab === 'data' && (
         <DataSymbolsPanel
           items={analysis.data_symbols}
+          functions={analysis.functions}
           selectedName={selectedDataName}
           onSelectData={onSelectData}
+          onSelectFn={onSelect}
         />
       )}
       {tab === 'sections' && (
@@ -1387,21 +1441,20 @@ function FunctionList({
         {functions.length === 0 ? (
           <div className="px-3 py-4 text-xs text-zinc-500">No matches.</div>
         ) : (
-          <ul className="text-xs">
-            {functions.map((f) => (
-              <li key={f.address}>
-                <button
-                  onClick={() => onSelect(f.name)}
-                  className={`flex w-full items-center justify-between gap-2 border-b border-zinc-900 px-3 py-1.5 text-left font-mono hover:bg-zinc-900 ${
-                    f.name === selectedName ? 'bg-purple-950/60 text-purple-200' : 'text-zinc-300'
-                  }`}
-                >
-                  <span className="truncate">{f.name}</span>
-                  <FunctionTag fn={f} />
-                </button>
-              </li>
-            ))}
-          </ul>
+          <FunctionTree
+            functions={functions}
+            filterActive={filter.trim() !== ''}
+            selectBy="name"
+            selectedKey={selectedName}
+            onSelect={(f) => onSelect(f.name)}
+            selectedClass="bg-purple-950/60 text-purple-200"
+            renderLeaf={(f) => (
+              <>
+                <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                <FunctionTag fn={f} />
+              </>
+            )}
+          />
         )}
       </div>
       <p
@@ -2102,6 +2155,50 @@ function resolveJump(token: string, lookups: SymbolLookups, selfName: string): L
 // not that this ever appears alone — wouldn't get mis-classified.
 const PSEUDO_TOKEN = /([A-Za-z_$@?][A-Za-z0-9_$@.?]*)|(0x[0-9a-fA-F]{5,})/g
 
+// Type names the decompiler emits that the TextMate C grammar doesn't know,
+// so Shiki leaves them uncolored: Ghidra's built-ins plus the common
+// stdint / Windows typedefs.
+const GHIDRA_TYPES: ReadonlySet<string> = new Set([
+  'undefined', 'undefined1', 'undefined2', 'undefined3', 'undefined4', 'undefined5',
+  'undefined6', 'undefined7', 'undefined8', 'undefined16',
+  'byte', 'sbyte', 'uchar', 'ushort', 'uint', 'ulong', 'longlong', 'ulonglong',
+  'word', 'dword', 'qword', 'sword', 'sdword', 'sqword',
+  'bool', 'code', 'pointer', 'pointer32', 'pointer64', 'addr',
+  'float4', 'float8', 'float10', 'float16', 'wchar_t', 'wchar16', 'wchar32',
+  'int1', 'int2', 'int3', 'int4', 'int5', 'int6', 'int7', 'int8', 'int16',
+  'uint1', 'uint2', 'uint3', 'uint4', 'uint5', 'uint6', 'uint7', 'uint8', 'uint16',
+  'int8_t', 'int16_t', 'int32_t', 'int64_t', 'uint8_t', 'uint16_t', 'uint32_t', 'uint64_t',
+  'size_t', 'ssize_t', 'intptr_t', 'uintptr_t', 'ptrdiff_t', 'off_t', 'time_t',
+  'BYTE', 'WORD', 'DWORD', 'QWORD', 'BOOL', 'BOOLEAN', 'CHAR', 'UCHAR', 'WCHAR',
+  'SHORT', 'USHORT', 'INT', 'UINT', 'LONG', 'ULONG', 'LONGLONG', 'ULONGLONG',
+  'HANDLE', 'HMODULE', 'HINSTANCE', 'HRESULT', 'NTSTATUS', 'LPVOID', 'PVOID',
+  'LPSTR', 'LPCSTR', 'LPWSTR', 'LPCWSTR', 'SIZE_T', 'DWORD_PTR', 'ULONG_PTR',
+])
+// Ghidra's auto-naming schemes for the things it can't name better.
+const GHIDRA_PARAM = /^(?:param_\d+|in_[A-Za-z0-9_]+)$/
+const GHIDRA_LOCAL = /^(?:local_(?:res)?[0-9a-fA-F]+|[a-z]{1,4}Var\d+|[a-z]{1,3}Stack_?[0-9a-fA-F]+|unaff_\w+|extraout_\w+|uStack\w+|auStack\w+)$/
+const GHIDRA_GLOBAL = /^(?:_?DAT|PTR|UNK|BYTE|WORD|DWORD|QWORD|s|u)_[A-Za-z0-9_.]*[0-9a-fA-F]{4,}$/
+const GHIDRA_LABEL = /^(?:LAB_[0-9a-fA-F]+|switchD_\w+|caseD_\w+|joined_r0x[0-9a-fA-F]+|code_r0x[0-9a-fA-F]+)$/
+
+/**
+ * Ghidra-decompiler-style semantic class for an identifier Shiki left
+ * plain, or null. Colors come from the --tok-* variables in index.css.
+ */
+function pseudoTokenClass(word: string, varNames: ReadonlySet<string>, isData: boolean): string | null {
+  if (GHIDRA_TYPES.has(word)) return 'tok-type'
+  if (GHIDRA_PARAM.test(word)) return 'tok-param'
+  if (isData || GHIDRA_GLOBAL.test(word)) return 'tok-global'
+  if (GHIDRA_LABEL.test(word)) return 'tok-label'
+  if (varNames.has(word) || GHIDRA_LOCAL.test(word)) return 'tok-local'
+  return null
+}
+
+// Shiki's default-foreground color in the dark theme. A text node whose
+// span carries it is an identifier the grammar didn't classify — the only
+// place semantic classes are applied, which keeps them out of comments,
+// strings and keywords.
+const SHIKI_PLAIN = /color:\s*#e6edf3/i
+
 /**
  * Walk the text nodes of a parsed-Shiki HTML fragment and wrap every
  * resolvable click target — function names, data symbols (DAT_xxx),
@@ -2129,8 +2226,18 @@ function addFunctionLinks(
   const texts: Text[] = []
   let cur: Node | null
   while ((cur = walker.nextNode())) texts.push(cur as Text)
+  // The C grammar scopes the `0x` of a hex literal as a keyword, so it
+  // renders red next to blue digits. Give the prefix the digits' color.
+  root.querySelectorAll('span[style]').forEach((el) => {
+    if (!/^\s*0[xX]$/.test(el.textContent ?? '')) return
+    const next = el.nextElementSibling
+    if (next && /^[0-9a-fA-F]+[uUlL]*$/.test(next.textContent ?? '')) {
+      el.setAttribute('style', next.getAttribute('style') ?? '')
+    }
+  })
   for (const node of texts) {
     const text = node.data
+    const plain = SHIKI_PLAIN.test(node.parentElement?.getAttribute('style') ?? '')
     PSEUDO_TOKEN.lastIndex = 0
     const frag = doc.createDocumentFragment()
     let lastIndex = 0
@@ -2144,7 +2251,11 @@ function addFunctionLinks(
       // highlight hint, and a local variable name never collides with a known
       // symbol in practice.
       const isVar = !payload && varNames.has(word)
-      if (!payload && !isVar) continue
+      const tok =
+        plain && payload?.className !== 'fn-link' && payload?.className !== 'addr-link'
+          ? pseudoTokenClass(word, varNames, payload?.className === 'data-link')
+          : null
+      if (!payload && !isVar && !tok) continue
       mutated = true
       if (m.index > lastIndex) {
         frag.appendChild(doc.createTextNode(text.slice(lastIndex, m.index)))
@@ -2153,10 +2264,11 @@ function addFunctionLinks(
       if (payload) {
         span.className = payload.className
         span.setAttribute(payload.attr, payload.value)
-      } else {
+      } else if (isVar) {
         span.className = 'var-token'
         span.setAttribute('data-var', word)
       }
+      if (tok) span.classList.add(tok)
       span.textContent = word
       frag.appendChild(span)
       lastIndex = m.index + word.length
@@ -2232,6 +2344,7 @@ const ASM_SIZE_KEYWORDS: ReadonlySet<string> = new Set([
 // disassembly listings don't contain string literals at this layer.
 type AsmToken =
   | { kind: 'comment'; text: string }
+  | { kind: 'string'; text: string }
   | { kind: 'number'; text: string }
   | { kind: 'ident'; text: string }
   | { kind: 'punct'; text: string }
@@ -2243,15 +2356,16 @@ function tokenizeAsmLine(line: string): AsmToken[] {
   // think about it. Ghidra appends auto-comments with ` = ...` for resolved
   // references on some processors — those use `=` not `;`, so they fall
   // through as normal tokens (intentional).
-  const semi = line.indexOf(';')
-  const body = semi >= 0 ? line.slice(0, semi) : line
-  const comment = semi >= 0 ? line.slice(semi) : ''
-
-  // Token regex — ordering matters: number must come before ident so that
-  // `0x123` isn't sliced into `0` + `x123` (which would mis-color `x123`
-  // as the AArch64 register x123).
+  // Token regex — ordering matters:
+  //   - string/char literals first (the full program listing renders
+  //     defined data as `ds "…"`), so a `;` inside one isn't a comment;
+  //   - then `;` to end of line as one comment token;
+  //   - number before ident so `0x123` isn't sliced into `0` + `x123`
+  //     (which would mis-color `x123` as the AArch64 register x123). Also
+  //     takes Ghidra's data-value form `20001766h`.
+  const body = line
   const re =
-    /(\s+)|(#?-?0x[0-9a-fA-F]+|#-?\d+|-?\b\d+\b)|([A-Za-z_$@?][A-Za-z0-9_$@.?]*)|([,+\-*:!=<>(){}\[\]])/g
+    /(\s+)|("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)+')|(;.*$)|(#?-?0x[0-9a-fA-F]+|\b[0-9][0-9a-fA-F]*h\b|#-?\d+|-?\b\d+\b)|([A-Za-z_$@?][A-Za-z0-9_$@.?]*)|([,+\-*:!=<>(){}\[\]])/g
   let m: RegExpExecArray | null
   let lastIndex = 0
   while ((m = re.exec(body)) !== null) {
@@ -2259,13 +2373,14 @@ function tokenizeAsmLine(line: string): AsmToken[] {
     // keeps us robust against odd characters in operand markup.
     if (m.index > lastIndex) out.push({ kind: 'punct', text: body.slice(lastIndex, m.index) })
     if (m[1] !== undefined) out.push({ kind: 'ws', text: m[1] })
-    else if (m[2] !== undefined) out.push({ kind: 'number', text: m[2] })
-    else if (m[3] !== undefined) out.push({ kind: 'ident', text: m[3] })
-    else if (m[4] !== undefined) out.push({ kind: 'punct', text: m[4] })
+    else if (m[2] !== undefined) out.push({ kind: 'string', text: m[2] })
+    else if (m[3] !== undefined) out.push({ kind: 'comment', text: m[3] })
+    else if (m[4] !== undefined) out.push({ kind: 'number', text: m[4] })
+    else if (m[5] !== undefined) out.push({ kind: 'ident', text: m[5] })
+    else if (m[6] !== undefined) out.push({ kind: 'punct', text: m[6] })
     lastIndex = m.index + m[0].length
   }
   if (lastIndex < body.length) out.push({ kind: 'punct', text: body.slice(lastIndex) })
-  if (comment) out.push({ kind: 'comment', text: comment })
   return out
 }
 
@@ -2304,6 +2419,11 @@ function DisasmTokens({
       case 'comment':
         parts.push(
           <span key={key} className="italic text-zinc-500">{t.text}</span>,
+        )
+        break
+      case 'string':
+        parts.push(
+          <span key={key} className="text-emerald-300">{t.text}</span>,
         )
         break
       case 'number': {
@@ -5884,12 +6004,16 @@ function AddressedListPanel({
 // when it changes, scroll + flash + auto-expand that row.
 function DataSymbolsPanel({
   items,
+  functions,
   selectedName,
   onSelectData,
+  onSelectFn,
 }: {
   items: DataSymbol[] | undefined
+  functions: BinaryFunction[]
   selectedName: string | null
   onSelectData: (name: string | null) => void
+  onSelectFn: (name: string, hint?: JumpHint) => void
 }) {
   const [q, setQ] = useState('')
   const rowRefs = useRef<Map<string, HTMLLIElement>>(new Map())
@@ -5958,7 +6082,7 @@ function DataSymbolsPanel({
                 )}
               </div>
               <div className="truncate text-zinc-600">{d.address}</div>
-              {isSel && <DataSymbolDetail d={d} />}
+              {isSel && <DataSymbolDetail d={d} functions={functions} onSelectFn={onSelectFn} />}
             </li>
           )
         })}
@@ -5971,9 +6095,22 @@ function DataSymbolsPanel({
 // of Ghidra's Listing view: address, type label, size, default value
 // representation, and a raw-byte hex preview when available. Read-only
 // today; future work could let the user edit the type or rename inline.
-function DataSymbolDetail({ d }: { d: DataSymbol }) {
+function DataSymbolDetail({
+  d,
+  functions,
+  onSelectFn,
+}: {
+  d: DataSymbol
+  functions: BinaryFunction[]
+  onSelectFn: (name: string, hint?: JumpHint) => void
+}) {
+  const xrefs = useMemo(() => findDataXrefs(d, functions), [d, functions])
   return (
-    <div className="mt-1 rounded border border-zinc-800 bg-zinc-950/60 p-2 text-[10px]">
+    // Clicks in here must not bubble to the row, which toggles selection.
+    <div
+      className="mt-1 cursor-default rounded border border-zinc-800 bg-zinc-950/60 p-2 text-[10px]"
+      onClick={(e) => e.stopPropagation()}
+    >
       <DetailRow label="address" value={d.address} mono />
       {d.type && <DetailRow label="type" value={d.type} mono />}
       {(d.size ?? 0) > 0 && <DetailRow label="size" value={`${d.size} bytes`} />}
@@ -5989,8 +6126,106 @@ function DataSymbolDetail({ d }: { d: DataSymbol }) {
         />
       )}
       {(d.ref_count ?? 0) > 0 && <DetailRow label="refs" value={String(d.ref_count)} />}
+      <div className="mt-1.5 border-t border-zinc-800 pt-1.5">
+        <div className="mb-1 text-zinc-500">
+          XREFs{xrefs.sites > 0 && ` · ${xrefs.sites}${xrefs.capped ? '+' : ''} in ${xrefs.groups.length} function${xrefs.groups.length === 1 ? '' : 's'}`}
+        </div>
+        {xrefs.groups.length === 0 ? (
+          <div className="text-zinc-600">
+            No references found in function bodies
+            {(d.ref_count ?? 0) > 0 && ' — the remaining refs come from other data (pointer tables) or code outside extracted functions'}
+            .
+          </div>
+        ) : (
+          <ul className="space-y-1">
+            {xrefs.groups.map((g) => (
+              <li key={g.fn.address}>
+                <button
+                  onClick={() => onSelectFn(g.fn.name, g.sites[0]?.hint)}
+                  className="max-w-full truncate text-left text-purple-300 underline decoration-purple-800 underline-offset-2 hover:text-purple-200"
+                  title={`Go to ${g.fn.name}`}
+                >
+                  {g.fn.name}
+                </button>
+                <ul>
+                  {g.sites.map((site, i) => (
+                    <li key={i}>
+                      <button
+                        onClick={() => onSelectFn(g.fn.name, site.hint)}
+                        className="flex w-full gap-2 rounded px-1 py-px text-left hover:bg-zinc-900"
+                        title={site.text}
+                      >
+                        <span className="shrink-0 text-cyan-600">{site.where}</span>
+                        <span className="min-w-0 flex-1 truncate text-zinc-400">{site.text}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   )
+}
+
+type DataXrefSite = { hint: JumpHint; where: string; text: string }
+type DataXrefGroup = { fn: BinaryFunction; sites: DataXrefSite[] }
+const MAX_DATA_XREF_SITES = 200
+
+/**
+ * Where a data symbol is referenced from function bodies, like the XREF
+ * column of Ghidra's Listing. The worker only ships a reference *count*
+ * for data, so this is derived by scanning for the symbol's name or raw
+ * address: pseudocode lines first, disassembly as a fallback for functions
+ * whose decompiled body doesn't mention it. References from other data or
+ * from undecompiled code can't be found this way.
+ */
+function findDataXrefs(
+  d: DataSymbol,
+  functions: BinaryFunction[],
+): { groups: DataXrefGroup[]; sites: number; capped: boolean } {
+  const name = escapeRegex(d.name)
+  const canon = canonAddr(d.address)
+  const long = canon.length >= 5
+  // Pseudocode: the label, plus the raw address only when it's long enough
+  // not to collide with ordinary integer constants.
+  const re = new RegExp(long ? `\\b(?:${name}|(?:0x)?0*${canon})\\b` : `\\b${name}\\b`, 'i')
+  // Disassembly is Instruction.toString(), which prints operands as raw
+  // `0x452c` and never as the DAT_ label — so the address has to match here
+  // even when short (small firmware images live entirely below 0x10000, and
+  // ARM/Thumb code reaches its data through literal-pool loads like
+  // `ldr r0,[0x452c]`). Short addresses must carry the 0x prefix and not be
+  // an ARM `#0x…` immediate.
+  const asmAddr = !canon ? null : long ? `(?:0x)?0*${canon}` : `(?<!#)0x0*${canon}`
+  const reAsm = asmAddr ? new RegExp(`(?:\\b${name}\\b|\\b${asmAddr}\\b)`, 'i') : re
+  const groups: DataXrefGroup[] = []
+  let total = 0
+  for (const fn of functions) {
+    if (total >= MAX_DATA_XREF_SITES) return { groups, sites: total, capped: true }
+    if (fn.external || fn.thunk) continue
+    const sites: DataXrefSite[] = []
+    if (fn.decompiled && re.test(fn.decompiled)) {
+      const lines = fn.decompiled.split('\n')
+      for (let i = 0; i < lines.length && total + sites.length < MAX_DATA_XREF_SITES; i++) {
+        if (re.test(lines[i])) {
+          sites.push({ hint: { pseudoLine: i + 1 }, where: `L${i + 1}`, text: lines[i].trim() })
+        }
+      }
+    }
+    if (sites.length === 0 && fn.disassembly) {
+      for (const l of fn.disassembly) {
+        if (total + sites.length >= MAX_DATA_XREF_SITES) break
+        if (reAsm.test(l.text)) sites.push({ hint: { asmAddr: l.addr }, where: l.addr, text: l.text.trim() })
+      }
+    }
+    if (sites.length > 0) {
+      groups.push({ fn, sites })
+      total += sites.length
+    }
+  }
+  return { groups, sites: total, capped: false }
 }
 
 function DetailRow({

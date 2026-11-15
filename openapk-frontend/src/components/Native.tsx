@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from 'react-oidc-context'
 import { API_BASE, useApi } from '../api/client'
 import { useCanEdit } from '@shared/components/ProjectRoleContext'
+import { FunctionTree } from '@shared/components/FunctionTree'
 import { highlight } from '../syntax/highlight'
 
 // =========================================================================
@@ -812,9 +813,14 @@ function FunctionsPanel({
   }, [functions, imports])
 
   const f = filter.trim().toLowerCase()
-  const filtered = f
-    ? functions.filter(fn => fn.name.toLowerCase().includes(f) || fn.address.toLowerCase().includes(f))
-    : functions
+  // Memoized: FunctionTree rebuilds its folders whenever this array changes.
+  const filtered = useMemo(
+    () =>
+      f
+        ? functions.filter(fn => fn.name.toLowerCase().includes(f) || fn.address.toLowerCase().includes(f))
+        : functions,
+    [functions, f],
+  )
   const openFn = openAddr ? functions.find(fn => fn.address === openAddr) ?? null : null
 
   // Pseudocode/disassembly tab, side-by-side split (persisted), and the
@@ -900,48 +906,31 @@ function FunctionsPanel({
         </p>
       </div>
       <div className="flex min-h-0 flex-1">
-        <ul className="w-80 shrink-0 overflow-auto border-r border-zinc-800/80">
-          {filtered.slice(0, 1500).map(fn => {
-            const isJni = fn.name.startsWith('Java_')
-            return (
-              <li key={fn.address}>
-                <button
-                  onClick={() => onNavigate(fn.address === openAddr ? null : fn.address)}
-                  className={`flex w-full items-baseline gap-2 px-2 py-1 text-left text-xs hover:bg-zinc-900/60 ${
-                    fn.address === openAddr ? 'bg-amber-950/30' : ''
-                  }`}
-                  title={fn.signature || fn.name}
-                >
-                  {isJni && (
-                    <span className="shrink-0 rounded border border-purple-700 bg-purple-950/40 px-1 font-mono text-[9px] uppercase text-purple-300">
-                      JNI
-                    </span>
-                  )}
-                  {fn.external && (
-                    <span className="shrink-0 rounded border border-zinc-700 bg-zinc-900 px-1 font-mono text-[9px] uppercase text-zinc-400">
-                      ext
-                    </span>
-                  )}
-                  {fn.thunk && (
-                    <span className="shrink-0 rounded border border-zinc-700 bg-zinc-900 px-1 font-mono text-[9px] uppercase text-zinc-400">
-                      thunk
-                    </span>
-                  )}
-                  <span className="min-w-0 flex-1 truncate font-mono text-zinc-200">{fn.name}</span>
-                  <span className="shrink-0 font-mono text-[10px] text-zinc-500">{fn.address}</span>
-                </button>
-              </li>
-            )
-          })}
-          {filtered.length > 1500 && (
-            <li className="px-2 py-2 text-center text-[10px] text-zinc-500">
-              … {filtered.length - 1500} more — narrow the filter
-            </li>
-          )}
+        <div className="w-80 shrink-0 overflow-auto border-r border-zinc-800/80">
+          <FunctionTree
+            functions={filtered}
+            filterActive={f !== ''}
+            selectBy="address"
+            selectedKey={openAddr}
+            onSelect={fn => onNavigate(fn.address === openAddr ? null : fn.address)}
+            leafTitle={fn => fn.signature || fn.name}
+            selectedClass="bg-amber-950/30 text-zinc-200"
+            renderLeaf={fn => (
+              <>
+                {fn.name.startsWith('Java_') && (
+                  <span className="shrink-0 rounded border border-purple-700 bg-purple-950/40 px-1 font-mono text-[9px] uppercase text-purple-300">
+                    JNI
+                  </span>
+                )}
+                <span className="min-w-0 flex-1 truncate">{fn.name}</span>
+                <span className="shrink-0 text-[10px] text-zinc-500">{fn.address}</span>
+              </>
+            )}
+          />
           {filtered.length === 0 && (
-            <li className="px-2 py-2 text-center text-[10px] text-zinc-500">no functions match</li>
+            <p className="px-2 py-2 text-center text-[10px] text-zinc-500">no functions match</p>
           )}
-        </ul>
+        </div>
         <div className="min-w-0 flex-1 overflow-auto bg-black/30">
           {!openFn ? (
             <p className="p-4 text-xs text-zinc-500">
