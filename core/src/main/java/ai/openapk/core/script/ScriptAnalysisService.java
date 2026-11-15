@@ -5,7 +5,9 @@ import ai.openapk.core.auth.User;
 import ai.openapk.core.config.OpenApkProperties;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectKind;
+import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectRepository;
+import ai.openapk.core.projects.ProjectRole;
 import ai.openapk.core.projects.ProjectStatus;
 import ai.openapk.core.projects.WorkflowStatus;
 import ai.openapk.core.projects.dto.ProjectResponse;
@@ -63,6 +65,7 @@ public class ScriptAnalysisService {
     private static final Logger log = LoggerFactory.getLogger(ScriptAnalysisService.class);
 
     private final ProjectRepository projects;
+    private final ProjectAccessGuard guard;
     private final ScriptAnalysisRepository analyses;
     private final ScriptDeobfuscationRepository deobfuscations;
     private final ScriptWorkerInvoker invoker;
@@ -74,6 +77,7 @@ public class ScriptAnalysisService {
 
     public ScriptAnalysisService(
             ProjectRepository projects,
+            ProjectAccessGuard guard,
             ScriptAnalysisRepository analyses,
             ScriptDeobfuscationRepository deobfuscations,
             ScriptWorkerInvoker invoker,
@@ -83,6 +87,7 @@ public class ScriptAnalysisService {
             OpenApkProperties props
     ) {
         this.projects = projects;
+        this.guard = guard;
         this.analyses = analyses;
         this.deobfuscations = deobfuscations;
         this.invoker = invoker;
@@ -269,7 +274,7 @@ public class ScriptAnalysisService {
      * action only for JS-ish files.
      */
     public DeobfuscateResponse deobfuscateFile(User user, UUID projectId, DeobfuscateRequest req) {
-        if (!callerCanRead(user.getId(), projectId)) {
+        if (!callerCanEdit(user, projectId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project");
         }
         ScriptAnalysis row = analyses.findById(projectId)
@@ -364,7 +369,7 @@ public class ScriptAnalysisService {
     /** Every saved deobfuscation for a project, for the view to restore on mount. */
     @Transactional(readOnly = true)
     public List<SavedDeobfuscation> savedDeobfuscations(User user, UUID projectId) {
-        if (!callerCanRead(user.getId(), projectId)) {
+        if (!callerCanRead(user, projectId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project");
         }
         return deobfuscations.findAllByProjectId(projectId).stream()
@@ -378,23 +383,28 @@ public class ScriptAnalysisService {
     /** Drop a saved result so the file goes back to showing only its original. */
     @Transactional
     public void deleteDeobfuscation(User user, UUID projectId, String filePath, String engine) {
-        if (!callerCanRead(user.getId(), projectId)) {
+        if (!callerCanEdit(user, projectId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project");
         }
         deobfuscations.deleteByProjectIdAndFilePathAndEngine(projectId, filePath, engine);
     }
 
     /**
-     * Owner-gated read check used by the controller. Read access is owner-
-     * only until B.4 wires the same {@code findAccessibleByIdAndUserId}
-     * collab query through; community readers go through a separate
-     * publish flow (different endpoint, different bytes).
+     * True when the caller has any role on the project (owner, editor or
+     * viewer) — the same tier every other project read uses. Community
+     * readers go through the separate publish flow (different endpoint).
+     *
+     * <p>Non-throwing on purpose: callers turn false into their own 404, and
+     * a 404 thrown from inside the guard's transactional methods would mark
+     * a joined transaction rollback-only (see {@link ProjectAccessGuard}).
      */
-    @Transactional(readOnly = true)
-    public boolean callerCanRead(UUID userId, UUID projectId) {
-        return projects.findById(projectId)
-                .map(p -> p.getUser() != null && userId.equals(p.getUser().getId()))
-                .orElse(false);
+    public boolean callerCanRead(User user, UUID projectId) {
+        return guard.findReadable(user, projectId).isPresent();
+    }
+
+    /** True for owner and editors; viewers can read but not run or delete deobfuscations. */
+    public boolean callerCanEdit(User user, UUID projectId) {
+        return guard.roleOf(user, projectId).map(ProjectRole::canEdit).orElse(false);
     }
 
     private ScriptAnalysis persistAnalysis(UUID projectId, byte[] findingsJson,

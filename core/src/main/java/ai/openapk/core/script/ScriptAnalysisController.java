@@ -86,7 +86,7 @@ public class ScriptAnalysisController {
     @PostMapping(value = "/{projectId}/ask/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter askStream(@PathVariable UUID projectId, @Valid @RequestBody AskScriptRequest req) {
         var user = currentUser.current();
-        if (!service.callerCanRead(user.getId(), projectId)) {
+        if (!service.callerCanRead(user, projectId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project");
         }
         SseEmitter emitter = new SseEmitter(Duration.ofMinutes(5).toMillis());
@@ -111,14 +111,14 @@ public class ScriptAnalysisController {
      * the findings — analysts can't review what they can't see, so this
      * endpoint is the missing half of the workflow.
      *
-     * <p>Owner-only same as {@link #findings}.
+     * <p>Readable by the owner and collaborators, same as {@link #findings}.
      */
     @GetMapping("/{projectId}/bundle-url")
     public Map<String, String> bundleUrl(@PathVariable UUID projectId) {
         var user = currentUser.current();
         ScriptAnalysis row = analyses.findById(projectId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project"));
-        if (!service.callerCanRead(user.getId(), projectId)) {
+        if (!service.callerCanRead(user, projectId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project");
         }
         if (row.getBundleS3Key() == null || row.getBundleS3Key().isBlank()) {
@@ -169,18 +169,11 @@ public class ScriptAnalysisController {
     @GetMapping("/{projectId}/findings")
     public ScriptAnalysisFindings findings(@PathVariable UUID projectId) {
         var user = currentUser.current();
-        // Reuse Project-level authz by looking up the analysis — the FK
-        // cascade means the row only exists if the project does, and we
-        // gate access via the same accessibility query the project view
-        // uses. For now keep it simple: the row exists ⇒ caller is the
-        // owner (collaborators come in B.4 when we wire the read path
-        // through ProjectRepository.findAccessibleByIdAndUserId).
         ScriptAnalysis row = analyses.findById(projectId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project"));
-        // Caller must own the underlying project — the worker JSON stays
-        // private until publish-to-community is invoked separately.
-        // (Owner check delegated to service so this controller stays thin.)
-        if (!service.callerCanRead(user.getId(), projectId)) {
+        // Owner or collaborator — the worker JSON stays private to the
+        // roster until publish-to-community is invoked separately.
+        if (!service.callerCanRead(user, projectId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no analysis for project");
         }
         try {
