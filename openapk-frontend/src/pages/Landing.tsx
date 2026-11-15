@@ -6,6 +6,7 @@ import HexDrift from '../components/HexDrift'
 import { FeatureTour } from '../components/FeatureTour'
 import logoUrl from '../assets/logo.png'
 import iconUrl from '../assets/icon.png'
+import { LiveStats } from '@shared/components/LiveStats'
 
 // Tab-scoped flag set when the user clicks Sign in / Get started from the
 // landing. On return from Keycloak we use it to skip past the marketing page
@@ -191,6 +192,7 @@ export function Landing() {
               Install the CLI
             </a>
           </div>
+          <LiveStats />
           <p className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
             <Link to="/docs" className="font-medium text-purple-300 underline-offset-4 hover:underline">
               New here? Read the docs
@@ -396,6 +398,32 @@ export function Landing() {
               openbin.ai
             </span>
           </a>
+        </section>
+
+        {/* AWS Open Source Credits thank-you. Mirrors SupportedByAws on the
+            openbin.ai landing: text only (AWS trademark rules on logos), no
+            dollar figure. */}
+        <section id="aws" className="mx-auto max-w-4xl px-6 pb-20">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950/80 px-6 py-7 text-center sm:px-8">
+            <p className="mb-2 font-mono text-xs uppercase tracking-[0.25em] text-purple-300">Supported by</p>
+            <h2 className="text-xl font-semibold text-zinc-50 sm:text-2xl">
+              OpenAPK runs on AWS, with credits from the AWS Open Source team.
+            </h2>
+            <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-zinc-300">
+              The Open Binary Project has been accepted into the{' '}
+              <a
+                href="https://aws.amazon.com/opensource/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-purple-300 underline-offset-4 hover:underline"
+              >
+                AWS Open Source Credits Program
+              </a>
+              . Those credits pay for the servers behind the free tier, so researchers keep getting
+              OpenAPK and OpenBin at no cost. Thank you to AWS and the AWS Open Source team for backing
+              independent open source security tooling.
+            </p>
+          </div>
         </section>
 
         <section className="mx-auto max-w-3xl px-6 pb-24 text-center">

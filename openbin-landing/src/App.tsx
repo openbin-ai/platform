@@ -3,6 +3,8 @@ import { Menu, X, Star, BookOpen } from 'lucide-react'
 import HexDrift from './components/HexDrift'
 import DecryptedText from './components/DecryptedText'
 import { TabbedShowcase } from './components/TabbedShowcase'
+import { YouTubeFacade } from './components/YouTubeFacade'
+import { LiveStats } from './components/LiveStats'
 import logoLight from './assets/logo-light.png'
 import iconLight from './assets/icon-light.png'
 import openapkIcon from './assets/openapk-icon.png'
@@ -32,6 +34,7 @@ export default function App() {
         <WhatYouCanDo />
         <WhyOpenBin />
         <HallOfFame />
+        <SupportedByAws />
         <CTA />
         <Footer />
       </main>
@@ -40,9 +43,9 @@ export default function App() {
 }
 
 /**
- * Announcement bar: the BINNY beta. Links down to the install section on this
- * page. Not dismissible: it's a marketing headline on a static page, not a
- * repeated in-app nag. Mirrored on the openapk.ai landing.
+ * Announcement bar: the BINNY Desktop release. Links down to the BINNY
+ * section where the 1-minute run plays. Not dismissible: it's a marketing
+ * headline on a static page, not a repeated in-app nag.
  */
 function BinnyAnnounceBar() {
   return (
@@ -50,9 +53,9 @@ function BinnyAnnounceBar() {
       href="#binny"
       className="relative z-20 block border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center text-sm text-amber-200 backdrop-blur transition hover:bg-amber-500/20"
     >
-      <span className="font-semibold text-amber-100">BINNY is open source.</span> An agent harness for
-      reverse engineering that runs on any model, including local ones.{' '}
-      <span className="underline decoration-amber-400/50 underline-offset-2">See it</span>
+      <span className="font-semibold text-amber-100">BINNY Desktop is out.</span> The open source
+      reverse-engineering agent, now as a graphical app on macOS, Linux and Windows.{' '}
+      <span className="underline decoration-amber-400/50 underline-offset-2">Watch the 1-minute run</span>
     </a>
   )
 }
@@ -192,6 +195,7 @@ function Hero() {
           Install the CLI
         </a>
       </div>
+      <LiveStats />
       <p className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-base">
         <a href="https://app.openbin.ai/docs" className="inline-flex items-center gap-2 font-medium text-amber-400 underline-offset-4 hover:underline">
           <BookOpen aria-hidden className="h-4 w-4" />
@@ -273,21 +277,10 @@ function SectionHeading({ label, title, intro }: { label: string; title: string;
   )
 }
 
-// BINNY: the open source agent harness. Copy on the left, a transcript of
-// the real start-up on the right so the reader sees what "harness" means
-// before they install anything. Install commands sit under the transcript.
-const binnyTranscript = `$ binny
-  BINNY v0.1.0-beta.2   project: dropper.elf   model: ollama / qwen3:14b
-
-> /investigate
-  triage      ELF x86-64, stripped, 3 playbooks selected
-  investigate reading main, 14 callees, 212 strings, 6 imports
-  tool        get_function(sub_401a30)
-  tool        run(script=decode_config.py)   sandbox: no network
-  checkpoint  phase boundary reached. continue? (supervised)
-
-> /draft
-  Draft written to the project report. 9 findings, 4 IOCs.`
+// BINNY: the open source agent harness. Copy on the left, the 1-minute
+// sped-up BINNY Desktop run on the right so the reader sees what "harness"
+// means before they install anything. Install commands sit under the video.
+const BINNY_DESKTOP_VIDEO = 'LLPmMtYGS6s'
 
 function BinnyBeta() {
   return (
@@ -295,7 +288,7 @@ function BinnyBeta() {
       <div className="rounded-lg border border-amber-500/40 bg-zinc-950/85 p-7 sm:p-10">
         <div className="grid gap-10 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-14">
           <div className="min-w-0">
-            <p className="mb-3 font-mono text-xs uppercase tracking-[0.3em] text-amber-400/90">BINNY · open source</p>
+            <p className="mb-3 font-mono text-xs uppercase tracking-[0.3em] text-amber-400/90">BINNY · open source · now with a desktop app</p>
             <h2 className="text-3xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-4xl">
               An agent harness for reverse engineering. You pick the model.
             </h2>
@@ -330,9 +323,22 @@ function BinnyBeta() {
             </div>
           </div>
           <div className="min-w-0 space-y-3">
-            <pre aria-label="BINNY session transcript" className="overflow-x-auto rounded-md border border-zinc-800 bg-black/70 px-4 py-4 font-mono text-[12.5px] leading-relaxed text-zinc-300">
-              {binnyTranscript}
-            </pre>
+            <YouTubeFacade id={BINNY_DESKTOP_VIDEO} title="BINNY Desktop: one full run in a minute" />
+            <p className="text-xs text-zinc-500">
+              A real run on a real sample, sped up.{' '}
+              <a
+                href={`https://www.youtube.com/watch?v=${BINNY_DESKTOP_VIDEO}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-amber-400 underline-offset-4 hover:underline"
+              >
+                Watch on YouTube
+              </a>
+              {' '}·{' '}
+              <a href="https://app.openbin.ai/docs/binny/desktop" className="text-amber-400 underline-offset-4 hover:underline">
+                BINNY Desktop docs
+              </a>
+            </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="min-w-0 rounded-md border border-zinc-800 bg-black/50 px-4 py-3">
                 <div className="mb-1 font-mono text-[11px] uppercase tracking-wide text-amber-400/80">macOS / Linux</div>
@@ -605,6 +611,39 @@ function HallOfFame() {
         </a>{' '}
         and start publishing.
       </p>
+    </section>
+  )
+}
+
+/**
+ * AWS Open Source Credits Program thank-you. One band, text only: AWS's
+ * trademark guidelines are strict about logos implying endorsement, and the
+ * sentence carries it anyway. No dollar figure on purpose. Mirrored on the
+ * openapk.ai landing.
+ */
+function SupportedByAws() {
+  return (
+    <section id="aws" className="mx-auto max-w-5xl px-6 pb-24">
+      <div className="rounded-lg border border-zinc-800 bg-zinc-950/80 px-7 py-8 text-center sm:px-10">
+        <p className="mb-3 font-mono text-xs uppercase tracking-[0.3em] text-amber-400/90">Supported by</p>
+        <h2 className="text-2xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-3xl">
+          OpenBin runs on AWS, with credits from the AWS Open Source team.
+        </h2>
+        <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-zinc-300">
+          The Open Binary Project has been accepted into the{' '}
+          <a
+            href="https://aws.amazon.com/opensource/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-amber-400 underline-offset-4 hover:underline"
+          >
+            AWS Open Source Credits Program
+          </a>
+          . Those credits pay for the servers behind the free tier, so researchers keep getting
+          OpenBin and OpenAPK at no cost. Thank you to AWS and the AWS Open Source team for backing
+          independent open source security tooling.
+        </p>
+      </div>
     </section>
   )
 }

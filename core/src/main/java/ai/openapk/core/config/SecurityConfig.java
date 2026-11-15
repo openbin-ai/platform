@@ -68,6 +68,13 @@ public class SecurityConfig {
                 .build();
     }
 
+    /** The landings' origins plus the Vite dev ports the three frontends land on locally. */
+    static final List<String> STATS_ORIGINS = List.of(
+            "https://openbin.ai", "https://www.openbin.ai",
+            "https://openapk.ai", "https://www.openapk.ai",
+            "http://localhost:5173", "http://localhost:5174", "http://localhost:5175"
+    );
+
     @Bean
     CorsConfigurationSource corsConfigurationSource(OpenApkProperties props) {
         var cfg = new CorsConfiguration();
@@ -76,7 +83,20 @@ public class SecurityConfig {
         cfg.setAllowedHeaders(List.of("*"));
         cfg.setExposedHeaders(List.of("Location"));
         cfg.setAllowCredentials(true);
+        // Headline numbers for the static marketing landings (openbin.ai,
+        // openapk.ai), which are not in the credentialed origin list. Public
+        // data, GET only, no credentials. Named origins rather than "*" so
+        // another site's JavaScript cannot embed the live numbers through a
+        // visitor's browser; curl can still call it, as with any URL a public
+        // page fetches. Registered BEFORE "/**": the source returns the
+        // first pattern that matches.
+        var stats = new CorsConfiguration();
+        stats.setAllowedOrigins(STATS_ORIGINS);
+        stats.setAllowedMethods(List.of("GET", "OPTIONS"));
+        stats.setAllowedHeaders(List.of("*"));
+        stats.setAllowCredentials(false);
         var src = new UrlBasedCorsConfigurationSource();
+        src.registerCorsConfiguration("/api/public/stats", stats);
         src.registerCorsConfiguration("/**", cfg);
         return src;
     }
