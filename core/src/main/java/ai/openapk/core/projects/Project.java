@@ -22,8 +22,17 @@ import lombok.Setter;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * {@code @DynamicUpdate}: UPDATEs only write the columns that actually changed.
+ * Several request paths (JNI bridge scan, symbol index, digest, analysis) load
+ * this row, run for a long time, then flush one cache column. With full-row
+ * UPDATEs that flush also rewrote status / decompilePhase / fileTreeJson with
+ * the values read at load time — clobbering a concurrent READY flip from the
+ * ingest pipeline and leaving the project stuck on "Caching file tree".
+ */
 @Entity
 @Table(name = "projects")
+@org.hibernate.annotations.DynamicUpdate
 @Getter
 @Setter
 @NoArgsConstructor

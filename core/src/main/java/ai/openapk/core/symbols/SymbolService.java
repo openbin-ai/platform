@@ -4,6 +4,7 @@ import ai.openapk.core.auth.User;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectRepository;
+import ai.openapk.core.projects.ProjectStatus;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import ai.openapk.core.renames.RenameService;
 import ai.openapk.core.symbols.dto.Symbol;
@@ -152,6 +153,12 @@ public class SymbolService {
     @Transactional
     public SymbolIndex rebuild(User user, UUID projectId) {
         Project p = loadProject(user, projectId);
+        // Mid-ingest the src tree is missing or partial; building now would
+        // cache an empty/partial index that never gets refreshed.
+        if (p.getStatus() != ProjectStatus.READY) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "project is not READY (current status: " + p.getStatus() + ")");
+        }
         // Owner-keyed srcDir so collaborators rebuild over the project owner's workspace.
         Path root = storage.srcDir(p.getUser().getId(), projectId).normalize();
         if (!Files.isDirectory(root)) {

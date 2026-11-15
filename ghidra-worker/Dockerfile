@@ -41,6 +41,16 @@ ENV GHIDRA_HOME=/opt/ghidra \
 
 COPY --from=ghidra-fetch /opt/ghidra /opt/ghidra
 
+# Make the JVM heap runtime-tunable. Stock analyzeHeadless hardcodes MAXMEM=2G;
+# rewrite it to ${MAXMEM:-2G} so the default is unchanged (safe on small Docker
+# VMs and ample for ordinary binaries) but `docker run -e MAXMEM=4G` can raise
+# it. A raw image loaded at its real base resolves thousands of pointers and
+# OOMs at 2G, so callers bump the heap only for that case — no one analyzing a
+# normal file is forced into a bigger heap. launch.sh applies -Xmx${MAXMEM}, and
+# main.py runs analyzeHeadless with the container env inherited, so it flows through.
+RUN sed -i 's/^MAXMEM=2G/MAXMEM=${MAXMEM:-2G}/' /opt/ghidra/support/analyzeHeadless \
+ && grep '^MAXMEM=' /opt/ghidra/support/analyzeHeadless
+
 # Install Python deps into a venv so they don't fight system packages.
 RUN python3 -m venv /opt/venv
 COPY requirements.txt /app/requirements.txt

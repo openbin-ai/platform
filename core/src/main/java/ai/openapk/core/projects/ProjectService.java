@@ -395,7 +395,9 @@ public class ProjectService {
         try {
             runDecompile(userId, projectId);
             workerQuota.markComplete(runId, true, null);
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            // Throwable, not Exception: an OutOfMemoryError escaping here was
+            // swallowed by the @Async handler and left the row DECOMPILING forever.
             log.error("decompile failed for project {}: {}", projectId, e.toString(), e);
             markFailed(projectId, abbreviate(e.toString()));
             workerQuota.markComplete(runId, false, e.toString());
@@ -429,7 +431,8 @@ public class ProjectService {
     public void scheduleCliTreeIngest(UUID userId, UUID projectId) {
         try {
             runCliTreeIngest(userId, projectId);
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            // See scheduleDecompile — an Error must still mark the row FAILED.
             log.error("CLI tree ingest failed for project {}: {}", projectId, e.toString(), e);
             markFailed(projectId, abbreviate(e.toString()));
         }
@@ -521,7 +524,14 @@ public class ProjectService {
         // Decompile-complete notification — best-effort, runs in REQUIRES_NEW
         // so an SES failure can't roll back the just-saved READY status. The
         // gate (user opt-out + missing email) is enforced inside the service.
-        notifications.notifyDecompileComplete(project.getUser(), project);
+        // Caught here because the project is already READY: a notification
+        // failure (e.g. no DB connection under load) must not bubble up to
+        // markFailed and turn a usable project into FAILED.
+        try {
+            notifications.notifyDecompileComplete(project.getUser(), project);
+        } catch (Exception e) {
+            log.warn("decompile-complete notification failed for {}: {}", projectId, e.toString());
+        }
     }
 
     /**
@@ -592,6 +602,12 @@ public class ProjectService {
     @Transactional
     protected void markFailed(UUID projectId, String message) {
         repo.findById(projectId).ifPresent(p -> {
+            // Anything failing after the READY flip (usage index, notification)
+            // is best-effort; never demote a readable project.
+            if (p.getStatus() == ProjectStatus.READY) {
+                log.warn("not marking READY project {} FAILED: {}", projectId, message);
+                return;
+            }
             p.setStatus(ProjectStatus.FAILED);
             p.setErrorMessage(message);
             repo.save(p);

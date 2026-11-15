@@ -78,6 +78,12 @@ MAX_DATA_SYMBOLS = 20000
 MAX_TLS_CALLBACKS = 64
 MAX_MEMORY_BLOCKS = 256
 MIN_STRING_LEN = 4
+# string_refs: per string that is referenced from code, the string text, its
+# address, and the functions that reference it -- the string->code pivot that
+# plain `strings` (text only) can't give. Bounded so a string referenced from
+# thousands of sites (a common format string) can't blow the JSON.
+MAX_STRING_REFS = 5000
+MAX_FUNCS_PER_STRING = 25
 # Per-function decompile ceiling. A single function that takes this long is
 # almost always pathological (obfuscated dispatch loop, giant switch); real
 # code decompiles in well under a second. Kept modest so a handful of such
@@ -234,7 +240,15 @@ try:
 
     listing = program.getListing()
 
-    functions = []
+    # Stream each function's JSON to a temp file (one per line) instead of
+    # accumulating them all in memory: on a big firmware image (10k functions ×
+    # decompiled C + disassembly) the in-memory list is hundreds of MB and the
+    # whole-result serialize peak OOM-kills analyzeHeadless. Streaming keeps peak
+    # memory flat regardless of binary size. The temp file is folded into the
+    # final result.json at assembly time (see below).
+    funcs_tmp = OUT_PATH + ".funcs"
+    funcs_fh = open(funcs_tmp, "w")
+    func_count = 0
     decompile_budget_hit = 0     # bodies skipped by the MAX_DECOMPILE_BODIES size cap
     decompile_time_skipped = 0   # bodies skipped because the wall-clock budget ran out
     time_budget_exhausted = False
@@ -243,7 +257,7 @@ try:
     while fn_iter.hasNext():
         if monitor.isCancelled():
             break
-        if len(functions) >= MAX_FUNCTIONS:
+        if func_count >= MAX_FUNCTIONS:
             break
         fn = fn_iter.next()
         name = fn.getName()
@@ -264,7 +278,7 @@ try:
             if time.time() + DECOMPILE_TIMEOUT_SEC > _EXTRACT_DEADLINE:
                 time_budget_exhausted = True
                 println("[extract] decompile time budget exhausted after " +
-                        str(len(functions)) + " functions; stubbing the rest")
+                        str(func_count) + " functions; stubbing the rest")
 
         # Decompile/disassemble only the first MAX_DECOMPILE_BODIES non-
         # external/non-thunk functions, and only while wall-clock budget
@@ -275,7 +289,7 @@ try:
         # JSON payload size OR the analysis wall-clock.
         decompile_this = (
             not is_external and not is_thunk
-            and len(functions) < MAX_DECOMPILE_BODIES
+            and func_count < MAX_DECOMPILE_BODIES
             and not time_budget_exhausted
         )
         decompiled = None
@@ -432,7 +446,7 @@ try:
                 decompile_time_skipped += 1
             else:
                 decompile_budget_hit += 1
-        functions.append({
+        funcs_fh.write(json.dumps({
             "name": name,
             "address": addr,
             "size": size,
@@ -445,15 +459,24 @@ try:
             "external": is_external,
             "thunk": is_thunk,
             "body_skipped": body_skipped,
-        })
+        }) + "\n")
+        func_count += 1
 
-    println("[extract] functions: " + str(len(functions)) +
+    funcs_fh.close()
+    println("[extract] functions: " + str(func_count) +
             " (decompile_budget_skipped=" + str(decompile_budget_hit) +
             " decompile_time_skipped=" + str(decompile_time_skipped) + ")")
 
     # ---------- Strings (defined string-shaped data) ----------
+    # `strings` is the flat text list (back-compat). `string_refs` additionally
+    # carries each referenced string's address and the functions that use it --
+    # the string->code pivot. A string resolves refs only when the pointer to it
+    # is mapped in the program; for a raw image that needs the right load base
+    # (see main.py image_base / -loader-baseAddr), otherwise refs come back empty.
     strings = []
+    string_refs = []
     seen_strings = set()
+    ref_mgr = program.getReferenceManager()
     listing = program.getListing()
     data_iter = listing.getDefinedData(True)
     while data_iter.hasNext():
@@ -477,10 +500,38 @@ try:
                 continue
             seen_strings.add(rep)
             strings.append(rep)
+
+            # Referencing functions (dedup by name, bounded). getReferencesTo is
+            # the data-xref direction: who points AT this string's address.
+            if len(string_refs) < MAX_STRING_REFS:
+                saddr = d.getAddress()
+                fn_names = []
+                fn_seen = set()
+                try:
+                    for ref in ref_mgr.getReferencesTo(saddr):
+                        fn = fm.getFunctionContaining(ref.getFromAddress())
+                        if fn is None:
+                            continue
+                        nm = fn.getName()
+                        if nm in fn_seen:
+                            continue
+                        fn_seen.add(nm)
+                        fn_names.append(nm)
+                        if len(fn_names) >= MAX_FUNCS_PER_STRING:
+                            break
+                except:
+                    fn_names = []
+                if fn_names:
+                    string_refs.append({
+                        "text": rep,
+                        "addr": str(saddr),
+                        "funcs": fn_names,
+                    })
         except:
             pass
 
-    println("[extract] strings: " + str(len(strings)))
+    println("[extract] strings: " + str(len(strings)) +
+            " string_refs: " + str(len(string_refs)))
 
     # ---------- Imports (external functions referenced) ----------
     imports = []
@@ -788,8 +839,9 @@ try:
         "language":          _safe(lambda: str(program.getLanguageID()), ""),
         "executable_format": _safe(lambda: program.getExecutableFormat(), ""),
         "image_base":        _safe(lambda: str(program.getImageBase()), ""),
-        "function_count":    len(functions),
+        "function_count":    func_count,
         "string_count":      len(strings),
+        "string_ref_count":  len(string_refs),
         "import_count":      len(imports),
         "export_count":      len(exports),
         "entry_point_count": len(entry_points),
@@ -804,9 +856,14 @@ try:
         "decompile_time_skipped_count": decompile_time_skipped,
     }
 
-    result = {
-        "functions":     functions,
+    # Stream the final JSON: copy the per-function temp file into the functions
+    # array, then write the (comparatively small) remaining sections. This never
+    # holds all functions in memory at once, so peak memory is flat even on a
+    # 10k-function kernel. Written to a .tmp and renamed so a crash mid-write
+    # can't leave a half-valid result.json (the except handler writes {"error"}).
+    other = {
         "strings":       strings,
+        "string_refs":   string_refs,
         "imports":       imports,
         "exports":       exports,
         "entry_points":  entry_points,
@@ -816,10 +873,36 @@ try:
         "listing":       full_listing,
         "metadata":      metadata,
     }
-
-    _write(OUT_PATH, result)
+    out_tmp = OUT_PATH + ".tmp"
+    of = open(out_tmp, "w")
+    try:
+        of.write('{"functions":[')
+        first = True
+        ff = open(funcs_tmp, "r")
+        try:
+            for line in ff:
+                line = line.rstrip("\n")
+                if not line:
+                    continue
+                if not first:
+                    of.write(",")
+                of.write(line)
+                first = False
+        finally:
+            ff.close()
+        of.write("]")
+        for k, v in other.items():
+            of.write("," + json.dumps(k) + ":" + json.dumps(v))
+        of.write("}")
+    finally:
+        of.close()
+    os.rename(out_tmp, OUT_PATH)
+    try:
+        os.remove(funcs_tmp)
+    except:
+        pass
     println("[extract] wrote " + OUT_PATH +
-            " functions=" + str(len(functions)) +
+            " functions=" + str(func_count) +
             " strings=" + str(len(strings)) +
             " imports=" + str(len(imports)) +
             " exports=" + str(len(exports)) +

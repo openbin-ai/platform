@@ -12,13 +12,16 @@ import ai.openapk.core.nativeanalysis.NativeAnalysisStatus;
 import ai.openapk.core.projects.Project;
 import ai.openapk.core.projects.ProjectAccessGuard;
 import ai.openapk.core.projects.ProjectRepository;
+import ai.openapk.core.projects.ProjectStatus;
 import ai.openapk.core.projects.storage.ProjectStorage;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.charset.MalformedInputException;
@@ -163,6 +166,12 @@ public class JniBridgeScanService {
 
     private JniBridgeView buildAndPersist(Project p) {
         UUID projectId = p.getId();
+        // Scanning a tree the ingest pipeline is still writing would cache a
+        // partial result (and hold this row for the whole scan).
+        if (p.getStatus() != ProjectStatus.READY) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "project is not READY (current status: " + p.getStatus() + ")");
+        }
         // Owner-keyed srcDir so collaborators resolve to the project owner's workspace.
         Path root = storage.srcDir(p.getUser().getId(), projectId).normalize();
 
